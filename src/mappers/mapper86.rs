@@ -278,8 +278,8 @@ impl Mapper for Mapper86 {
 
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
         let mut state = vec![self.prg_bank, self.chr_bank, self.speech, self.playing as u8];
-        state.extend_from_slice(&self.current_track.to_le_bytes());
-        state.extend_from_slice(&self.current_idx.to_le_bytes());
+        state.extend_from_slice(&(self.current_track as u64).to_le_bytes());
+        state.extend_from_slice(&(self.current_idx as u64).to_le_bytes());
         state
     }
 
@@ -292,11 +292,11 @@ impl Mapper for Mapper86 {
             start += 4;
             let mut track_bytes = [0u8; 8];
             track_bytes.copy_from_slice(&state[start..start + 8]);
-            self.current_track = usize::from_le_bytes(track_bytes);
+            self.current_track = u64::from_le_bytes(track_bytes) as usize;
             start += 8;
             let mut idx_bytes = [0u8; 8];
             idx_bytes.copy_from_slice(&state[start..start + 8]);
-            self.current_idx = usize::from_le_bytes(idx_bytes);
+            self.current_idx = u64::from_le_bytes(idx_bytes) as usize;
             start += 8;
         }
         start

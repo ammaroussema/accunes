@@ -1,4 +1,4 @@
-# AccuNES
+# <img src="accunesicon.ico" width="48" height="48" alt=""> AccuNES
 
 a cycle-accurate NES/Famicom emulator for windows, written in rust and focused on hardware-accurate behavior!
 
@@ -17,7 +17,7 @@ to check them out too!
 
 ## Building
 
-requires [Rust](https://rustup.rs/) 2021 edition!
+requires [rust](https://rustup.rs/) 2021 edition!
 
 ```sh
 cargo build --release
