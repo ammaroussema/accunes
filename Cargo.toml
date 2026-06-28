@@ -1,0 +1,20 @@
+[package]
+name = "accunes"
+version = "1.0.0"
+edition = "2021"
+description = "Accurate NES/Famicom Emulator"
+
+[dependencies]
+winit = "0.28"
+softbuffer = "0.3"
+rfd = "0.15"
+cpal = "0.15"
+font8x8 = "0.3.1"
+gilrs = "0.10"
+image = "0.24"
+
+[build-dependencies]
+embed-resource = "2.4"
+
+[profile.dev]
+opt-level = 1

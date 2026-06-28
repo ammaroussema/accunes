@@ -1,0 +1,25 @@
+# Rust / Cargo
+target/
+Cargo.lock
+
+# IDE
+.vs/
+.vscode/
+*.sln
+*.suo
+*.user
+.idea/
+*.iml
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Runtime generated
+*.rom
+*.nes
+*.fds
+.recent_roms
+
+# Config
+dip.cfg
