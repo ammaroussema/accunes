@@ -222,6 +222,7 @@ pub use crate::mappers::mapper252::Mapper252;
 pub use crate::mappers::mapper253::Mapper253;
 pub use crate::mappers::mapper254::Mapper254;
 pub use crate::mappers::mapper255::Mapper255;
+pub use crate::mappers::mapper256::Mapper256;
 pub use crate::mappers::mapper257::Mapper257;
 pub use crate::mappers::mapper265::Mapper265;
 pub use crate::mappers::mapper284::Mapper284;
@@ -773,8 +774,16 @@ pub fn create_mapper(
         253 => Box::new(Mapper253::new()),
         254 => Box::new(Mapper254::new()),
         255 => Box::new(Mapper255::new()),
-
-
+        256 => Box::new(Mapper256::new(
+             Mmc3Config::for_ines(
+                 header,
+                 submapper_id,
+                 if using_chr_ram { 0 } else { header[5] },
+                 rom,
+                 rom_name,
+             ),
+             submapper_id,
+         )),
         257 => {
             let is_small = if submapper_id == 1 { true } else if submapper_id == 2 { false } else { prg_size < 32 };
             if is_small { Box::new(Mapper257::new_small()) } else { Box::new(Mapper257::new_large()) }
