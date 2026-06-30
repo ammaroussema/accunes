@@ -224,6 +224,7 @@ pub use crate::mappers::mapper254::Mapper254;
 pub use crate::mappers::mapper255::Mapper255;
 pub use crate::mappers::mapper256::Mapper256;
 pub use crate::mappers::mapper257::Mapper257;
+pub use crate::mappers::mapper259::Mapper259;
 pub use crate::mappers::mapper265::Mapper265;
 pub use crate::mappers::mapper284::Mapper284;
 pub use crate::mappers::mapper290::Mapper290;
@@ -788,6 +789,8 @@ pub fn create_mapper(
             let is_small = if submapper_id == 1 { true } else if submapper_id == 2 { false } else { prg_size < 32 };
             if is_small { Box::new(Mapper257::new_small()) } else { Box::new(Mapper257::new_large()) }
         },
+        258 => Box::new(Mapper215::new(header, rom, rom_name)),
+        259 => Box::new(Mapper259::new(header, rom, rom_name)),
         264 => Box::new(Mapper83::new(264, submapper_id)),
         265 => Box::new(Mapper265::new()),
         281 => Box::new(Mapper90::new(Mapper90Variant::Mapper281)),
