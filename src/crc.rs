@@ -298,7 +298,6 @@ const CRC_OVERRIDES: &[CrcOverride] = &[
     CrcOverride { crc32: 0xb6dd2c9d, mapper: 0x1260, mirror: -1 },
     CrcOverride { crc32: 0xb02fcb57, mapper: 0x1406, mirror: -1 },
     CrcOverride { crc32: 0x2FFF950F, mapper: 0x114B, mirror: 0 },
-    // 168-in-1 (mapper 242 override — PRG+CHR CRC, not full-file)
     CrcOverride { crc32: 0x9BBF3E5D, mapper: 242 | 0x800, mirror: -1 },
 ];
 
