@@ -900,7 +900,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.0.4")
+        .with_title("AccuNES 1.0.5")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -3265,7 +3265,7 @@ fn main() {
                                         match file_menu_items[i] {
                                             FileMenuItem::Open => {
                                                 if let Some(path) = rfd::FileDialog::new()
-                                                    .add_filter("NES ROMs", &["nes"])
+                                                    .add_filter("NES ROMs", &["nes", "unif", "unf"])
                                                     .add_filter("FDS ROMs", &["fds"])
                                                     .pick_file() {
                                                     let path_str = path.to_string_lossy().to_string();
@@ -3797,14 +3797,14 @@ fn main() {
                             .unwrap_or_else(|| rom_path.clone());
                         
                         let lower = filename.to_lowercase();
-                        if lower.ends_with(".nes") {
+                        if lower.ends_with(".nes") || lower.ends_with(".unif") || lower.ends_with(".unf") {
                             filename.truncate(filename.len() - 4);
                         } else if lower.ends_with(".fds") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.0.4: {}", filename)
+                        format!("AccuNES 1.0.5: {}", filename)
                     } else {
-                        "AccuNES 1.0.4".to_string()
+                        "AccuNES 1.0.5".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -4001,10 +4001,10 @@ fn main() {
                                         .unwrap_or_default();
                                     let mut cut_idx = filename.len();
                                     let lower_filename = filename.to_lowercase();
-                                    for ext in &[".nes", ".fds"] {
+                                    for ext in &[".nes", ".fds", ".unif", ".unf"] {
                                         if let Some(idx) = lower_filename.find(ext) { cut_idx = cut_idx.min(idx); }
                                     }
-                                    for ch in &['(', '[', '-'] {
+                                    for ch in &['(', '['] {
                                         if let Some(idx) = filename.find(*ch) { cut_idx = cut_idx.min(idx); }
                                     }
                                     let base_name = filename[..cut_idx].trim();
@@ -4186,7 +4186,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.0.4",
+                        "Version: 1.0.5",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
