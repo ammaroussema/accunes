@@ -676,7 +676,7 @@ impl Emulator {
                 }
 
                 if self.audio_enabled {
-                    let queue_limit = ((self.audio_host_sample_rate * 0.1) as usize).max(4096);
+                    let queue_limit = ((self.audio_host_sample_rate * 0.5) as usize).max(24000);
                     let mut queue = buffer.lock().unwrap();
                     if queue.len() < queue_limit {
                         queue.push_back(filtered_sample);

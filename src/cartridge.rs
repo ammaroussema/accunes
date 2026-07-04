@@ -551,7 +551,7 @@ impl Cartridge {
             vec![0u8; 8 * 1024]
         } else if memory_mapper == 111 {
             vec![0u8; 32 * 1024]
-        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247) {
+        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262) {
             vec![0u8; 0x2000]
         } else if using_chr_ram {
             vec![0u8; 0x2000]
@@ -565,13 +565,17 @@ impl Cartridge {
         if memory_mapper == 77 {
             using_chr_ram = true;
         }
-        if matches!(memory_mapper, 74 | 119 | 111 | 124 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253) {
+        if matches!(memory_mapper, 74 | 119 | 111 | 124 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262) {
             using_chr_ram = true;
         }
 
         let mut nametable_horizontal_mirroring = (rom[6] & 1) == 0;
         let mut alternative_nametable_arrangement = (rom[6] & 8) != 0;
         crate::crc::apply_crc_mirror_override(i_nes_game_crc32, &mut nametable_horizontal_mirroring, &mut alternative_nametable_arrangement);
+
+        if memory_mapper == 262 {
+            alternative_nametable_arrangement = true;
+        }
 
         let prg_vram = if alternative_nametable_arrangement {
             vec![0u8; 0x800]

@@ -866,24 +866,51 @@ fn init_audio(device: &cpal::Device, phase_inc: Arc<Mutex<f64>>, audio_buffer: A
 
 fn make_audio_callback(buffer: Arc<Mutex<VecDeque<f32>>>, channels: usize, phase_inc: Arc<Mutex<f64>>) -> impl FnMut(&mut [f32], &cpal::OutputCallbackInfo) {
     let mut read_phase = 0.0f64;
+    let mut last_sample = 0.0f32;
+    let mut consecutive_underruns = 0u32;
     move |data, _| {
         let p_inc = *phase_inc.lock().unwrap();
         let mut buf = buffer.lock().unwrap();
+        let buf_len = buf.len();
+
+        // If the buffer has fewer samples than one callback burst is likely to
+        // consume, just output silence without advancing to prevent repeated
+        // underruns from compounding read_phase drift.
+        let min_reserve = 256usize;
+        if buf_len < min_reserve && consecutive_underruns > 0 {
+            let fade = (0.995f32).powi(consecutive_underruns as i32);
+            last_sample *= fade;
+            for frame in data.chunks_mut(channels) {
+                for out in frame.iter_mut() {
+                    *out = last_sample;
+                }
+            }
+            consecutive_underruns += 1;
+            return;
+        }
+
         for frame in data.chunks_mut(channels) {
             let idx = read_phase.floor() as usize;
             let frac = read_phase.fract() as f32;
-            let s0 = buf.get(idx).copied().unwrap_or(0.0);
-            let s1 = buf.get(idx + 1).copied().unwrap_or(s0);
-            let sample = s0 + (s1 - s0) * frac;
+            let sample = if idx < buf_len {
+                let s0 = buf[idx];
+                let s1 = if idx + 1 < buf_len { buf[idx + 1] } else { s0 };
+                let interp = s0 + (s1 - s0) * frac;
+                last_sample = interp;
+                interp
+            } else {
+                last_sample *= 0.999;
+                last_sample
+            };
             read_phase += p_inc;
             for out in frame.iter_mut() {
                 *out = sample;
             }
         }
+        consecutive_underruns = 0;
         let consumed = read_phase.floor() as usize;
-        for _ in 0..consumed {
-            buf.pop_front();
-        }
+        let actual = consumed.min(buf_len);
+        buf.drain(0..actual);
         read_phase = read_phase.fract();
     }
 }
@@ -900,7 +927,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.0.5")
+        .with_title("AccuNES 1.0.6")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -3804,7 +3831,7 @@ fn main() {
                         }
                         format!("AccuNES 1.0.5: {}", filename)
                     } else {
-                        "AccuNES 1.0.5".to_string()
+                        "AccuNES 1.0.6".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -4186,7 +4213,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.0.5",
+                        "Version: 1.0.6",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };

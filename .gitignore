@@ -10,6 +10,7 @@ Cargo.lock
 *.user
 .idea/
 *.iml
+rf/
 
 # OS
 Thumbs.db
