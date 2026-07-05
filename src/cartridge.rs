@@ -342,9 +342,24 @@ impl Cartridge {
                 _ => return Err(format!("UNIF Board not supported: {}", mapper_name)),
             };
 
-            let using_chr_ram = chr_rom.is_empty();
-            let chr_ram = if using_chr_ram {
-                vec![0u8; 0x2000]
+            let using_chr_ram = chr_rom.is_empty() || memory_mapper == 268;
+            let chr_ram = if using_chr_ram || memory_mapper == 268 {
+                if memory_mapper == 268 {
+                    let vram_shift = match rom.get(11) {
+                        Some(&b) => b & 0x0F,
+                        None => 0,
+                    };
+                    let battery_shift = match rom.get(11) {
+                        Some(&b) => (b >> 4) & 0x0F,
+                        None => 0,
+                    };
+                    let vram_kb = if vram_shift == 0 { 0 } else { (64usize << vram_shift) / 1024 };
+                    let battery_kb = if battery_shift == 0 { 0 } else { (64usize << battery_shift) / 1024 };
+                    let size = (vram_kb + battery_kb) * 1024;
+                    vec![0u8; if size > 0 { size } else { 0x40000 }]
+                } else {
+                    vec![0u8; 0x2000]
+                }
             } else {
                 Vec::new()
             };
@@ -551,8 +566,17 @@ impl Cartridge {
             vec![0u8; 8 * 1024]
         } else if memory_mapper == 111 {
             vec![0u8; 32 * 1024]
-        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262) {
-            vec![0u8; 0x2000]
+        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268) {
+            let chr_ram_size = if is_nes20 && memory_mapper == 268 {
+                let vram_shift = rom[11] & 0x0F;
+                let battery_shift = (rom[11] >> 4) & 0x0F;
+                let vram_kb = if vram_shift == 0 { 0 } else { (64usize << vram_shift) / 1024 };
+                let battery_kb = if battery_shift == 0 { 0 } else { (64usize << battery_shift) / 1024 };
+                (vram_kb + battery_kb) * 1024
+            } else {
+                0x2000
+            };
+            vec![0u8; chr_ram_size]
         } else if using_chr_ram {
             vec![0u8; 0x2000]
         } else {

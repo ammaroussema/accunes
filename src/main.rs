@@ -873,9 +873,6 @@ fn make_audio_callback(buffer: Arc<Mutex<VecDeque<f32>>>, channels: usize, phase
         let mut buf = buffer.lock().unwrap();
         let buf_len = buf.len();
 
-        // If the buffer has fewer samples than one callback burst is likely to
-        // consume, just output silence without advancing to prevent repeated
-        // underruns from compounding read_phase drift.
         let min_reserve = 256usize;
         if buf_len < min_reserve && consecutive_underruns > 0 {
             let fade = (0.995f32).powi(consecutive_underruns as i32);
@@ -927,7 +924,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.0.6")
+        .with_title("AccuNES 1.0.7")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -3831,7 +3828,7 @@ fn main() {
                         }
                         format!("AccuNES 1.0.5: {}", filename)
                     } else {
-                        "AccuNES 1.0.6".to_string()
+                        "AccuNES 1.0.7".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -4213,7 +4210,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.0.6",
+                        "Version: 1.0.7",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };

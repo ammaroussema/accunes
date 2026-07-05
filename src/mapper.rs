@@ -227,6 +227,11 @@ pub use crate::mappers::mapper257::Mapper257;
 pub use crate::mappers::mapper259::Mapper259;
 pub use crate::mappers::mapper260::Mapper260;
 pub use crate::mappers::mapper262::Mapper262;
+pub use crate::mappers::mapper263::Mapper263;
+pub use crate::mappers::mapper266::Mapper266;
+pub use crate::mappers::mapper267::Mapper267;
+pub use crate::mappers::mapper268::Mapper268;
+pub use crate::mappers::mapper269::Mapper269;
 pub use crate::mappers::mapper261::Mapper261;
 pub use crate::mappers::mapper265::Mapper265;
 pub use crate::mappers::mapper284::Mapper284;
@@ -778,6 +783,7 @@ pub fn create_mapper(
         253 => Box::new(Mapper253::new()),
         254 => Box::new(Mapper254::new()),
         255 => Box::new(Mapper255::new()),
+        // plane 1 (wip!)
         256 => Box::new(Mapper256::new(
              Mmc3Config::for_ines(
                  header,
@@ -795,10 +801,15 @@ pub fn create_mapper(
         258 => Box::new(Mapper215::new(header, rom, rom_name)),
         259 => Box::new(Mapper259::new(header, rom, rom_name)),
         260 => Box::new(Mapper260::new(header, rom, rom_name)),
-    261 => Box::new(Mapper261::new()),
-    262 => Box::new(Mapper262::new(header, rom, rom_name)),
-    264 => Box::new(Mapper83::new(264, submapper_id)),
+        261 => Box::new(Mapper261::new()),
+        262 => Box::new(Mapper262::new(header, rom, rom_name)),
+        263 => Box::new(Mapper263::new(header, rom, rom_name)),
+        264 => Box::new(Mapper83::new(264, submapper_id)),
         265 => Box::new(Mapper265::new()),
+        266 => Box::new(Mapper266::new(header, rom, rom_name)),
+        267 => Box::new(Mapper267::new(header, rom, rom_name)),
+        268 => Box::new(Mapper268::new(header, rom, rom_name)),
+        269 => Box::new(Mapper269::new(header, rom, rom_name)),
         281 => Box::new(Mapper90::new(Mapper90Variant::Mapper281)),
         282 => Box::new(Mapper90::new(Mapper90Variant::Mapper282)),
         284 => Box::new(Mapper284::new()),

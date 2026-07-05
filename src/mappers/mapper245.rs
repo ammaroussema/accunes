@@ -13,6 +13,7 @@ impl Mapper245 {
             prg_ram_size: 0x2000,
             chr_ram_size: 0x2000,
             mmc6: false,
+            ax5202p: false,
             irq_revision_b: false,
             irq_hack: Mmc3IrqHack::None,
             header_horizontal_mirror: false,

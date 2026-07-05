@@ -21,6 +21,7 @@ pub struct Mmc3Config {
     pub prg_ram_size: usize,
     pub chr_ram_size: usize,
     pub mmc6: bool,
+    pub ax5202p: bool,
     pub irq_revision_b: bool,
     pub irq_hack: Mmc3IrqHack,
     pub header_horizontal_mirror: bool,
@@ -75,6 +76,7 @@ impl Mmc3Config {
             prg_ram_size,
             chr_ram_size,
             mmc6: sub_mapper == 1,
+            ax5202p: false,
             irq_revision_b,
             irq_hack,
             header_horizontal_mirror: (header[6] & 1) == 0,
@@ -86,6 +88,7 @@ impl Mmc3Config {
             prg_ram_size: 0x2000,
             chr_ram_size: 0x2000,
             mmc6: false,
+            ax5202p: false,
             irq_revision_b: false,
             irq_hack: Mmc3IrqHack::None,
             header_horizontal_mirror: false,
@@ -394,7 +397,7 @@ impl Mapper for MapperMMC3 {
                     data: 0,
                     driven: false,
                 }
-            } else if (self.prg_ram_protect & 0x80) != 0 && self.config.prg_ram_size > 0 {
+            } else if (self.config.ax5202p || (self.prg_ram_protect & 0x80) != 0) && self.config.prg_ram_size > 0 {
                 let off = (address - 0x6000) as usize;
                 if off < self.config.prg_ram_size {
                     FetchResult {
@@ -436,8 +439,12 @@ impl Mapper for MapperMMC3 {
                     }
                 }
             } else if address >= 0x6000
-                && (self.prg_ram_protect & 0xC0) != 0
                 && self.config.prg_ram_size > 0
+                && if self.config.ax5202p {
+                    (self.prg_ram_protect & 0x40) != 0
+                } else {
+                    (self.prg_ram_protect & 0xC0) != 0
+                }
             {
                 let off = (address - 0x6000) as usize;
                 if off < self.config.prg_ram_size {
