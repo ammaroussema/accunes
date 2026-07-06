@@ -87,6 +87,15 @@ enum RegionMenuItem {
     Auto,
 }
 
+#[derive(Clone)]
+enum UpdateCheckState {
+    Idle,
+    Checking,
+    UpToDate,
+    Available { version: String, date: String, url: String },
+    Error(String),
+}
+
 // dip switch stuff! this is parsed from dip.cfg which is actually from nintendulatornrs. credit where credit is due!
 
 #[derive(Clone)]
@@ -314,9 +323,11 @@ struct MenuState {
     hovered_recent_index: Option<usize>,
     hovered_region_index: Option<usize>,
     hovered_options_index: Option<usize>,
+    hovered_help_index: Option<usize>,
     hovered_save_slot: Option<usize>,
     hovered_load_slot: Option<usize>,
     show_about: bool,
+    show_updates: bool,
     show_error: bool,
     error_message: String,
     show_dip_switches: bool,
@@ -360,9 +371,11 @@ impl MenuState {
             hovered_recent_index: None,
             hovered_region_index: None,
             hovered_options_index: None,
+            hovered_help_index: None,
             hovered_save_slot: None,
             hovered_load_slot: None,
             show_about: false,
+            show_updates: false,
             show_error: false,
             error_message: String::new(),
             show_dip_switches: false,
@@ -591,6 +604,22 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     btn_border: 0xFF00CCFF,
     dip_on_fill: 0xFF00CCFF,
 };
+
+const APP_VERSION: &str = "1.0.8";
+
+fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
+    let a = a.trim_start_matches('v');
+    let b = b.trim_start_matches('v');
+    let a_parts: Vec<u32> = a.split('.').filter_map(|s| s.parse().ok()).collect();
+    let b_parts: Vec<u32> = b.split('.').filter_map(|s| s.parse().ok()).collect();
+    for i in 0..std::cmp::max(a_parts.len(), b_parts.len()) {
+        let a_val = a_parts.get(i).copied().unwrap_or(0);
+        let b_val = b_parts.get(i).copied().unwrap_or(0);
+        if a_val > b_val { return std::cmp::Ordering::Greater; }
+        if a_val < b_val { return std::cmp::Ordering::Less; }
+    }
+    std::cmp::Ordering::Equal
+}
 
 fn draw_char(buffer: &mut [u32], x: usize, y: usize, width: usize, c: char, color: u32, scale: f32) {
     if width == 0 { return; }
@@ -924,7 +953,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.0.7")
+        .with_title("AccuNES 1.0.8")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -1034,6 +1063,7 @@ fn main() {
     
     let recent_roms = Rc::new(RefCell::new(Vec::<String>::new()));
     let quick_save_slot = Rc::new(RefCell::new(Option::<Vec<u8>>::None));
+    let update_check_state = Arc::new(Mutex::new(UpdateCheckState::Idle));
 
     if let Ok(roms) = std::fs::read_to_string(".recent_roms") {
         *recent_roms.borrow_mut() = roms.lines().take(8).map(|s| s.to_string()).collect();
@@ -1050,6 +1080,7 @@ fn main() {
     let menu_state_clone = menu_state.clone();
     let recent_roms_clone = recent_roms.clone();
     let quick_save_slot_clone = quick_save_slot.clone();
+
 
     let emu_clone = emu.clone();
     let rom_loaded_clone = rom_loaded.clone();
@@ -2043,6 +2074,7 @@ fn main() {
                 ms.hovered_menu = None;
                 ms.hovered_file_item = None;
                 ms.hovered_nes_item = None;
+                ms.hovered_help_index = None;
                 ms.hovered_region_item = None;
                 ms.hovered_region_index = None;
                 ms.hovered_recent_index = None;
@@ -2432,6 +2464,40 @@ fn main() {
                             drop(ms);
                             menu_state_clone.borrow_mut().show_about = false;
                             paused_clone.store(false, Ordering::Relaxed);
+                        }
+                    } else if ms.show_updates {
+                        let update_w = (360.0 * ms.scale).round() as usize;
+                        let update_h = (180.0 * ms.scale).round() as usize;
+                        let update_x = (width.saturating_sub(update_w)) / 2;
+                        let update_y = (height.saturating_sub(update_h)) / 2;
+                        let title_h = (30.0 * ms.scale).round() as usize;
+                        let close_w = (20.0 * ms.scale).round() as usize;
+                        let close_h = (20.0 * ms.scale).round() as usize;
+                        let close_right_margin = (3.0 * ms.scale).round() as usize;
+                        let close_x = update_x + update_w - close_w - close_right_margin;
+                        let close_y = update_y + (title_h - close_h) / 2 - (1.0 * ms.scale).round() as usize;
+                        if point_in_rect(mx, my, close_x, close_y, close_w, close_h) {
+                            drop(ms);
+                            menu_state_clone.borrow_mut().show_updates = false;
+                            paused_clone.store(false, Ordering::Relaxed);
+                        } else {
+                            let update_state = update_check_state.lock().unwrap();
+                            if let UpdateCheckState::Available { url, .. } = &*update_state {
+                                let btn_w = (160.0 * ms.scale).round() as usize;
+                                let btn_h = (28.0 * ms.scale).round() as usize;
+                                let btn_x = update_x + (update_w.saturating_sub(btn_w)) / 2;
+                                let btn_y = update_y + update_h - btn_h - (15.0 * ms.scale).round() as usize;
+                                if point_in_rect(mx, my, btn_x, btn_y, btn_w, btn_h) {
+                                    let url = url.clone();
+                                    drop(update_state);
+                                    drop(ms);
+                                    let _ = std::process::Command::new("cmd")
+                                        .args(&["/c", "start", "", &url])
+                                        .spawn();
+                                    menu_state_clone.borrow_mut().show_updates = false;
+                                    paused_clone.store(false, Ordering::Relaxed);
+                                }
+                            }
                         }
                     } else if ms.show_general_settings {
                         let general_w = (400.0 * ms.scale).round() as usize;
@@ -3461,10 +3527,53 @@ fn main() {
                                 let dropdown_w = item_w;
                                 let dropdown_y = ms_mut.menu_height;
                                 let sc = ms_mut.scale;
-                                let help_items = ["About"];
+                                let help_items = ["Check for Updates", "About"];
                                 let help_positions = calculate_item_positions(&help_items, dropdown_x, dropdown_y, dropdown_w, sc);
                                 
-                                if let Some((x, y, w, h)) = help_positions.first() {
+                                if let Some((x, y, w, h)) = help_positions.get(0) {
+                                    if point_in_rect(mx, my, *x, *y, *w, *h) {
+                                        ms_mut.show_updates = true;
+                                        ms_mut.active_menu = None;
+                                        paused_clone.store(true, Ordering::Relaxed);
+                                        let update_state = update_check_state.clone();
+                                        thread::spawn(move || {
+                                            let mut state = update_state.lock().unwrap();
+                                            *state = UpdateCheckState::Checking;
+                                            drop(state);
+                                            match ureq::get("https://api.github.com/repos/ammaroussema/accunes/releases/latest")
+                                                .set("User-Agent", "AccuNES")
+                                                .call()
+                                            {
+                                                Ok(response) => {
+                                                    match response.into_json::<serde_json::Value>() {
+                                                        Ok(json) => {
+                                                            let tag = json["tag_name"].as_str().unwrap_or("unknown").to_string();
+                                                            let raw_date = json["published_at"].as_str().unwrap_or("").to_string();
+                                                            let date = if raw_date.len() >= 10 { raw_date[..10].to_string() } else { raw_date };
+                                                            let url = json["html_url"].as_str().unwrap_or("https://github.com/ammaroussema/accunes/releases/latest").to_string();
+                                                            let mut state = update_state.lock().unwrap();
+                                                            let tag_clean = tag.trim_start_matches('v');
+                                                            if version_compare(tag_clean, APP_VERSION) == std::cmp::Ordering::Greater {
+                                                                *state = UpdateCheckState::Available { version: tag, date, url };
+                                                            } else {
+                                                                *state = UpdateCheckState::UpToDate;
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            let mut state = update_state.lock().unwrap();
+                                                            *state = UpdateCheckState::Error(format!("Parse error: {}", e));
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    let mut state = update_state.lock().unwrap();
+                                                    *state = UpdateCheckState::Error(format!("Request failed: {}", e));
+                                                }
+                                            }
+                                        });
+                                    }
+                                }
+                                if let Some((x, y, w, h)) = help_positions.get(1) {
                                     if point_in_rect(mx, my, *x, *y, *w, *h) {
                                         ms_mut.show_about = true;
                                         ms_mut.active_menu = None;
@@ -3644,6 +3753,7 @@ fn main() {
                     ms_mut.hovered_menu = None;
                     ms_mut.hovered_file_item = None;
                     ms_mut.hovered_nes_item = None;
+                    ms_mut.hovered_help_index = None;
                     ms_mut.hovered_recent_index = None;
                 } else if my < ms_mut.menu_height {
                     let menu_names = [("FILE", Menu::File), ("NES", Menu::Nes), ("OPTIONS", Menu::Options), ("HELP", Menu::Help)];
@@ -3756,6 +3866,20 @@ fn main() {
                                 }
                             }
                         }
+                        Menu::Help => {
+                            let sc = ms_mut.scale;
+                            let dropdown_w = item_w;
+                            let help_items = ["Check for Updates", "About"];
+                            let help_positions = calculate_item_positions(&help_items, dropdown_x, dropdown_y, dropdown_w, sc);
+
+                            ms_mut.hovered_help_index = None;
+                            for (i, (x, y, w, h)) in help_positions.iter().enumerate() {
+                                if point_in_rect(mx, my, *x, *y, *w, *h) {
+                                    ms_mut.hovered_help_index = Some(i);
+                                    break;
+                                }
+                            }
+                        }
                         Menu::Options => {
                             let sc = ms_mut.scale;
                             let dropdown_w = item_w;
@@ -3790,12 +3914,12 @@ fn main() {
                                 ms_mut.hovered_region_item = None;
                             }
                         }
-                        _ => {}
                     }
                 } else {
                     ms_mut.hovered_menu = None;
                     ms_mut.hovered_file_item = None;
                     ms_mut.hovered_nes_item = None;
+                    ms_mut.hovered_help_index = None;
                     ms_mut.hovered_region_item = None;
                     ms_mut.hovered_region_index = None;
                     ms_mut.hovered_options_index = None;
@@ -3828,7 +3952,7 @@ fn main() {
                         }
                         format!("AccuNES 1.0.5: {}", filename)
                     } else {
-                        "AccuNES 1.0.7".to_string()
+                        "AccuNES 1.0.8".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -3955,7 +4079,6 @@ fn main() {
                 if let Some(active) = ms.active_menu {
                     let dropdown_bg = colors.dropdown_bg;
                     let dropdown_y = menu_height;
-                    let item_height = (16.0 * scale).round() as usize;
                     let dropdown_x = match active {
                         Menu::File => 0,
                         Menu::Nes => item_w,
@@ -4122,9 +4245,23 @@ fn main() {
                         }
                         Menu::Help => {
                             let dropdown_w = item_w;
-                            let dropdown_h = item_height;
+                            let pad_x = (8.0 * scale).round() as usize;
+                            let pad_y = (4.0 * scale).round() as usize;
+                            let help_items = ["Check for Updates", "About"];
+                            let text_max_w = dropdown_w.saturating_sub(pad_x * 2);
+                            let item_heights: Vec<usize> = help_items.iter().map(|name| {
+                                measure_wrapped_height(name, text_max_w, scale) + pad_y * 2
+                            }).collect();
+                            let dropdown_h: usize = item_heights.iter().sum();
                             draw_rect(&mut buffer, dropdown_x, dropdown_y, dropdown_w, dropdown_h, width, dropdown_bg);
-                            draw_text(&mut buffer, dropdown_x + (8.0 * scale).round() as usize, dropdown_y + (4.0 * scale).round() as usize, width, "About", menu_text, scale);
+                            let mut item_y = dropdown_y;
+                            for (i, (name, &ih)) in help_items.iter().zip(item_heights.iter()).enumerate() {
+                                if ms.hovered_help_index == Some(i) {
+                                    draw_rect(&mut buffer, dropdown_x, item_y, dropdown_w, ih, width, menu_highlight);
+                                }
+                                draw_text_wrapped(&mut buffer, dropdown_x + pad_x, item_y + pad_y, text_max_w, width, name, menu_text, scale);
+                                item_y += ih;
+                            }
                         }
                         Menu::Options => {
                             let dropdown_w = item_w;
@@ -4210,7 +4347,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.0.7",
+                        "Version: 1.0.8",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
@@ -4230,6 +4367,77 @@ fn main() {
                     let close_y = about_y + (10.0 * scale).round() as usize;
                     draw_rect(&mut buffer, close_x, close_y, close_w, close_h, width, colors.close_bg);
                     draw_text(&mut buffer, close_x + (6.0 * scale).round() as usize, close_y + (6.0 * scale).round() as usize, width, "X", colors.menu_text, scale);
+                }
+                
+                if ms.show_updates {
+                    let update_w = (360.0 * scale).round() as usize;
+                    let update_h = (180.0 * scale).round() as usize;
+                    let update_x = (width.saturating_sub(update_w)) / 2;
+                    let update_y = (height.saturating_sub(update_h)) / 2;
+                    let window_bg = colors.window_bg;
+                    let window_border = colors.window_border;
+                    let title_bg = colors.dropdown_bg;
+
+                    draw_rect(&mut buffer, update_x, update_y, update_w, update_h, width, window_bg);
+                    let title_h = (30.0 * scale).round() as usize;
+                    draw_rect(&mut buffer, update_x, update_y, update_w, title_h, width, title_bg);
+                    draw_text(&mut buffer, update_x + (10.0 * scale).round() as usize, update_y + (8.0 * scale).round() as usize, width, "Check for Updates", menu_text, scale);
+
+                    let close_w = (20.0 * scale).round() as usize;
+                    let close_h = (20.0 * scale).round() as usize;
+                    let close_right_margin = (3.0 * scale).round() as usize;
+                    let close_x = update_x + update_w - close_w - close_right_margin;
+                    let close_y = update_y + (title_h - close_h) / 2 - (1.0 * scale).round() as usize;
+                    draw_rect(&mut buffer, close_x, close_y, close_w, close_h, width, colors.close_bg);
+                    draw_text(&mut buffer, close_x + (6.0 * scale).round() as usize, close_y + (6.0 * scale).round() as usize, width, "X", colors.menu_text, scale);
+
+                    let border = (2.0 * scale).round() as usize;
+                    draw_rect(&mut buffer, update_x, update_y, update_w, border, width, window_border);
+                    draw_rect(&mut buffer, update_x, update_y, border, update_h, width, window_border);
+                    draw_rect(&mut buffer, update_x + update_w - border, update_y, border, update_h, width, window_border);
+                    draw_rect(&mut buffer, update_x, update_y + update_h - border, update_w, border, width, window_border);
+
+                    let content_x = update_x + (15.0 * scale).round() as usize;
+                    let content_y = update_y + title_h + (15.0 * scale).round() as usize;
+                    let content_max_w = update_w.saturating_sub((30.0 * scale).round() as usize);
+
+                    let update_state = update_check_state.lock().unwrap();
+                    match &*update_state {
+                        UpdateCheckState::Checking => {
+                            draw_text_wrapped(&mut buffer, content_x, content_y, content_max_w, width, "Checking for updates...", menu_text, scale);
+                        }
+                        UpdateCheckState::UpToDate => {
+                            draw_text_wrapped(&mut buffer, content_x, content_y, content_max_w, width, "You have the latest version.", menu_text, scale);
+                        }
+                        UpdateCheckState::Available { version, date, .. } => {
+                            let lines = [
+                                format!("New version available: {}", version),
+                                format!("Release date: {}", date),
+                            ];
+                            let mut line_y = content_y;
+                            for line in &lines {
+                                draw_text_wrapped(&mut buffer, content_x, line_y, content_max_w, width, line, menu_text, scale);
+                                line_y += (20.0 * scale).round() as usize;
+                            }
+                            let btn_w = (160.0 * scale).round() as usize;
+                            let btn_h = (28.0 * scale).round() as usize;
+                            let btn_x = update_x + (update_w.saturating_sub(btn_w)) / 2;
+                            let btn_y = update_y + update_h - btn_h - (15.0 * scale).round() as usize;
+                            draw_rect(&mut buffer, btn_x, btn_y, btn_w, btn_h, width, colors.close_bg);
+                            let btn_text = "Download Update";
+                            let btn_text_w = btn_text.len() as f32 * 8.0 * scale;
+                            let btn_text_x = btn_x + ((btn_w as f32 - btn_text_w) / 2.0).round() as usize;
+                            let btn_text_y = btn_y + ((btn_h as f32 - 8.0 * scale) / 2.0).round() as usize;
+                            draw_text(&mut buffer, btn_text_x, btn_text_y, width, btn_text, colors.menu_text, scale);
+                        }
+                        UpdateCheckState::Error(msg) => {
+                            draw_text_wrapped(&mut buffer, content_x, content_y, content_max_w, width, msg, colors.disabled_text, scale);
+                        }
+                        UpdateCheckState::Idle => {
+                            draw_text_wrapped(&mut buffer, content_x, content_y, content_max_w, width, "Click Check for Updates to begin.", menu_text, scale);
+                        }
+                    }
+                    drop(update_state);
                 }
                 
                 if ms.show_general_settings {

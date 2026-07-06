@@ -17,13 +17,52 @@ to check them out too!
 
 ## Building
 
-requires [rust](https://rustup.rs/) 2021 edition!
+there are two ways as of release v1.0.8:
+**reccomended method** using the custom package builder:
+
+```sh
+./package-release.ps1 
+```
+currently supported args:
+-Profile (profile)
+
+currently supported profiles:
+"release" (default): win64 release version!
+"debug": win64 debug version!
+"x32": win32 release version!
+"x32debug": win32 debug version!
+
+** manual method ** using rust cargo builder:
 
 ```sh
 cargo build --release
 ```
+this outputs the win64 release version!
 
-the executable is written to `target/release/accunes.exe`.
+you can also use:
+
+```sh
+cargo build
+```
+
+for the win64 debug version!
+
+or:
+
+```sh
+cargo build --release --target i686-pc-windows-msvc
+```
+
+for the win32 release version!
+
+or:
+```sh
+cargo build --target i686-pc-windows-msvc
+```
+
+for the win32 debug version!
+
+output folders/archives for both methods are usually inside the target folder.
 
 ### Dependencies
 
