@@ -236,6 +236,10 @@ pub use crate::mappers::mapper270::Mapper270;
 pub use crate::mappers::mapper271::Mapper271;
 pub use crate::mappers::mapper272::Mapper272;
 pub use crate::mappers::mapper273::Mapper273;
+pub use crate::mappers::mapper274::Mapper274;
+pub use crate::mappers::mapper277::Mapper277;
+pub use crate::mappers::mapper280::Mapper280;
+pub use crate::mappers::mapper283::Mapper283;
 pub use crate::mappers::mapper261::Mapper261;
 pub use crate::mappers::mapper265::Mapper265;
 pub use crate::mappers::mapper284::Mapper284;
@@ -818,7 +822,15 @@ pub fn create_mapper(
         271 => Box::new(Mapper271::new()),
         272 => Box::new(Mapper272::new()),
         273 => Box::new(Mapper273::new()),
-        281 => Box::new(Mapper90::new(Mapper90Variant::Mapper281)),
+        274 => Box::new(Mapper274::new()),
+    //  275 => Box::new(Mapper275::new()),  (no public references found)
+    //  276 => Box::new(Mapper276::new()),  (no public references found)
+        277 => Box::new(Mapper277::new()),
+    //  278 => Box::new(Mapper278::new()),  (no public references found)
+    //  279 => Box::new(Mapper279::new()),  (no public references found)
+            280 => Box::new(Mapper280::new(submapper_id)),
+            283 => Box::new(Mapper283::new()),
+            281 => Box::new(Mapper90::new(Mapper90Variant::Mapper281)),
         282 => Box::new(Mapper90::new(Mapper90Variant::Mapper282)),
         284 => Box::new(Mapper284::new()),
         290 => Box::new(Mapper290::new()),

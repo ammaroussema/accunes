@@ -60,7 +60,7 @@ fn nes20_ram_kb(shift: u8) -> usize {
     }
 }
 
-fn mirror_address(
+pub(crate) fn mirror_address(
     alternative_nametable: bool,
     horizontal_mirroring: bool,
     address: u16,
