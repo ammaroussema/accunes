@@ -298,6 +298,9 @@ const CRC_OVERRIDES: &[CrcOverride] = &[
     CrcOverride { crc32: 0xb02fcb57, mapper: 0x1406, mirror: -1 },
     CrcOverride { crc32: 0x2FFF950F, mapper: 0x114B, mirror: 0 },
     CrcOverride { crc32: 0x9BBF3E5D, mapper: 242 | 0x800, mirror: -1 },
+    CrcOverride { crc32: 0xed9563ac, mapper: 288 | 0x1000, mirror: -1 },
+    CrcOverride { crc32: 0x0937bd2f, mapper: 288 | 0x1000, mirror: -1 },
+    CrcOverride { crc32: 0x096fa3af, mapper: 288 | 0x1000, mirror: -1 },
 ];
 
 pub fn lookup_crc_override(crc_val: u32) -> Option<&'static CrcOverride> {

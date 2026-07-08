@@ -245,7 +245,7 @@ impl Cartridge {
                 "8157" => 301,
                 "8237" => 215,
                 "830118C" => 348,
-                "A65AS" => 285,
+                "A65AS" | "JY-066" => 285,
                 "ANROM" => 7,
                 "AX5705" => 530,
                 "BB" => 108,
@@ -342,6 +342,12 @@ impl Cartridge {
                 _ => return Err(format!("UNIF Board not supported: {}", mapper_name)),
             };
 
+            let unif_submapper = match normalized_name.as_str() {
+                "JY-066" => 1,
+                _ if memory_mapper == 285 && normalized_name == "A65AS" && filepath.to_lowercase().contains("jy-066") => 1,
+                _ => 0,
+            };
+
             let using_chr_ram = chr_rom.is_empty() || memory_mapper == 268;
             let chr_ram = if using_chr_ram || memory_mapper == 268 {
                 if memory_mapper == 268 {
@@ -381,7 +387,7 @@ impl Cartridge {
             
             let mapper_chip = create_mapper(
                 memory_mapper,
-                0,
+                unif_submapper,
                 &header_placeholder,
                 &raw_rom_placeholder,
                 prg_size,
@@ -398,7 +404,7 @@ impl Cartridge {
                 prg_rom,
                 chr_rom,
                 memory_mapper,
-                sub_mapper: 0,
+                sub_mapper: unif_submapper,
                 prg_size,
                 chr_size,
                 prg_size_minus_1,

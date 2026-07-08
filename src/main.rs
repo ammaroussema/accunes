@@ -106,9 +106,10 @@ struct DipChoice {
 
 #[derive(Clone)]
 struct DipSetting {
-    name:    String,
-    mask:    u32,
-    choices: Vec<DipChoice>,
+    name:         String,
+    mask:         u32,
+    default_val:  u32,
+    choices:      Vec<DipChoice>,
 }
 
 #[derive(Clone)]
@@ -189,12 +190,18 @@ fn load_dip_game(target_crc: u32) -> Option<DipGame> {
                 }
                 let mut mask = 0u32;
                 let mut name = String::new();
+                let mut default_val = 0u32;
                 let mut i = 1usize;
                 while i < tokens.len() {
                     match tokens[i] {
                         "mask" if i + 1 < tokens.len() => {
                             let v = tokens[i + 1].split(';').next().unwrap_or("").trim();
                             mask = u32::from_str_radix(v.trim_start_matches("0x"), 16).unwrap_or(0);
+                            i += 2;
+                        }
+                        "default" if i + 1 < tokens.len() => {
+                            let v = tokens[i + 1].split(';').next().unwrap_or("").trim();
+                            default_val = u32::from_str_radix(v.trim_start_matches("0x"), 16).unwrap_or(0);
                             i += 2;
                         }
                         "name" if i + 1 < tokens.len() => {
@@ -204,7 +211,7 @@ fn load_dip_game(target_crc: u32) -> Option<DipGame> {
                         _ => { i += 1; }
                     }
                 }
-                cur_setting = Some(DipSetting { name, mask, choices: Vec::new() });
+                cur_setting = Some(DipSetting { name, mask, default_val, choices: Vec::new() });
             }
             "choice" => {
                 let mut value = 0u32;
@@ -605,7 +612,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.0.9";
+const APP_VERSION: &str = "1.1.0";
 
 fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     let a = a.trim_start_matches('v');
@@ -953,7 +960,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.0.9")
+        .with_title("AccuNES 1.1.0")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -3253,9 +3260,13 @@ fn main() {
                                                     
                                                     let crc = emu_clone.lock().unwrap().prg_rom_crc32();
                                                     if let Some(game) = load_dip_game(crc) {
-                                                        let dip_val = emu_clone.lock().unwrap().get_dip_switches();
-                                                        let variant = compute_vs_ppu_variant(&game, dip_val, crc);
-                                                        emu_clone.lock().unwrap().set_vs_ppu_variant(variant);
+                                                        let mut emu = emu_clone.lock().unwrap();
+                                                        let dip_val = emu.get_dip_switches();
+                                                        let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
+                                                        emu.set_dip_switches(new_val as u8);
+                                                        let variant = compute_vs_ppu_variant(&game, new_val as u8, crc);
+                                                        emu.set_vs_ppu_variant(variant);
+                                                        drop(emu);
                                                         ms_mut.dip_definition = Some(game);
                                                         ms_mut.show_dip_switches = true;
                                                         paused_clone.store(true, Ordering::Relaxed);
@@ -3369,9 +3380,13 @@ fn main() {
                                                             
                                                             let crc = emu_clone.lock().unwrap().prg_rom_crc32();
                                                             if let Some(game) = load_dip_game(crc) {
-                                                                let dip_val = emu_clone.lock().unwrap().get_dip_switches();
-                                                                let variant = compute_vs_ppu_variant(&game, dip_val, crc);
-                                                                emu_clone.lock().unwrap().set_vs_ppu_variant(variant);
+                                                                let mut emu = emu_clone.lock().unwrap();
+                                                                let dip_val = emu.get_dip_switches();
+                                                                let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
+                                                                emu.set_dip_switches(new_val as u8);
+                                                                let variant = compute_vs_ppu_variant(&game, new_val as u8, crc);
+                                                                emu.set_vs_ppu_variant(variant);
+                                                                drop(emu);
                                                                 ms_mut.dip_definition = Some(game);
                                                                 ms_mut.show_dip_switches = true;
                                                                 paused_clone.store(true, Ordering::Relaxed);
@@ -3950,9 +3965,9 @@ fn main() {
                         } else if lower.ends_with(".fds") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.0.5: {}", filename)
+                        format!("AccuNES 1.1.0: {}", filename)
                     } else {
-                        "AccuNES 1.0.9".to_string()
+                        "AccuNES 1.1.0".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -4347,7 +4362,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.0.9",
+                        "Version: 1.1.0",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
@@ -5334,7 +5349,7 @@ fn main() {
                             draw_text(&mut buffer, dialog_x + (15.0 * scale).round() as usize, row_y + (8.0 * scale).round() as usize, width, &setting.name, menu_text, scale);
                             
                             let active_val = dip_val as u32 & setting.mask;
-                            let choice_name = setting.choices.iter().find(|c| c.value == active_val).map(|c| c.name.as_str()).unwrap_or("Unknown");
+                            let choice_name = setting.choices.iter().find(|c| c.value == active_val).map(|c| c.name.as_str()).unwrap_or_else(|| setting.choices.first().map_or("Unknown", |c| c.name.as_str()));
                             
                             let box_bg = if ms.dip_hovered_bit == Some(i as u8) { colors.box_bg_hover } else { colors.box_bg_default };
                             draw_rect(&mut buffer, choice_x, row_y, choice_w, choice_h, width, colors.box_border);

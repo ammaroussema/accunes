@@ -659,8 +659,8 @@ impl Emulator {
             Region::Dendy => Region::Dendy,
             Region::Auto => {
                 match tv_system {
-                    TvSystem::Ntsc => Region::Ntsc,
-                    TvSystem::Pal | TvSystem::Dual => Region::Pal,
+                    TvSystem::Ntsc | TvSystem::Dual => Region::Ntsc,
+                    TvSystem::Pal => Region::Pal,
                     TvSystem::Dendy => Region::Dendy,
                     TvSystem::Unknown => {
                         match TvSystem::from_filename(filename) {
@@ -891,6 +891,7 @@ impl Emulator {
                 || cart.memory_mapper == 124
                 || cart.memory_mapper == 262
                 || cart.memory_mapper == 264
+                || cart.memory_mapper == 286
         } else {
             false
         }
