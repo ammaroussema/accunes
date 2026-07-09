@@ -249,6 +249,10 @@ pub use crate::mappers::mapper287::Mapper287;
 pub use crate::mappers::mapper288::Mapper288;
 pub use crate::mappers::mapper289::Mapper289;
 pub use crate::mappers::mapper290::Mapper290;
+pub use crate::mappers::mapper291::Mapper291;
+pub use crate::mappers::mapper292::Mapper292;
+pub use crate::mappers::mapper293::Mapper293;
+pub use crate::mappers::mapper294::Mapper294;
 pub use crate::mappers::mapper298::Mapper298;
 pub use crate::mappers::mapper326::Mapper326;
 pub use crate::mappers::mapper328::Mapper328;
@@ -369,6 +373,9 @@ pub trait Mapper: Send {
     }
 
     fn load_battery_save(&mut self, _cart: &mut Cartridge, _data: &[u8]) {}
+
+    // hook for CPU writes below $4020 (CPU RAM, APU, etc.)
+    fn handle_cpu_write(&mut self, _address: u16, _data: u8) {}
 
     // and finally mapper reset handling
     fn reset(&mut self) {}
@@ -844,6 +851,10 @@ pub fn create_mapper(
         288 => Box::new(Mapper288::new()),
         289 => Box::new(Mapper289::new()),
         290 => Box::new(Mapper290::new()),
+        291 => Box::new(Mapper291::new(header, rom, rom_name)),
+        292 => Box::new(Mapper292::new(header, rom, rom_name)),
+        293 => Box::new(Mapper293::new()),
+        294 => Box::new(Mapper294::new()),
         295 => Box::new(Mapper90::new(Mapper90Variant::Mapper295)),
         298 => Box::new(Mapper298::new()),
         311 => Box::new(Mapper43::new()),

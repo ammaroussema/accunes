@@ -96,6 +96,24 @@ pub fn save_pause_on_lost_focus(enabled: bool) {
     upsert_config("pause_on_lost_focus", if enabled { "yes" } else { "no" });
 }
 
+pub fn load_check_updates_on_startup() -> bool {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("check_updates_on_startup=") {
+                let value = trimmed.strip_prefix("check_updates_on_startup=").unwrap_or("").trim();
+                return value.eq_ignore_ascii_case("yes") || value == "1" || value.eq_ignore_ascii_case("true");
+            }
+        }
+    }
+    false
+}
+
+pub fn save_check_updates_on_startup(enabled: bool) {
+    upsert_config("check_updates_on_startup", if enabled { "yes" } else { "no" });
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum InitialRam {
     Default,

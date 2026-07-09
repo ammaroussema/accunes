@@ -612,7 +612,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.1.0";
+const APP_VERSION: &str = "1.1.1";
 
 fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     let a = a.trim_start_matches('v');
@@ -960,7 +960,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.1.0")
+        .with_title("AccuNES 1.1.1")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -1030,6 +1030,7 @@ fn main() {
     let fps_mode = Rc::new(RefCell::new(config::load_fps_mode()));
     let confirm_on_exit = Rc::new(RefCell::new(config::load_confirm_on_exit()));
     let auto_save_sram = Rc::new(RefCell::new(config::load_auto_save_sram()));
+    let check_updates_on_startup = Rc::new(RefCell::new(config::load_check_updates_on_startup()));
     let controller1_type = {
         let mut ct = config::load_controller_type("controller1_type");
         if ct == config::ControllerType::Paddle { ct = config::ControllerType::Gamepad; }
@@ -1071,6 +1072,51 @@ fn main() {
     let recent_roms = Rc::new(RefCell::new(Vec::<String>::new()));
     let quick_save_slot = Rc::new(RefCell::new(Option::<Vec<u8>>::None));
     let update_check_state = Arc::new(Mutex::new(UpdateCheckState::Idle));
+    let auto_check_started = Arc::new(AtomicBool::new(false));
+
+    if *check_updates_on_startup.borrow() {
+        auto_check_started.store(true, Ordering::Relaxed);
+        let update_state = update_check_state.clone();
+        let auto_started = auto_check_started.clone();
+        std::thread::spawn(move || {
+            let mut state = update_state.lock().unwrap();
+            *state = UpdateCheckState::Checking;
+            drop(state);
+            match ureq::get("https://api.github.com/repos/ammaroussema/accunes/releases/latest")
+                .set("User-Agent", "AccuNES")
+                .call()
+            {
+                Ok(response) => {
+                    match response.into_json::<serde_json::Value>() {
+                        Ok(json) => {
+                            let tag = json["tag_name"].as_str().unwrap_or("unknown").to_string();
+                            let raw_date = json["published_at"].as_str().unwrap_or("").to_string();
+                            let date = if raw_date.len() >= 10 { raw_date[..10].to_string() } else { raw_date };
+                            let url = json["html_url"].as_str().unwrap_or("https://github.com/ammaroussema/accunes/releases/latest").to_string();
+                            let mut state = update_state.lock().unwrap();
+                            let tag_clean = tag.trim_start_matches('v');
+                            if version_compare(tag_clean, APP_VERSION) == std::cmp::Ordering::Greater {
+                                *state = UpdateCheckState::Available { version: tag, date, url };
+                            } else {
+                                *state = UpdateCheckState::UpToDate;
+                                auto_started.store(false, Ordering::Relaxed);
+                            }
+                        }
+                        Err(_e) => {
+                            let mut state = update_state.lock().unwrap();
+                            *state = UpdateCheckState::Idle;
+                            auto_started.store(false, Ordering::Relaxed);
+                        }
+                    }
+                }
+                Err(_e) => {
+                    let mut state = update_state.lock().unwrap();
+                    *state = UpdateCheckState::Idle;
+                    auto_started.store(false, Ordering::Relaxed);
+                }
+            }
+        });
+    }
 
     if let Ok(roms) = std::fs::read_to_string(".recent_roms") {
         *recent_roms.borrow_mut() = roms.lines().take(8).map(|s| s.to_string()).collect();
@@ -1098,6 +1144,7 @@ fn main() {
     let fps_mode_clone = fps_mode.clone();
     let confirm_on_exit_clone = confirm_on_exit.clone();
     let auto_save_sram_clone = auto_save_sram.clone();
+    let check_updates_on_startup_clone = check_updates_on_startup.clone();
     let controller1_type_clone = controller1_type.clone();
     let controller2_type_clone = controller2_type.clone();
     let allow_opposing_dpad_clone = allow_opposing_dpad.clone();
@@ -2508,7 +2555,7 @@ fn main() {
                         }
                     } else if ms.show_general_settings {
                         let general_w = (400.0 * ms.scale).round() as usize;
-                        let general_h = (240.0 * ms.scale).round() as usize;
+                        let general_h = (280.0 * ms.scale).round() as usize;
                         let general_x = (width.saturating_sub(general_w)) / 2;
                         let general_y = (height.saturating_sub(general_h)) / 2;
                         let close_w = (20.0 * ms.scale).round() as usize;
@@ -2558,6 +2605,12 @@ fn main() {
                             }
                             let row6_y = row5_y + row_h + (8.0 * sc).round() as usize;
                             if point_in_rect(mx, my, box_x, row6_y, box_w, row_h) {
+                                let new_val = !*check_updates_on_startup_clone.borrow();
+                                *check_updates_on_startup_clone.borrow_mut() = new_val;
+                                config::save_check_updates_on_startup(new_val);
+                            }
+                            let row7_y = row6_y + row_h + (8.0 * sc).round() as usize;
+                            if point_in_rect(mx, my, box_x, row7_y, box_w, row_h) {
                                 drop(ms);
                                 let cur = menu_state_clone.borrow().theme.clone();
                                 let new_theme = match cur.as_str() {
@@ -3965,9 +4018,9 @@ fn main() {
                         } else if lower.ends_with(".fds") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.1.0: {}", filename)
+                        format!("AccuNES 1.1.1: {}", filename)
                     } else {
-                        "AccuNES 1.1.0".to_string()
+                        "AccuNES 1.1.1".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -3986,6 +4039,25 @@ fn main() {
                 
                 menu_state_clone.borrow_mut().scale = scale;
                 menu_state_clone.borrow_mut().menu_height = menu_height;
+
+                if auto_check_started.load(Ordering::Relaxed) {
+                    let state = update_check_state.lock().unwrap();
+                    if !matches!(*state, UpdateCheckState::Checking) {
+                        drop(state);
+                        auto_check_started.store(false, Ordering::Relaxed);
+                        let mut state = update_check_state.lock().unwrap();
+                        match &*state {
+                            UpdateCheckState::Available { .. } => {
+                                let mut ms = menu_state_clone.borrow_mut();
+                                ms.show_updates = true;
+                                paused_clone.store(true, Ordering::Relaxed);
+                            }
+                            _ => {
+                                *state = UpdateCheckState::Idle;
+                            }
+                        }
+                    }
+                }
 
                 let mut surface_ref = surface_clone.borrow_mut();
                 surface_ref.resize(
@@ -4362,7 +4434,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.1.0",
+                        "Version: 1.1.1",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
@@ -4457,7 +4529,7 @@ fn main() {
                 
                 if ms.show_general_settings {
                     let general_w = (400.0 * scale).round() as usize;
-                    let general_h = (240.0 * scale).round() as usize;
+                    let general_h = (280.0 * scale).round() as usize;
                     let general_x = (width.saturating_sub(general_w)) / 2;
                     let general_y = (height.saturating_sub(general_h)) / 2;
                     let window_bg = colors.window_bg;
@@ -4536,6 +4608,18 @@ fn main() {
                     let box_x = general_x + general_w - (15.0 * scale).round() as usize - box_w;
                     let box_y = row_y;
                     let val = if *auto_save_sram_clone.borrow() { "On" } else { "Off" };
+                    let hovered = point_in_rect(mouse_x, mouse_y, box_x, box_y, box_w, row_h);
+                    let bg = if hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                    draw_rect(&mut buffer, box_x, box_y, box_w, row_h, width, colors.box_border);
+                    draw_rect(&mut buffer, box_x + 1, box_y + 1, box_w - 2, row_h - 2, width, bg);
+                    let vw = val.len() as f32 * 8.0 * scale;
+                    draw_text(&mut buffer, box_x + ((box_w as f32 - vw) / 2.0).round() as usize, box_y + (6.0 * scale).round() as usize, width, val, menu_text, scale);
+
+                    row_y += row_h + (8.0 * scale).round() as usize;
+                    draw_text(&mut buffer, label_x, row_y + (6.0 * scale).round() as usize, width, "Check for updates on startup:", menu_text, scale);
+                    let box_x = general_x + general_w - (15.0 * scale).round() as usize - box_w;
+                    let box_y = row_y;
+                    let val = if *check_updates_on_startup_clone.borrow() { "On" } else { "Off" };
                     let hovered = point_in_rect(mouse_x, mouse_y, box_x, box_y, box_w, row_h);
                     let bg = if hovered { colors.box_bg_hover } else { colors.box_bg_default };
                     draw_rect(&mut buffer, box_x, box_y, box_w, row_h, width, colors.box_border);
