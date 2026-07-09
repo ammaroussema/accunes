@@ -6,7 +6,7 @@ if you would like to request a security update, you may do so for these versions
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.0.x   | :white_check_mark: |
+| 1.1.x   | :white_check_mark: |
 
 
 ## Reporting a Vulnerability
