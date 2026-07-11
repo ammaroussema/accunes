@@ -11,7 +11,6 @@ fn prg_rom_read(cart: &Cartridge, offset: usize) -> u8 {
 pub struct Mapper124 {
     rega: u8,
     regb: u8,
-    auden: u8,
     unrombank: u8,
     amrombank: u8,
     mmc1_shift: u8,
@@ -53,7 +52,6 @@ impl Mapper124 {
         Self {
             rega: 0,
             regb: 0,
-            auden: 0,
             unrombank: 0,
             amrombank: 0,
             mmc1_shift: 0,
@@ -69,11 +67,26 @@ impl Mapper124 {
         }
     }
 
+    fn reset_mmc1(&mut self) {
+        self.mmc1_shift = 0;
+        self.mmc1_shift_count = 0;
+        self.mmc1_control = 0x0C;
+        self.mmc1_chr0 = 0;
+        self.mmc1_chr1 = 0;
+        self.mmc1_prg_bank = 0;
+    }
+
+    fn reset_mmc3(&mut self) {
+        self.mmc3.reset();
+        self.mmc3.bank_a = 0x1F;
+        self.mmc3.bank_8c = 0x1E;
+    }
+
     fn mmc1_write_shift(&mut self, address: u16, data: u8) {
         if data & 0x80 != 0 {
             self.mmc1_shift = 0;
             self.mmc1_shift_count = 0;
-            self.mmc1_control |= 0x0C;
+            self.mmc1_control = 0x0C;
             return;
         }
         self.mmc1_shift >>= 1;
@@ -94,6 +107,10 @@ impl Mapper124 {
         }
     }
 
+    fn mapper_mode(&self) -> u8 {
+        (self.regb >> 4) & 3
+    }
+
     fn mmc1_prg_val(&self, address: u16) -> u8 {
         let mode = (self.mmc1_control >> 2) & 3;
         match mode {
@@ -108,15 +125,6 @@ impl Mapper124 {
                     0x0F
                 }
             }
-        }
-    }
-
-    fn mmc1_chr_val(&self, _address: u16) -> u8 {
-        let mode = (self.mmc1_control >> 4) & 1;
-        if mode == 0 {
-            self.mmc1_chr0 & 0x1F
-        } else {
-            self.mmc1_chr0 & 0x1F
         }
     }
 
@@ -182,7 +190,7 @@ impl Mapper124 {
             if self.rega & 0x80 == 0 {
                 return self.ctrl_bank(address);
             }
-            match (self.regb >> 4) & 3 {
+            match self.mapper_mode() {
                 0 => self.prg_bank_unrom(address),
                 1 => self.prg_bank_amrom(address),
                 2 => self.prg_bank_mmc1(address),
@@ -223,8 +231,17 @@ impl Mapper124 {
         };
         let mapper_bit4 = (self.regb >> 4) & 1;
         if mapper_bit4 == 0 {
-            let m1 = self.mmc1_chr_val(ppu_addr) as usize;
-            (chr_base << 8) | (chra17 << 7) | (m1 << 2) | ((ppu_addr as usize >> 10) & 3)
+            let vrom4k = (self.mmc1_control >> 4) & 1;
+            if vrom4k == 0 {
+                let m1 = (self.mmc1_chr0 & 0x1F) as usize;
+                (chr_base << 8) | (chra17 << 7) | (m1 << 3) | ((ppu_addr as usize >> 10) & 7)
+            } else if ppu_addr < 0x1000 {
+                let m1 = (self.mmc1_chr0 & 0x1F) as usize;
+                (chr_base << 8) | (chra17 << 7) | (m1 << 2) | ((ppu_addr as usize >> 10) & 3)
+            } else {
+                let m1 = (self.mmc1_chr1 & 0x1F) as usize;
+                (chr_base << 8) | (chra17 << 7) | (m1 << 2) | ((ppu_addr as usize >> 10) & 3)
+            }
         } else {
             (chr_base << 8) | (chra17 << 7) | (raw as usize & 0x7F)
         }
@@ -235,15 +252,9 @@ impl Mapper for Mapper124 {
     fn reset(&mut self) {
         self.rega = 0;
         self.regb = 0;
-        self.auden = 0;
         self.unrombank = 0;
         self.amrombank = 0;
-        self.mmc1_shift = 0;
-        self.mmc1_shift_count = 0;
-        self.mmc1_control = 0;
-        self.mmc1_chr0 = 0;
-        self.mmc1_chr1 = 0;
-        self.mmc1_prg_bank = 0;
+        self.reset_mmc1();
         self.mmc3.reset();
         self.coinon = 0;
         self.cycle_accum = 0;
@@ -253,14 +264,14 @@ impl Mapper for Mapper124 {
         if address & 0xFF0F == 0x4F0F {
             let dip = self.vsdip;
             let mut sub = 0u8;
-            if self.coinon == 0 { sub |= 0x80; } 
-            sub |= ((dip >> 2) & 1) << 6;
-            sub |= ((dip >> 4) & 1) << 5;
-            sub |= ((dip >> 6) & 1) << 4;
-            sub |= ((dip >> 7) & 1) << 3;
-            sub |= ((dip >> 5) & 1) << 2;
-            sub |= ((dip >> 3) & 1) << 1;
-            sub |= ((dip >> 1) & 1) << 0;
+            if self.coinon == 0 { sub |= 0x80; }
+            sub |= ((!dip >> 1) & 1) << 0;
+            sub |= ((!dip >> 3) & 1) << 1;
+            sub |= ((!dip >> 5) & 1) << 2;
+            sub |= ((!dip >> 7) & 1) << 3;
+            sub |= ((!dip >> 6) & 1) << 4;
+            sub |= ((!dip >> 4) & 1) << 5;
+            sub |= ((!dip >> 2) & 1) << 6;
             return FetchResult { data: sub, driven: true };
         }
         if address >= 0x5000 && address < 0x6000 {
@@ -269,7 +280,11 @@ impl Mapper for Mapper124 {
             return FetchResult { data: prg_rom_read(cart, off), driven: true };
         }
         if address >= 0x6000 && address < 0x8000 {
-            if self.rega & 0x20 == 0 && !cart.prg_ram.is_empty() {
+            if self.mapper_mode() == 3 && (self.mmc3.prg_ram_protect & 0x80) != 0 && !cart.prg_ram.is_empty() {
+                let off = (address as usize - 0x6000) % cart.prg_ram.len();
+                return FetchResult { data: cart.prg_ram[off], driven: true };
+            }
+            if self.rega & 0x20 == 0 && self.mapper_mode() != 3 && !cart.prg_ram.is_empty() {
                 let off = (address as usize - 0x6000) % cart.prg_ram.len();
                 return FetchResult { data: cart.prg_ram[off], driven: true };
             }
@@ -288,25 +303,47 @@ impl Mapper for Mapper124 {
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address & 0xF000 == 0x5000 {
             match address & 0x000F {
-                0x00 => self.auden = data & 1,
                 0x01 => self.rega = data,
-                0x02 => self.regb = data & 0x7F,
+                0x02 => {
+                    let new_regb = data & 0x7F;
+                    let old_mode = self.mapper_mode();
+                    self.regb = new_regb;
+                    let new_mode = self.mapper_mode();
+                    if new_mode != old_mode {
+                        self.reset_mmc1();
+                        self.reset_mmc3();
+                        if new_mode == 3 && cart.prg_ram.len() >= 0x2000 {
+                            let bank = self.ctrl_bank(0x6000);
+                            let base = bank as usize * 0x2000;
+                            for i in 0..0x2000 {
+                                cart.prg_ram[i] = prg_rom_read(cart, base + i);
+                            }
+                        }
+                    }
+                }
                 _ => {}
             }
             return;
         }
         if address >= 0x6000 && address < 0x8000 {
-            if self.rega & 0x20 == 0 && !cart.prg_ram.is_empty() {
+            if self.mapper_mode() == 3 {
+                if (self.mmc3.prg_ram_protect & 0xC0) != 0 && cart.prg_ram.len() >= 0x2000 {
+                    let off = address as usize - 0x6000;
+                    cart.prg_ram[off] = data;
+                }
+            } else if self.rega & 0x20 == 0 && !cart.prg_ram.is_empty() {
                 let off = (address as usize - 0x6000) % cart.prg_ram.len();
                 cart.prg_ram[off] = data;
             }
             return;
         }
         if address >= 0x8000 {
-            self.unrombank = data & 0x07;
-            self.amrombank = (data & 0x10) >> 1 | (data & 0x07);
-            self.mmc3.store_prg(cart, address, data);
-            self.mmc1_write_shift(address, data);
+            match self.mapper_mode() {
+                0 => self.unrombank = data & 0x07,
+                1 => self.amrombank = (data & 0x10) >> 1 | (data & 0x07),
+                2 => self.mmc1_write_shift(address, data),
+                _ => self.mmc3.store_prg(cart, address, data),
+            }
         }
     }
 
@@ -345,27 +382,22 @@ impl Mapper for Mapper124 {
         let address = (ppu_address_bus & 0x3F00) | ppu_octal_latch as u16;
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
         if address < 0x2000 {
-            let byte = if self.rega & 0x40 == 0 {
+            if self.rega & 0x40 == 0 {
                 if !chr_ram.is_empty() {
-                    chr_ram[address as usize % chr_ram.len()]
-                } else {
-                    0
+                    new_addr_bus |= chr_ram[address as usize % chr_ram.len()] as u16;
                 }
             } else {
                 let bank = self.chr_bank_12(address);
                 if !chr_rom.is_empty() {
                     let off = bank * 0x400 + (address as usize & 0x3FF);
-                    chr_rom[off % chr_rom.len()]
+                    new_addr_bus |= chr_rom[off % chr_rom.len()] as u16;
                 } else if !chr_ram.is_empty() {
                     let off = bank * 0x400 + (address as usize & 0x3FF);
-                    chr_ram[off % chr_ram.len()]
-                } else {
-                    0
+                    new_addr_bus |= chr_ram[off % chr_ram.len()] as u16;
                 }
-            };
-            new_addr_bus |= byte as u16;
+            }
         } else if address < 0x3F00 {
-            let mmc3_horiz = if (self.regb >> 4) & 3 == 3 { self.mmc3.nametable_mirroring() } else { false };
+            let mmc3_horiz = if self.mapper_mode() == 3 { self.mmc3.nametable_mirroring() } else { false };
             let mirrored = mirror_addr(self.regb, self.amrombank, self.mmc1_control, mmc3_horiz, address);
             new_addr_bus |= vram[(mirrored & 0x7FF) as usize] as u16;
         }
@@ -399,7 +431,7 @@ impl Mapper for Mapper124 {
         ppu_sprite_x16: bool,
         rendering_on: bool,
     ) -> bool {
-        if (self.regb >> 4) & 3 == 3 {
+        if self.mapper_mode() == 3 {
             self.mmc3
                 .ppu_clock(ppu_address_bus, ppu_a12_prev, scanline, dot, ppu_sprite_x16, rendering_on)
         } else {
@@ -415,7 +447,7 @@ impl Mapper for Mapper124 {
                 self.coinon -= 1;
             }
         }
-        if (self.regb >> 4) & 3 == 3 {
+        if self.mapper_mode() == 3 {
             self.mmc3.cpu_clock(cycles)
         } else {
             false
@@ -423,7 +455,7 @@ impl Mapper for Mapper124 {
     }
 
     fn take_irq_ack(&mut self) -> bool {
-        if (self.regb >> 4) & 3 == 3 {
+        if self.mapper_mode() == 3 {
             self.mmc3.take_irq_ack()
         } else {
             false
@@ -434,7 +466,6 @@ impl Mapper for Mapper124 {
         let mut state = self.mmc3.save_mapper_registers(cart);
         state.push(self.rega);
         state.push(self.regb);
-        state.push(self.auden);
         state.push(self.unrombank);
         state.push(self.amrombank);
         state.push(self.vsdip);
@@ -445,10 +476,9 @@ impl Mapper for Mapper124 {
     fn load_mapper_registers(&mut self, cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let mut i = self.mmc3.load_mapper_registers(cart, state, start);
         let end = i;
-        if i + 7 <= state.len() {
+        if i + 6 <= state.len() {
             self.rega = state[i]; i += 1;
             self.regb = state[i]; i += 1;
-            self.auden = state[i]; i += 1;
             self.unrombank = state[i]; i += 1;
             self.amrombank = state[i]; i += 1;
             self.vsdip = state[i]; i += 1;

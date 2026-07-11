@@ -612,7 +612,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.1.2";
+const APP_VERSION: &str = "1.1.3";
 
 fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     let a = a.trim_start_matches('v');
@@ -960,7 +960,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.1.2")
+        .with_title("AccuNES 1.1.3")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -2399,15 +2399,37 @@ fn main() {
                     if ms.show_dip_switches {
                         let sc = ms.scale;
                         let is_custom = ms.dip_definition.is_some();
-                        
-                        let (dialog_w, dialog_h) = if let Some(ref game) = ms.dip_definition {
-                            let w = (480.0 * sc).round() as usize;
-                            let h = (50.0 * sc + 35.0 * sc * game.settings.len() as f32).max(120.0 * sc).round() as usize;
-                            (w, h)
+                        let row_h_base = 35.0 * sc;
+                        let line_h = 10.0 * sc;
+                        let (dialog_w, dialog_h, choice_x_offset, lines_per_row) = if let Some(ref game) = ms.dip_definition {
+                            let max_name_len = game.settings.iter().map(|s| s.name.len()).max().unwrap_or(0);
+                            let max_choice_len = game.settings.iter().flat_map(|s| s.choices.iter().map(|c| c.name.len())).max().unwrap_or(0);
+                            let label_w = (max_name_len as f32) * 8.0 * sc;
+                            let label_area = (label_w + (25.0 * sc)).max(225.0 * sc);
+                            let choice_w = (max_choice_len as f32) * 8.0 * sc + (20.0 * sc);
+                            let choice_area = choice_w.max(120.0 * sc);
+                            let natural_w = (label_area + choice_area + (15.0 * sc)).max(320.0 * sc);
+                            let max_dialog_w = (width as f32 - (80.0 * sc)).max(320.0 * sc);
+                            let (final_w, final_label_area, lines) = if natural_w > max_dialog_w {
+                                let cap_w = max_dialog_w;
+                                let choice_area_f = choice_area.max(120.0 * sc);
+                                let label_area_f = (cap_w - choice_area_f - (15.0 * sc)).max(180.0 * sc);
+                                let avail_label_w = label_area_f - (15.0 * sc) - (5.0 * sc);
+                                let cpl = (avail_label_w / (8.0 * sc)).floor() as usize;
+                                let cpl = cpl.max(16);
+                                let l: Vec<usize> = game.settings.iter().map(|s| ((s.name.len() + cpl - 1) / cpl).max(1)).collect();
+                                (cap_w.round() as usize, label_area_f.round() as usize, l)
+                            } else {
+                                let l = vec![1; game.settings.len()];
+                                (natural_w.round() as usize, label_area.round() as usize, l)
+                            };
+                            let total_extra: f32 = lines.iter().map(|&n| (n as f32 - 1.0) * line_h).sum();
+                            let h = (50.0 * sc + row_h_base * game.settings.len() as f32 + total_extra).max(120.0 * sc).round() as usize;
+                            (final_w, h, final_label_area, lines)
                         } else {
                             let w = (320.0 * sc).round() as usize;
                             let h = (260.0 * sc).round() as usize;
-                            (w, h)
+                            (w, h, 0, Vec::new())
                         };
                         
                         let dialog_x = (width.saturating_sub(dialog_w)) / 2;
@@ -2424,14 +2446,15 @@ fn main() {
                             ms_mut.show_dip_switches = false;
                             paused_clone.store(false, Ordering::Relaxed);
                         } else if is_custom {
-                            let choice_w = dialog_w.saturating_sub((240.0 * sc).round() as usize);
+                            let choice_w = dialog_w - choice_x_offset - (15.0 * sc).round() as usize;
                             let choice_h = (24.0 * sc).round() as usize;
-                            let choice_x = dialog_x + (225.0 * sc).round() as usize;
+                            let choice_x = dialog_x + choice_x_offset;
 
                             let mut clicked_setting_idx = None;
                             if let Some(ref game) = ms.dip_definition {
                                 for i in 0..game.settings.len() {
-                                    let row_y = dialog_y + (45.0 * sc + i as f32 * 35.0 * sc).round() as usize;
+                                    let row_extra: f32 = (0..i).map(|j| (lines_per_row.get(j).copied().unwrap_or(1) as f32 - 1.0) * line_h).sum();
+                                    let row_y = dialog_y + (45.0 * sc + i as f32 * row_h_base + row_extra).round() as usize;
                                     if point_in_rect(mx, my, choice_x, row_y, choice_w, choice_h) {
                                         clicked_setting_idx = Some(i);
                                         break;
@@ -4018,9 +4041,9 @@ fn main() {
                         } else if lower.ends_with(".fds") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.1.2: {}", filename)
+                        format!("AccuNES 1.1.3: {}", filename)
                     } else {
-                        "AccuNES 1.1.2".to_string()
+                        "AccuNES 1.1.3".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -4434,7 +4457,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.1.2",
+                        "Version: 1.1.3",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
@@ -5384,14 +5407,37 @@ fn main() {
 
                 if ms.show_dip_switches {
                     let _is_custom = ms.dip_definition.is_some();
-                    let (dialog_w, dialog_h) = if let Some(ref game) = ms.dip_definition {
-                        let w = (480.0 * scale).round() as usize;
-                        let h = (50.0 * scale + 35.0 * scale * game.settings.len() as f32).max(120.0 * scale).round() as usize;
-                        (w, h)
+                    let row_h_base = 35.0 * scale;
+                    let line_h = 10.0 * scale;
+                    let (dialog_w, dialog_h, choice_x_offset, lines_per_row) = if let Some(ref game) = ms.dip_definition {
+                        let max_name_len = game.settings.iter().map(|s| s.name.len()).max().unwrap_or(0);
+                        let max_choice_len = game.settings.iter().flat_map(|s| s.choices.iter().map(|c| c.name.len())).max().unwrap_or(0);
+                        let label_w = (max_name_len as f32) * 8.0 * scale;
+                        let label_area = (label_w + (25.0 * scale)).max(225.0 * scale);
+                        let choice_w = (max_choice_len as f32) * 8.0 * scale + (20.0 * scale);
+                        let choice_area = choice_w.max(120.0 * scale);
+                        let natural_w = (label_area + choice_area + (15.0 * scale)).max(320.0 * scale);
+                        let max_dialog_w = (width as f32 - (80.0 * scale)).max(320.0 * scale);
+                        let (final_w, final_label_area, lines) = if natural_w > max_dialog_w {
+                            let cap_w = max_dialog_w;
+                            let choice_area_f = choice_area.max(120.0 * scale);
+                            let label_area_f = (cap_w - choice_area_f - (15.0 * scale)).max(180.0 * scale);
+                            let avail_label_w = label_area_f - (15.0 * scale) - (5.0 * scale);
+                            let cpl = (avail_label_w / (8.0 * scale)).floor() as usize;
+                            let cpl = cpl.max(16);
+                            let l: Vec<usize> = game.settings.iter().map(|s| ((s.name.len() + cpl - 1) / cpl).max(1)).collect();
+                            (cap_w.round() as usize, label_area_f.round() as usize, l)
+                        } else {
+                            let l = vec![1; game.settings.len()];
+                            (natural_w.round() as usize, label_area.round() as usize, l)
+                        };
+                        let total_extra: f32 = lines.iter().map(|&n| (n as f32 - 1.0) * line_h).sum();
+                        let h = (50.0 * scale + row_h_base * game.settings.len() as f32 + total_extra).max(120.0 * scale).round() as usize;
+                        (final_w, h, final_label_area, lines)
                     } else {
                         let w = (320.0 * scale).round() as usize;
                         let h = (260.0 * scale).round() as usize;
-                        (w, h)
+                        (w, h, 0, Vec::new())
                     };
                     
                     let dialog_x = (width.saturating_sub(dialog_w)) / 2;
@@ -5422,28 +5468,59 @@ fn main() {
                     let dip_val = emu_clone.lock().unwrap().get_dip_switches();
 
                     if let Some(ref game) = ms.dip_definition {
-                        let choice_w = dialog_w - (240.0 * scale).round() as usize;
+                        let choice_w = dialog_w - choice_x_offset - (15.0 * scale).round() as usize;
                         let choice_h = (24.0 * scale).round() as usize;
-                        let choice_x = dialog_x + (225.0 * scale).round() as usize;
+                        let choice_x = dialog_x + choice_x_offset;
                         
                         for i in 0..game.settings.len() {
                             let setting = &game.settings[i];
-                            let row_y = dialog_y + (45.0 * scale + i as f32 * 35.0 * scale).round() as usize;
+                            let num_lines = lines_per_row.get(i).copied().unwrap_or(1);
+                            let row_extra: f32 = (0..i).map(|j| (lines_per_row.get(j).copied().unwrap_or(1) as f32 - 1.0) * line_h).sum();
+                            let row_y = dialog_y + (45.0 * scale + i as f32 * row_h_base + row_extra).round() as usize;
+                            let row_h_actual = row_h_base + (num_lines as f32 - 1.0) * line_h;
                             
-                            draw_text(&mut buffer, dialog_x + (15.0 * scale).round() as usize, row_y + (8.0 * scale).round() as usize, width, &setting.name, menu_text, scale);
+                            if ms.dip_hovered_bit == Some(i as u8) {
+                                let row_bg = colors.box_bg_hover;
+                                draw_rect(&mut buffer, dialog_x + (5.0 * scale).round() as usize, row_y.saturating_sub((2.0 * scale).round() as usize), dialog_w.saturating_sub((10.0 * scale).round() as usize), row_h_actual.round() as usize, width, row_bg);
+                            }
+                            
+                            if num_lines > 1 {
+                                let avail_label_w = choice_x_offset - (15.0 * scale).round() as usize - (5.0 * scale).round() as usize;
+                                let cpl = (avail_label_w as f32 / (8.0 * scale)).floor() as usize;
+                                for line in 0..num_lines {
+                                    let start = line * cpl;
+                                    let end = (start + cpl).min(setting.name.len());
+                                    let text_line = &setting.name[start..end];
+                                    let line_y = row_y + (8.0 * scale).round() as usize + (line as f32 * line_h).round() as usize;
+                                    draw_text(&mut buffer, dialog_x + (15.0 * scale).round() as usize, line_y, width, text_line, menu_text, scale);
+                                }
+                            } else {
+                                draw_text(&mut buffer, dialog_x + (15.0 * scale).round() as usize, row_y + (8.0 * scale).round() as usize, width, &setting.name, menu_text, scale);
+                            }
                             
                             let active_val = dip_val as u32 & setting.mask;
                             let choice_name = setting.choices.iter().find(|c| c.value == active_val).map(|c| c.name.as_str()).unwrap_or_else(|| setting.choices.first().map_or("Unknown", |c| c.name.as_str()));
                             
-                            let box_bg = if ms.dip_hovered_bit == Some(i as u8) { colors.box_bg_hover } else { colors.box_bg_default };
-                            draw_rect(&mut buffer, choice_x, row_y, choice_w, choice_h, width, colors.box_border);
-                            let inner_pad = (1.0 * scale).round() as usize;
-                            draw_rect(&mut buffer, choice_x + inner_pad, row_y + inner_pad, choice_w - inner_pad * 2, choice_h - inner_pad * 2, width, box_bg);
+                            let max_choice_chars = if choice_w > (8.0 * scale) as usize { ((choice_w as f32 - (4.0 * scale)) / (8.0 * scale)).floor() as usize } else { 3 };
+                            let display_choice = if choice_name.len() > max_choice_chars && max_choice_chars > 3 {
+                                let mut s = String::with_capacity(max_choice_chars);
+                                s.push_str(&choice_name[..max_choice_chars - 3]);
+                                s.push_str("...");
+                                s
+                            } else {
+                                choice_name.to_string()
+                            };
                             
-                            let text_len = choice_name.len() as f32 * 8.0 * scale;
+                            let box_bg = if ms.dip_hovered_bit == Some(i as u8) { colors.box_bg_hover } else { colors.box_bg_default };
+                            let choice_y = row_y + ((row_h_actual - choice_h as f32) / 2.0).round() as usize;
+                            draw_rect(&mut buffer, choice_x, choice_y, choice_w, choice_h, width, colors.box_border);
+                            let inner_pad = (1.0 * scale).round() as usize;
+                            draw_rect(&mut buffer, choice_x + inner_pad, choice_y + inner_pad, choice_w - inner_pad * 2, choice_h - inner_pad * 2, width, box_bg);
+                            
+                            let text_len = display_choice.len() as f32 * 8.0 * scale;
                             let text_x = choice_x + ((choice_w as f32 - text_len) / 2.0).round() as usize;
-                            let text_y = row_y + (8.0 * scale).round() as usize;
-                            draw_text(&mut buffer, text_x, text_y, width, choice_name, colors.menu_text, scale);
+                            let text_y = choice_y + (8.0 * scale).round() as usize;
+                            draw_text(&mut buffer, text_x, text_y, width, &display_choice, colors.menu_text, scale);
                         }
                     } else {
                         let row_start_y = dialog_y + (45.0 * scale).round() as usize;

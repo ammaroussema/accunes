@@ -87,7 +87,10 @@ impl Emulator {
             if cart.memory_mapper == 20 && (address == 0x4030 || address == 0x4031 || address == 0x4032) {
                 self.irq_level_detector = false;
             }
-            if cart.memory_mapper == 5 && address == 0x5204 {
+            if matches!(cart.memory_mapper, 5) && address == 0x5204 {
+                self.irq_level_detector = false;
+            }
+            if matches!(cart.memory_mapper, 303 | 304) && address == 0x4030 {
                 self.irq_level_detector = false;
             }
         }

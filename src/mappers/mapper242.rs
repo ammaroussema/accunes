@@ -3,17 +3,23 @@ use crate::mapper::{FetchResult, Mapper};
 
 pub struct Mapper242 {
     reg: u16,
+    dip_switches: u8,
 }
 
 impl Mapper242 {
     pub fn new() -> Self {
-        Self { reg: 0 }
+        Self { reg: 0, dip_switches: 0 }
+    }
+
+    fn dip_enabled(&self) -> bool {
+        (self.reg & 0x100) != 0 && self.dip_switches != 0
     }
 }
 
 impl Mapper for Mapper242 {
     fn reset(&mut self) {
         self.reg = 0;
+        self.dip_switches = 0;
     }
 
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
@@ -24,16 +30,34 @@ impl Mapper for Mapper242 {
         if address < 0x8000 {
             return FetchResult { data: 0, driven: false };
         }
-        let bank = ((self.reg >> 2) & 0x1F) as usize;
-        let a14 = (self.reg & 1) as usize;
-        let base = bank * 2 + a14;
-        let bank16 = if address < 0xC000 { base } else { base + 1 };
-        let offset = bank16 * 0x4000 + (address as usize & 0x3FFF);
+        let eff = if self.dip_enabled() {
+            self.reg | (self.dip_switches as u16)
+        } else {
+            self.reg
+        };
+        let prg = ((eff >> 2) & 0x1F) as usize;
+        let cpu_a14 = (eff & 1) as usize;
+        let nrom = (eff & 0x80) != 0;
+        let last_bit = (eff & 0x200) != 0;
         let len = cart.prg_rom.len();
         if len == 0 {
             return FetchResult { data: 0, driven: false };
         }
-        FetchResult { data: cart.prg_rom[offset % len], driven: true }
+        let addr = address as usize;
+        if nrom {
+            let bank = prg & !1;
+            let offset = bank * 0x8000 + (addr & 0x7FFF);
+            FetchResult { data: cart.prg_rom[offset % len], driven: true }
+        } else {
+            let bank16 = if addr < 0xC000 {
+                prg & !cpu_a14
+            } else {
+                let base = prg | cpu_a14;
+                (base & !7) | (if last_bit { 7 } else { 0 })
+            };
+            let offset = bank16 * 0x4000 + (addr & 0x3FFF);
+            FetchResult { data: cart.prg_rom[offset % len], driven: true }
+        }
     }
 
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
@@ -53,6 +77,14 @@ impl Mapper for Mapper242 {
         } else {
             address & 0x37FF
         }
+    }
+
+    fn get_dip_switches(&self) -> u8 {
+        self.dip_switches
+    }
+
+    fn set_dip_switches(&mut self, value: u8) {
+        self.dip_switches = value;
     }
 
     fn fetch_ppu(
@@ -101,17 +133,19 @@ impl Mapper for Mapper242 {
     }
 
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
-        let mut state = Vec::with_capacity(2);
+        let mut state = Vec::with_capacity(3);
         state.extend_from_slice(&self.reg.to_le_bytes());
+        state.push(self.dip_switches);
         state
     }
 
     fn load_mapper_registers(&mut self, _cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
-        if start + 2 <= state.len() {
-            self.reg = u16::from_le_bytes([state[start], state[start + 1]]);
-            start + 2
-        } else {
-            start
+        let mut p = start;
+        if p + 2 <= state.len() {
+            self.reg = u16::from_le_bytes([state[p], state[p + 1]]);
+            p += 2;
         }
+        self.dip_switches = state.get(p).copied().unwrap_or(0); p += 1;
+        p
     }
 }

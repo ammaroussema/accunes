@@ -258,6 +258,10 @@ pub use crate::mappers::mapper297::Mapper297;
 pub use crate::mappers::mapper298::Mapper298;
 pub use crate::mappers::mapper299::Mapper299;
 pub use crate::mappers::mapper300::Mapper300;
+pub use crate::mappers::mapper302::Mapper302;
+pub use crate::mappers::mapper303::Mapper303;
+pub use crate::mappers::mapper304::Mapper304;
+pub use crate::mappers::mapper305::Mapper305;
 pub use crate::mappers::mapper326::Mapper326;
 pub use crate::mappers::mapper328::Mapper328;
 pub use crate::mappers::mapper329::Mapper329;
@@ -859,13 +863,18 @@ pub fn create_mapper(
         292 => Box::new(Mapper292::new(header, rom, rom_name)),
         293 => Box::new(Mapper293::new()),
         294 => Box::new(Mapper294::new()),
+        295 => Box::new(Mapper90::new(Mapper90Variant::Mapper295)),
         296 => Box::new(Mapper296::new()),
         297 => Box::new(Mapper297::new()),
+        298 => Box::new(Mapper298::new()),
         299 => Box::new(Mapper299::new()),
         300 => Box::new(Mapper300::new()),
-        295 => Box::new(Mapper90::new(Mapper90Variant::Mapper295)),
-        298 => Box::new(Mapper298::new()),
-        311 => Box::new(Mapper43::new()),
+        301 => Box::new(Mapper242::new()),
+        302 => Box::new(Mapper302::new()),
+        303 => Box::new(Mapper303::new()),
+         304 => Box::new(Mapper304::new()),
+         305 => Box::new(Mapper305::new()),
+         311 => Box::new(Mapper43::new()),
         326 => Box::new(Mapper326::new()),
         328 => Box::new(Mapper328::new()),
         329 => Box::new(Mapper329::new()),
