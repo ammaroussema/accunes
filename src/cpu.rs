@@ -4,6 +4,9 @@
     of course no idea if there's some details missed because i don't own an actual nes but this is a close as it'll get haha
 */
 use crate::emulator::Emulator;
+use std::sync::atomic::{AtomicU32, Ordering};
+
+static CPU_TRACE: AtomicU32 = AtomicU32::new(0);
 
 impl Emulator {
     pub fn cpu_tick(&mut self) {
@@ -100,6 +103,18 @@ impl Emulator {
                 self.op_code = 0x00;
             } else if self.op_code == 0x00 {
                 self.do_brk = true;
+            }
+
+            if CPU_TRACE.load(Ordering::Relaxed) > 0 {
+                let pc = self.program_counter;
+                let op = self.op_code;
+                // Skip the VBlank polling loop ($501A: LDA $2002 / $501D: BPL $501A)
+                if pc != 0x501A && pc != 0x501D {
+                    CPU_TRACE.fetch_sub(1, Ordering::Relaxed);
+                    let p = self.get_status_byte(false);
+                    eprintln!("[{:04X}] OP={:02X} A={:02X} X={:02X} Y={:02X} SP={:02X} P={:02X}",
+                        pc, op, self.a, self.x, self.y, self.stack_pointer, p);
+                }
             }
 
             if !self.do_nmi && !self.do_irq && !self.do_reset {

@@ -568,7 +568,9 @@ impl Cartridge {
             vec![0u8; 2 * 1024]
         } else if memory_mapper == 192 || memory_mapper == 195 {
             vec![0u8; 4 * 1024]
-        } else if memory_mapper == 119 || memory_mapper == 124 {
+        } else if memory_mapper == 119 {
+            vec![0u8; 8 * 1024]
+        } else if matches!(memory_mapper, 306 | 307 | 309 | 310) {
             vec![0u8; 8 * 1024]
         } else if memory_mapper == 111 {
             vec![0u8; 32 * 1024]
@@ -595,7 +597,7 @@ impl Cartridge {
         if memory_mapper == 77 {
             using_chr_ram = true;
         }
-        if matches!(memory_mapper, 74 | 119 | 111 | 124 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262) {
+        if matches!(memory_mapper, 74 | 119 | 111 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310) {
             using_chr_ram = true;
         }
 

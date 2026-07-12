@@ -454,10 +454,14 @@ impl Mapper for MapperMMC3 {
             return;
         }
         match address & 0xE001 {
-            0x8000 => self.r8000 = data,
+            0x8000 => {
+                eprintln!("[MMC3] $8000 <- {:#04x} (mode={})", data, data & 7);
+                self.r8000 = data;
+            }
             0x8001 => {
                 let mask = prg8_mask(cart);
                 let mode = self.r8000 & 0x07;
+                eprintln!("[MMC3] $8001 <- {:#04x} (bank={}, mode={})", data, self.r8000 & 7, mode);
                 match mode {
                     0 => self.chr_2k0 = data & 0xFE,
                     1 => self.chr_2k8 = data & 0xFE,
@@ -470,12 +474,30 @@ impl Mapper for MapperMMC3 {
                     _ => {}
                 }
             }
-            0xA000 => self.nametable_mirroring = (data & 1) != 0,
-            0xA001 => self.prg_ram_protect = data,
-            0xC000 => self.irq_latch = data,
-            0xC001 => self.reload_irq_counter = true,
-            0xE000 => self.enable_irq = false,
-            0xE001 => self.enable_irq = true,
+            0xA000 => {
+                eprintln!("[MMC3] $A000 <- {:#04x} (mirror={})", data, data & 1);
+                self.nametable_mirroring = (data & 1) != 0;
+            }
+            0xA001 => {
+                eprintln!("[MMC3] $A001 <- {:#04x}", data);
+                self.prg_ram_protect = data;
+            }
+            0xC000 => {
+                eprintln!("[MMC3] $C000 <- {:#04x} (IRQ latch)", data);
+                self.irq_latch = data;
+            }
+            0xC001 => {
+                eprintln!("[MMC3] $C001 <- {:#04x} (IRQ reload)", data);
+                self.reload_irq_counter = true;
+            }
+            0xE000 => {
+                eprintln!("[MMC3] $E000 <- {:#04x} (IRQ disable)", data);
+                self.enable_irq = false;
+            }
+            0xE001 => {
+                eprintln!("[MMC3] $E001 <- {:#04x} (IRQ enable)", data);
+                self.enable_irq = true;
+            }
             _ => {}
         }
     }

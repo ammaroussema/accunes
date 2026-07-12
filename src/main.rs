@@ -117,7 +117,45 @@ struct DipGame {
     settings: Vec<DipSetting>,
 }
 
-fn load_dip_game(target_crc: u32) -> Option<DipGame> {
+fn supergm3_dip_game() -> DipGame {
+    DipGame {
+        settings: vec![
+            DipSetting {
+                name: "Play Time per Credit".into(),
+                mask: 0x03,
+                default_val: 0x00,
+                choices: vec![
+                    DipChoice { name: "3 min".into(),  value: 0x00 },
+                    DipChoice { name: "5 min".into(),  value: 0x02 },
+                    DipChoice { name: "8 min".into(),  value: 0x01 },
+                    DipChoice { name: "10 min".into(), value: 0x03 },
+                ],
+            },
+            DipSetting {
+                name: "Coinage".into(),
+                mask: 0x0c,
+                default_val: 0x00,
+                choices: vec![
+                    DipChoice { name: "3 Coins / 1 Credit".into(), value: 0x0c },
+                    DipChoice { name: "2 Coins / 1 Credit".into(), value: 0x08 },
+                    DipChoice { name: "1 Coin  / 1 Credit".into(),  value: 0x00 },
+                    DipChoice { name: "1 Coin  / 2 Credits".into(), value: 0x04 },
+                ],
+            },
+            DipSetting {
+                name: "Enable 2 Players".into(),
+                mask: 0x10,
+                default_val: 0x00,
+                choices: vec![
+                    DipChoice { name: "Off".into(), value: 0x00 },
+                    DipChoice { name: "On".into(),  value: 0x10 },
+                ],
+            },
+        ],
+    }
+}
+
+fn load_dip_game(target_crc: u32, mapper_id: u16) -> Option<DipGame> {
     let cfg_path = (|| {
         let exe = std::env::current_exe().ok()?;
         let mut dir = exe.parent()?.to_path_buf();
@@ -244,6 +282,10 @@ fn load_dip_game(target_crc: u32) -> Option<DipGame> {
     }
     if found_game && crc_matches {
         return Some(game);
+    }
+
+    if mapper_id == 124 {
+        return Some(supergm3_dip_game());
     }
 
     None
@@ -612,7 +654,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.1.3";
+const APP_VERSION: &str = "1.1.4";
 
 fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     let a = a.trim_start_matches('v');
@@ -960,7 +1002,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.1.3")
+        .with_title("AccuNES 1.1.4")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -3335,20 +3377,21 @@ fn main() {
                                                     *current_rom_clone.borrow_mut() = Some(path_str.clone());
                                                     
                                                     let crc = emu_clone.lock().unwrap().prg_rom_crc32();
-                                                    if let Some(game) = load_dip_game(crc) {
-                                                        let mut emu = emu_clone.lock().unwrap();
-                                                        let dip_val = emu.get_dip_switches();
-                                                        let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
-                                                        emu.set_dip_switches(new_val as u8);
-                                                        let variant = compute_vs_ppu_variant(&game, new_val as u8, crc);
-                                                        emu.set_vs_ppu_variant(variant);
-                                                        drop(emu);
-                                                        ms_mut.dip_definition = Some(game);
-                                                        ms_mut.show_dip_switches = true;
-                                                        paused_clone.store(true, Ordering::Relaxed);
-                                                    }
-
-                                                    if *fullscreen_on_game_load_clone.borrow() {
+                                                    let mapper_id = emu_clone.lock().unwrap().memory_mapper();
+                                                     if let Some(game) = load_dip_game(crc, mapper_id) {
+                                                         let mut emu = emu_clone.lock().unwrap();
+                                                         let dip_val = emu.get_dip_switches();
+                                                         let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
+                                                         emu.set_dip_switches(new_val as u8);
+                                                         let variant = compute_vs_ppu_variant(&game, new_val as u8, crc);
+                                                         emu.set_vs_ppu_variant(variant);
+                                                         drop(emu);
+                                                         ms_mut.dip_definition = Some(game);
+                                                         ms_mut.show_dip_switches = true;
+                                                         paused_clone.store(true, Ordering::Relaxed);
+                                                     }
+                                                     
+                                                     if *fullscreen_on_game_load_clone.borrow() {
                                                         window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
                                                     }
                                                     window.set_cursor_visible(!*hide_mouse_cursor_clone.borrow());
@@ -3454,19 +3497,20 @@ fn main() {
                                                             rom_loaded_flag_clone.store(true, Ordering::Relaxed);
                                                             *current_rom_clone.borrow_mut() = Some(path_str.clone());
                                                             
+                                                            let mapper_id = emu_clone.lock().unwrap().memory_mapper();
                                                             let crc = emu_clone.lock().unwrap().prg_rom_crc32();
-                                                            if let Some(game) = load_dip_game(crc) {
-                                                                let mut emu = emu_clone.lock().unwrap();
-                                                                let dip_val = emu.get_dip_switches();
-                                                                let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
-                                                                emu.set_dip_switches(new_val as u8);
-                                                                let variant = compute_vs_ppu_variant(&game, new_val as u8, crc);
-                                                                emu.set_vs_ppu_variant(variant);
-                                                                drop(emu);
-                                                                ms_mut.dip_definition = Some(game);
-                                                                ms_mut.show_dip_switches = true;
-                                                                paused_clone.store(true, Ordering::Relaxed);
-                                                            }
+                                                             if let Some(game) = load_dip_game(crc, mapper_id) {
+                                                                 let mut emu = emu_clone.lock().unwrap();
+                                                                 let dip_val = emu.get_dip_switches();
+                                                                 let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
+                                                                 emu.set_dip_switches(new_val as u8);
+                                                                 let variant = compute_vs_ppu_variant(&game, new_val as u8, crc);
+                                                                 emu.set_vs_ppu_variant(variant);
+                                                                 drop(emu);
+                                                                 ms_mut.dip_definition = Some(game);
+                                                                 ms_mut.show_dip_switches = true;
+                                                                 paused_clone.store(true, Ordering::Relaxed);
+                                                             }
 
                                                             if *fullscreen_on_game_load_clone.borrow() {
                                                                 window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
@@ -3565,9 +3609,10 @@ fn main() {
                                                 paused_clone.store(!paused_clone.load(Ordering::Relaxed), Ordering::Relaxed);
                                             }
                                             NesMenuItem::DipSwitches => {
-                                                if *rom_loaded_clone.borrow() && emu_clone.lock().unwrap().has_dip_switches() {
-                                                    let crc = emu_clone.lock().unwrap().prg_rom_crc32();
-                                                    let game = load_dip_game(crc);
+                                                 if *rom_loaded_clone.borrow() && emu_clone.lock().unwrap().has_dip_switches() {
+                                                     let mapper_id = emu_clone.lock().unwrap().memory_mapper();
+                                                     let crc = emu_clone.lock().unwrap().prg_rom_crc32();
+                                                     let game = load_dip_game(crc, mapper_id);
                                                     if let Some(ref g) = game {
                                                         let dip_val = emu_clone.lock().unwrap().get_dip_switches();
                                                         let variant = compute_vs_ppu_variant(g, dip_val, crc);
@@ -4041,9 +4086,9 @@ fn main() {
                         } else if lower.ends_with(".fds") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.1.3: {}", filename)
+                        format!("AccuNES 1.1.4: {}", filename)
                     } else {
-                        "AccuNES 1.1.3".to_string()
+                        "AccuNES 1.1.4".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -4457,7 +4502,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.1.3",
+                        "Version: 1.1.4",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };

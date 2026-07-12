@@ -112,7 +112,6 @@ pub use crate::mappers::mapper120::Mapper120;
 pub use crate::mappers::mapper121::Mapper121;
 pub use crate::mappers::mapper122::Mapper122;
 pub use crate::mappers::mapper123::Mapper123;
-pub use crate::mappers::mapper124::Mapper124;
 pub use crate::mappers::mapper125::Mapper125;
 pub use crate::mappers::mapper127::Mapper127;
 pub use crate::mappers::mapper128::Mapper128;
@@ -262,6 +261,11 @@ pub use crate::mappers::mapper302::Mapper302;
 pub use crate::mappers::mapper303::Mapper303;
 pub use crate::mappers::mapper304::Mapper304;
 pub use crate::mappers::mapper305::Mapper305;
+pub use crate::mappers::mapper306::Mapper306;
+pub use crate::mappers::mapper307::Mapper307;
+pub use crate::mappers::mapper308::Mapper308;
+pub use crate::mappers::mapper309::Mapper309;
+pub use crate::mappers::mapper310::Mapper310;
 pub use crate::mappers::mapper326::Mapper326;
 pub use crate::mappers::mapper328::Mapper328;
 pub use crate::mappers::mapper329::Mapper329;
@@ -648,7 +652,7 @@ pub fn create_mapper(
         )),
         122 => Box::new(Mapper122::new()),
         123 => Box::new(Mapper123::new(prg_size)),
-        124 => Box::new(Mapper124::new(if header[14] >> 4 != 0 { header[15] } else { 0 })),
+    //  124 => Box::new(Mapper124::new()), (UNSUPPORTED)
         125 => Box::new(Mapper125::new()),
         126 => Box::new(MapperAx5202p::new(Ax5202pVariant::Mapper126)),
         127 => Box::new(Mapper127::new()),
@@ -872,9 +876,14 @@ pub fn create_mapper(
         301 => Box::new(Mapper242::new()),
         302 => Box::new(Mapper302::new()),
         303 => Box::new(Mapper303::new()),
-         304 => Box::new(Mapper304::new()),
-         305 => Box::new(Mapper305::new()),
-         311 => Box::new(Mapper43::new()),
+        304 => Box::new(Mapper304::new()),
+        305 => Box::new(Mapper305::new()),
+        306 => Box::new(Mapper306::new()),
+        307 => Box::new(Mapper307::new()),
+        308 => Box::new(Mapper308::new()),
+        309 => Box::new(Mapper309::new()),
+        310 => Box::new(Mapper310::new()),
+        311 => Box::new(Mapper43::new()),
         326 => Box::new(Mapper326::new()),
         328 => Box::new(Mapper328::new()),
         329 => Box::new(Mapper329::new()),

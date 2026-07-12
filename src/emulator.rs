@@ -888,7 +888,6 @@ impl Emulator {
                 || cart.memory_mapper == 59
                 || cart.memory_mapper == 83
                 || cart.memory_mapper == 90
-                || cart.memory_mapper == 124
                 || cart.memory_mapper == 262
                 || cart.memory_mapper == 264
                 || cart.memory_mapper == 242
@@ -901,6 +900,14 @@ impl Emulator {
     pub fn prg_rom_crc32(&self) -> u32 {
         if let Some(ref cart) = self.cart {
             cart.prg_rom_crc32
+        } else {
+            0
+        }
+    }
+
+    pub fn memory_mapper(&self) -> u16 {
+        if let Some(ref cart) = self.cart {
+            cart.memory_mapper
         } else {
             0
         }
