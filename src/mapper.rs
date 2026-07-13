@@ -266,6 +266,10 @@ pub use crate::mappers::mapper307::Mapper307;
 pub use crate::mappers::mapper308::Mapper308;
 pub use crate::mappers::mapper309::Mapper309;
 pub use crate::mappers::mapper310::Mapper310;
+pub use crate::mappers::mapper312::Mapper312;
+pub use crate::mappers::mapper313::Mapper313;
+pub use crate::mappers::mapper314::Mapper314;
+pub use crate::mappers::mapper315::Mapper315;
 pub use crate::mappers::mapper326::Mapper326;
 pub use crate::mappers::mapper328::Mapper328;
 pub use crate::mappers::mapper329::Mapper329;
@@ -884,6 +888,10 @@ pub fn create_mapper(
         309 => Box::new(Mapper309::new()),
         310 => Box::new(Mapper310::new()),
         311 => Box::new(Mapper43::new()),
+        312 => Box::new(Mapper312::new()),
+        313 => Box::new(Mapper313::new(header, rom, rom_name, submapper_id)),
+        314 => Box::new(Mapper314::new(!using_chr_ram)),
+        315 => Box::new(Mapper315::new(header, rom, rom_name)),
         326 => Box::new(Mapper326::new()),
         328 => Box::new(Mapper328::new()),
         329 => Box::new(Mapper329::new()),

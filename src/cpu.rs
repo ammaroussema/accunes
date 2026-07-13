@@ -107,13 +107,9 @@ impl Emulator {
 
             if CPU_TRACE.load(Ordering::Relaxed) > 0 {
                 let pc = self.program_counter;
-                let op = self.op_code;
-                // Skip the VBlank polling loop ($501A: LDA $2002 / $501D: BPL $501A)
+                let _op = self.op_code;
                 if pc != 0x501A && pc != 0x501D {
                     CPU_TRACE.fetch_sub(1, Ordering::Relaxed);
-                    let p = self.get_status_byte(false);
-                    eprintln!("[{:04X}] OP={:02X} A={:02X} X={:02X} Y={:02X} SP={:02X} P={:02X}",
-                        pc, op, self.a, self.x, self.y, self.stack_pointer, p);
                 }
             }
 
