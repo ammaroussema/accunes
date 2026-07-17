@@ -312,6 +312,10 @@ pub use crate::mappers::mapper337::Mapper337;
 pub use crate::mappers::mapper338::Mapper338;
 pub use crate::mappers::mapper339::Mapper339;
 pub use crate::mappers::mapper340::Mapper340;
+pub use crate::mappers::mapper341::Mapper341;
+pub use crate::mappers::mapper343::Mapper343;
+pub use crate::mappers::mapper344::Mapper344;
+pub use crate::mappers::mapper345::Mapper345;
 pub use crate::mappers::mapper582::Mapper582;
 
 pub fn mirror_h_or_v(horizontal: bool, address: u16) -> u16 {
@@ -937,13 +941,18 @@ pub fn create_mapper(
         332 => Box::new(Mapper332::new(header, rom, rom_name)),
         333 => Box::new(Mapper333::new(header, rom, rom_name)),
         334 => Box::new(Mapper334::new(header, rom, rom_name)),
-         335 => Box::new(Mapper335::new(header, rom, rom_name)),
-         336 => Box::new(Mapper336::new(header, rom, rom_name)),
-         337 => Box::new(Mapper337::new(header, rom, rom_name)),
-         338 => Box::new(Mapper338::new(header, rom, rom_name)),
-         339 => Box::new(Mapper339::new(header, rom, rom_name)),
-         340 => Box::new(Mapper340::new(header, rom, rom_name)),
-         358 => Box::new(Mapper90::new(Mapper90Variant::Mapper358)),
+        335 => Box::new(Mapper335::new(header, rom, rom_name)),
+        336 => Box::new(Mapper336::new(header, rom, rom_name)),
+        337 => Box::new(Mapper337::new(header, rom, rom_name)),
+        338 => Box::new(Mapper338::new(header, rom, rom_name)),
+        339 => Box::new(Mapper339::new(header, rom, rom_name)),
+        340 => Box::new(Mapper340::new(header, rom, rom_name)),
+        341 => Box::new(Mapper341::new(header, rom, rom_name)),
+     // 342 => Box::new(Mapper342::new(header, rom, rom_name)), (too complex for now!!)
+        343 => Box::new(Mapper343::new(header, rom, rom_name)),
+        344 => Box::new(Mapper344::new(header, rom, rom_name)),
+        345 => Box::new(Mapper345::new(header, rom, rom_name)),
+        358 => Box::new(Mapper90::new(Mapper90Variant::Mapper358)),
         365 => Box::new(Mapper365::new()),
         385 => Box::new(Mapper385::new()),
         386 => Box::new(Mapper90::new(Mapper90Variant::Mapper386)),
