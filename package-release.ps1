@@ -25,6 +25,16 @@ switch ($Profile) {
         $TargetDir = "target\i686-pc-windows-msvc\debug"
         $Suffix = "win32-debug"
     }
+    "arm64" {
+        $BuildArgs = @("build", "--release", "--target", "aarch64-pc-windows-msvc")
+        $TargetDir = "target\aarch64-pc-windows-msvc\release"
+        $Suffix = "winarm64"
+    }
+    "arm64debug" {
+        $BuildArgs = @("build", "--target", "aarch64-pc-windows-msvc")
+        $TargetDir = "target\aarch64-pc-windows-msvc\debug"
+        $Suffix = "winarm64-debug"
+    }
     default {
         $BuildArgs = @("build", "--profile", $Profile)
         $TargetDir = "target\$Profile"

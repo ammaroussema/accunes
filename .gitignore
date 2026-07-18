@@ -25,5 +25,8 @@ Thumbs.db
 # Config
 dip.cfg
 
+# Personal build script
+ver_packager.ps1
+
 # Docs
 readme.txt
