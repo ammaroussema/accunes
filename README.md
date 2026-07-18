@@ -31,6 +31,8 @@ currently supported profiles:
 "debug": win64 debug version!
 "x32": win32 release version!
 "x32debug": win32 debug version!
+"arm64": windows arm release version!
+"arm64debug": windows arm debug version!
 
 ** manual method ** using rust cargo builder:
 
@@ -61,6 +63,18 @@ cargo build --target i686-pc-windows-msvc
 ```
 
 for the win32 debug version!
+
+or:
+```sh
+cargo build --release --target aarch64-pc-windows-msvc
+```
+for the windows arm release version!
+
+or:
+```sh
+cargo build --target aarch64-pc-windows-msvc
+```
+for the windows arm debug version!
 
 output folders/archives for both methods are usually inside the target folder.
 
