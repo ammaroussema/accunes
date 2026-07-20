@@ -892,6 +892,7 @@ impl Emulator {
                 || cart.memory_mapper == 264
                 || cart.memory_mapper == 242
                 || cart.memory_mapper == 286
+                || cart.memory_mapper == 360
         } else {
             false
         }
