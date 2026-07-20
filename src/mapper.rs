@@ -321,6 +321,12 @@ pub use crate::mappers::mapper347::Mapper347;
 pub use crate::mappers::mapper348::Mapper348;
 pub use crate::mappers::mapper349::Mapper349;
 pub use crate::mappers::mapper350::Mapper350;
+pub use crate::mappers::mapper351::Mapper351;
+pub use crate::mappers::mapper352::Mapper352;
+pub use crate::mappers::mapper353::Mapper353;
+pub use crate::mappers::mapper354::Mapper354;
+pub use crate::mappers::mapper356::Mapper356;
+pub use crate::mappers::mapper357::Mapper357;
 pub use crate::mappers::mapper582::Mapper582;
 
 pub fn mirror_h_or_v(horizontal: bool, address: u16) -> u16 {
@@ -962,6 +968,13 @@ pub fn create_mapper(
         348 => Box::new(Mapper348::new(header, rom, rom_name)),
         349 => Box::new(Mapper349::new(header, rom, rom_name)),
         350 => Box::new(Mapper350::new(header, rom, rom_name)),
+        351 => Box::new(Mapper351::new(header, rom, rom_name)),
+        352 => Box::new(Mapper352::new(header, rom, rom_name)),
+        353 => Box::new(Mapper353::new(header, rom, rom_name)),
+        354 => Box::new(Mapper354::new(header, rom, rom_name)),
+     // 355 => Box::new(Mapper355::new(header, rom, rom_name)), (too complex for now!!)
+        356 => Box::new(Mapper356::new(header, rom, rom_name)),
+        357 => Box::new(Mapper357::new(header, rom, rom_name)),
         358 => Box::new(Mapper90::new(Mapper90Variant::Mapper358)),
         365 => Box::new(Mapper365::new()),
         385 => Box::new(Mapper385::new()),

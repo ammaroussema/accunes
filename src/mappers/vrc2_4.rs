@@ -60,6 +60,14 @@ impl Vrc2And4 {
         }
     }
 
+    pub fn nametable_mirroring_value(&self) -> u8 {
+        self.mirr
+    }
+
+    pub fn chr_bank_raw(&self, index: usize) -> u16 {
+        if index < 8 { self.chr_reg[index] as u16 | self.chr_hi[index] } else { 0 }
+    }
+
     fn decode_address(&self, address: u16) -> u16 {
         let base = address & 0xF000;
         let bit1 = if address & self.reg2mask as u16 != 0 { 1 << 1 } else { 0 };

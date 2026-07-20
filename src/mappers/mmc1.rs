@@ -461,7 +461,7 @@ impl MapperMMC1 {
     }
 }
 
-fn mmc1_mirror_for_ppu(core: &Mmc1Core, ines_horizontal: bool, address: u16) -> u16 {
+pub fn mmc1_mirror_for_ppu(core: &Mmc1Core, ines_horizontal: bool, address: u16) -> u16 {
     if core.config.variant == Mmc1Variant::Kaiser171 {
         if ines_horizontal {
             (address & 0x33FF) | ((address & 0x0800) >> 1)
