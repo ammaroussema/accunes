@@ -290,6 +290,7 @@ impl Cartridge {
                 "NTBROM" => 68,
                 "NTD-03" => 290,
                 "NovelDiamond" | "NovelDiamond9999999in1" => 54,
+                "OneBus" => 256,
                 "RESET-TXROM" => 313,
                 "RET-CUFROM" => 29,
                 "SA-002" => 136,
