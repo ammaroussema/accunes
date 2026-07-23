@@ -27,54 +27,72 @@ impl Emulator {
             }
         } else if address < 0x2000 {
             self.data_bus = self.ram[(address & 0x7FF) as usize];
-            self.data_pins_are_not_floating = true;
-        } else if address >= 0x2000 && address < 0x4000 {
-            // ppu registers
-            let reg = address & 0x2007;
-            match reg {
-                0x2000 => { self.data_bus = self.ppu_bus; }
-                0x2001 => { self.data_bus = self.ppu_bus; }
-                0x2002 => {
-                    self.data_bus = if self.ppu_status_vblank { 0x80 } else { 0 };
-                    self.ppu_read_2002 = true;
-                    self.emulate_until_end_of_read();
-                    self.data_bus |= ((if self.ppu_status_sprite_zero_hit_delayed { 0x40u8 } else { 0 })
-                        | (if self.ppu_status_sprite_overflow_delayed { 0x20 } else { 0 }))
-                        & 0xE0;
-                    self.data_bus |= self.ppu_bus & 0x1F;
-                    self.ppu_addr_latch = false;
-                    self.ppu_bus = self.data_bus;
-                    for i in 5..8 { self.ppu_bus_decay[i] = PPU_BUS_DECAY_CONSTANT; }
+            self.data_pins_are_not_floating = true;        } else if address >= 0x2000 && address < 0x4000 {
+            let is_onebus = self.cart.as_ref().map_or(false, |c| c.memory_mapper == 256);
+            if is_onebus && address >= 0x2010 {
+                let cart = self.cart.as_mut().unwrap();
+                let mut mapper = std::mem::replace(&mut cart.mapper_chip, Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default())));
+                let result = mapper.fetch_prg(cart, address);
+                let cart = self.cart.as_mut().unwrap();
+                cart.mapper_chip = mapper;
+                self.data_pins_are_not_floating = result.driven;
+                if result.driven {
+                    self.data_bus = result.data;
                 }
-                0x2003 => { self.data_bus = self.ppu_bus; }
-                0x2004 => {
-                    self.emulate_until_end_of_read();
-                    self.data_bus = self.read_oam();
-                    self.ppu_bus = self.data_bus;
-                    for i in 0..8 { self.ppu_bus_decay[i] = PPU_BUS_DECAY_CONSTANT; }
-                }
-                0x2005 => { self.data_bus = self.ppu_bus; }
-                0x2006 => { self.data_bus = self.ppu_bus; }
-                0x2007 => {
-                    if (self.ppu_v & 0x3FFF) >= 0x3F00 {
-                        self.this_dot_read_from_palette_ram = true;
-                        let mut pal_addr = self.ppu_v & 0x3F1F;
-                        if (pal_addr & 3) == 0 { pal_addr &= 0x3F0F; }
-                        let pal_val = self.palette_ram[(pal_addr & 0x1F) as usize];
-                        let mask = if self.ppu_mask_greyscale { 0x30 } else { 0x3F };
-                        self.data_bus = (pal_val & mask) | (self.ppu_bus & 0xC0);
-                    } else {
-                        self.data_bus = self.ppu_read_buffer;
+            } else {
+                // ppu registers
+                let reg = address & 0x2007;
+                match reg {
+                    0x2000 => { self.data_bus = self.ppu_bus; }
+                    0x2001 => { self.data_bus = self.ppu_bus; }
+                    0x2002 => {
+                        self.data_bus = if self.ppu_status_vblank { 0x80 } else { 0 };
+                        self.ppu_read_2002 = true;
+                        self.emulate_until_end_of_read();
+                        self.data_bus |= ((if self.ppu_status_sprite_zero_hit_delayed { 0x40u8 } else { 0 })
+                            | (if self.ppu_status_sprite_overflow_delayed { 0x20 } else { 0 }))
+                            & 0xE0;
+                        self.data_bus |= self.ppu_bus & 0x1F;
+                        self.ppu_addr_latch = false;
+                        self.ppu_bus = self.data_bus;
+                        for i in 5..8 { self.ppu_bus_decay[i] = PPU_BUS_DECAY_CONSTANT; }
                     }
-                    self.ppu_bus = self.data_bus;
-                    for i in 0..8 { self.ppu_bus_decay[i] = PPU_BUS_DECAY_CONSTANT; }
-                    self.emulate_until_end_of_read();
-                    self.ppu_2007_read_sr = true;
-                    self.ppu_2007_read = true;
+                    0x2003 => { self.data_bus = self.ppu_bus; }
+                    0x2004 => {
+                        self.emulate_until_end_of_read();
+                        self.data_bus = self.read_oam();
+                        self.ppu_bus = self.data_bus;
+                        for i in 0..8 { self.ppu_bus_decay[i] = PPU_BUS_DECAY_CONSTANT; }
+                    }
+                    0x2005 => { self.data_bus = self.ppu_bus; }
+                    0x2006 => { self.data_bus = self.ppu_bus; }
+                    0x2007 => {
+                        if (self.ppu_v & 0x3FFF) >= 0x3F00 {
+                            self.this_dot_read_from_palette_ram = true;
+                            let is_onebus = self.cart.as_ref().map_or(false, |c| c.memory_mapper == 256);
+                            let pal_addr = if is_onebus {
+                                (self.ppu_v & 0xFF) as usize
+                            } else {
+                                let mut pal_addr = self.ppu_v & 0x3F1F;
+                                if (pal_addr & 3) == 0 { pal_addr &= 0x3F0F; }
+                                (pal_addr & 0x1F) as usize
+                            };
+                            let pal_val = self.palette_ram[pal_addr];
+                            let mask = if self.ppu_mask_greyscale { 0x30 } else { 0x3F };
+                            self.data_bus = (pal_val & mask) | (self.ppu_bus & 0xC0);
+                        } else {
+                            self.data_bus = self.ppu_read_buffer;
+                        }
+                        self.ppu_bus = self.data_bus;
+                        for i in 0..8 { self.ppu_bus_decay[i] = PPU_BUS_DECAY_CONSTANT; }
+                        self.emulate_until_end_of_read();
+                        self.ppu_2007_read_sr = true;
+                        self.ppu_2007_read = true;
+                    }
+                    _ => {}
                 }
-                _ => {}
+                self.data_pins_are_not_floating = true;
             }
-            self.data_pins_are_not_floating = true;
         } else if self.cart.is_some() {
             // $4000-$401F: apu/io registers, and mapper space
             let cart = self.cart.as_mut().unwrap();
@@ -289,7 +307,10 @@ impl Emulator {
         if address < 0x2000 {
             self.ram[(address & 0x7FF) as usize] = input;
         } else if address < 0x4000 {
-            self.store_ppu_registers(address, input);
+            let is_onebus = self.cart.as_ref().map_or(false, |c| c.memory_mapper == 256);
+            if !is_onebus || address < 0x2010 {
+                self.store_ppu_registers(address, input);
+            }
         } else if address >= 0x4000 && address <= 0x4015 {
             self.store_apu_registers(address, input);
         } else if address == 0x4016 {
@@ -348,6 +369,11 @@ impl Emulator {
             }
             self.apu_frame_counter_reset = if self.apu_put_cycle { 3 } else { 4 };
         } else if address >= 0x4020 && self.cart.is_some() {
+            let is_onebus = self.cart.as_ref().map_or(false, |c| c.memory_mapper == 256);
+            if is_onebus && address <= 0x402F {
+                let apu_addr = 0x4000 + (address & 0x0F);
+                self.store_apu_registers(apu_addr, input);
+            }
             let cart = self.cart.as_mut().unwrap();
             cart.mapper_cpu_cycle = self.total_cycles as i64;
             let mut mapper = std::mem::replace(&mut cart.mapper_chip, Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default())));
@@ -364,7 +390,7 @@ impl Emulator {
                 self.irq_level_detector = false;
             }
 
-              if (address & 0xE001) == 0xE000 && matches!(cart.memory_mapper, 4 | 12 | 37 | 44 | 45 | 47 | 49 | 52 | 64 | 74 | 100 | 114 | 115 | 116 | 118 | 119 | 121 | 123 | 126 | 131 | 134 | 142 | 165 | 169 | 182 | 187 | 189 | 191 | 192 | 194 | 195 | 196 | 197 | 198 | 199 | 205 | 208 | 215 | 219 | 224 | 238 | 245 | 248 | 249 | 254 | 256 | 259 | 260 | 262 | 263 | 267 | 268 | 269 | 287 | 291 | 292 | 296 | 307 | 313 | 315 | 321 | 322 | 325 | 327 | 333 | 334 | 339 | 344 | 345 | 348 | 353 | 356 | 359 | 361 | 362 | 364 | 366 | 367 | 368 | 369 | 370 | 422 | 455 | 531 | 534) {
+              if (address & 0xE001) == 0xE000 && matches!(cart.memory_mapper, 4 | 12 | 37 | 44 | 45 | 47 | 49 | 52 | 64 | 74 | 100 | 114 | 115 | 116 | 118 | 119 | 121 | 123 | 126 | 131 | 134 | 142 | 165 | 169 | 182 | 187 | 189 | 191 | 192 | 194 | 195 | 196 | 197 | 198 | 199 | 205 | 208 | 215 | 219 | 224 | 238 | 245 | 248 | 249 | 254 | 256 | 259 | 260 | 262 | 263 | 267 | 268 | 269 | 287 | 291 | 292 | 296 | 307 | 313 | 315 | 321 | 322 | 325 | 327 | 333 | 334 | 339 | 344 | 345 | 348 | 353 | 356 | 359 | 361 | 362 | 364 | 366 | 367 | 368 | 369 | 370 | 372 | 373 | 422 | 455 | 531 | 534) {
                 self.irq_level_detector = false;
             } else if cart.memory_mapper == 5 && address == 0x5204 {
                 self.irq_level_detector = false;
@@ -576,12 +602,17 @@ impl Emulator {
             }
         } else {
             // palette RAM
-            let mirrored = self.ppu_address_with_mirroring(address);
-            let pal_addr = (mirrored & 0x1F) as usize;
+            let is_onebus = self.cart.as_ref().map_or(false, |c| c.memory_mapper == 256);
+            let pal_addr = if is_onebus {
+                (address & 0xFF) as usize
+            } else {
+                let mirrored = self.ppu_address_with_mirroring(address);
+                (mirrored & 0x1F) as usize
+            };
             self.palette_ram[pal_addr] = input;
             
             // palette mirrors
-            if (pal_addr & 0x03) == 0 {
+            if (pal_addr & 0x63) == 0 {
                 self.palette_ram[pal_addr ^ 0x10] = input;
             }
         }

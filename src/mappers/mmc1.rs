@@ -215,7 +215,7 @@ impl Mmc1Core {
         }
     }
 
-    fn chr_bank_and_mask(&self, address: u16) -> (usize, usize) {
+    pub fn chr_bank_and_mask(&self, address: u16) -> (usize, usize) {
         let chr_mode = (self.control >> 4) & 0x01;
         if chr_mode != 0 {
             let bank = if address < 0x1000 {
@@ -440,7 +440,7 @@ impl Mmc1Core {
 }
 
 pub struct MapperMMC1 {
-    core: Mmc1Core,
+    pub core: Mmc1Core,
     vsdip: u8,
     coinon: u8,
     coinon2: u8,

@@ -65,7 +65,7 @@ pub struct Emulator {
     pub vram: [u8; 0x800],
     pub oam: [u8; 0x100],
     pub oam2: [u8; 32],
-    pub palette_ram: [u8; 0x20],
+    pub palette_ram: [u8; 0x100],
 
     pub ppu_bus: u8,
     pub ppu_bus_decay: [i32; 8],
@@ -418,14 +418,14 @@ impl Emulator {
         Self::init_ram(&mut ram, &mut vram, config::InitialRam::Default);
         let oam2 = [0xFFu8; 32];
 
-        let mut palette_ram = [0u8; 0x20];
+        let mut palette_ram = [0u8; 0x100];
         let pal_init: [u8; 0x20] = [
             0x00,0x00,0x28,0x00,0x00,0x08,0x00,0x00,
             0x00,0x01,0x01,0x20,0x00,0x08,0x00,0x02,
             0x00,0x00,0x00,0x00,0x00,0x02,0x21,0x00,
             0x00,0x00,0x00,0x00,0x00,0x10,0x00,0x00,
         ];
-        palette_ram.copy_from_slice(&pal_init);
+        palette_ram[..0x20].copy_from_slice(&pal_init);
 
         Emulator {
             cart: None,
