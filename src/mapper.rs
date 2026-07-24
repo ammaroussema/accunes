@@ -343,6 +343,11 @@ pub use crate::mappers::mapper372::Mapper372;
 pub use crate::mappers::mapper373::Mapper373;
 pub use crate::mappers::mapper374::Mapper374;
 pub use crate::mappers::mapper375::Mapper375;
+pub use crate::mappers::mapper376::Mapper376;
+pub use crate::mappers::mapper377::Mapper377;
+pub use crate::mappers::mapper378::Mapper378;
+pub use crate::mappers::mapper379::Mapper379;
+pub use crate::mappers::mapper380::Mapper380;
 pub use crate::mappers::mapper582::Mapper582;
 
 pub fn mirror_h_or_v(horizontal: bool, address: u16) -> u16 {
@@ -424,6 +429,10 @@ pub trait Mapper: Send {
 
     // dip switch support for vs system and multicart mappers
     fn get_dip_switches(&self) -> u8 { 0 }
+
+    // VT03 4bpp extended mode detection
+    fn vt03_4bpp_bg(&self) -> bool { false }
+    fn vt03_4bpp_sp(&self) -> bool { false }
     fn set_dip_switches(&mut self, _value: u8) {}
 
     // controller read adjustment for vs system mappers
@@ -1009,6 +1018,11 @@ pub fn create_mapper(
         373 => Box::new(Mapper373::new(header, rom, rom_name)),
         374 => Box::new(Mapper374::new(header, rom, rom_name, using_chr_ram, has_battery)),
         375 => Box::new(Mapper375::new(header, rom, rom_name)),
+        376 => Box::new(Mapper376::new(header, rom, rom_name)),
+        377 => Box::new(Mapper377::new(header, rom, rom_name)),
+        378 => Box::new(Mapper378::new()),
+        379 => Box::new(Mapper379::new()),
+        380 => Box::new(Mapper380::new(header, rom, rom_name)),
         385 => Box::new(Mapper385::new()),
         386 => Box::new(Mapper90::new(Mapper90Variant::Mapper386)),
         387 => Box::new(Mapper90::new(Mapper90Variant::Mapper387)),

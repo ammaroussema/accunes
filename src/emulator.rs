@@ -117,15 +117,21 @@ pub struct Emulator {
 
     pub ppu_bg_pattern_sr_l: u16,
     pub ppu_bg_pattern_sr_h: u16,
+    pub ppu_bg_pattern_sr_l2: u16,
+    pub ppu_bg_pattern_sr_h2: u16,
     pub ppu_bg_attr_sr_l: u16,
     pub ppu_bg_attr_sr_h: u16,
     pub ppu_attr_latch_register: u8,
     pub ppu_low_bit_plane: u8,
     pub ppu_high_bit_plane: u8,
+    pub ppu_low_bit_plane_hi: u8,
+    pub ppu_high_bit_plane_hi: u8,
     pub ppu_attribute: u8,
 
     pub ppu_sprite_sr_l: [u8; 8],
     pub ppu_sprite_sr_h: [u8; 8],
+    pub ppu_sprite_sr_l2: [u8; 8],
+    pub ppu_sprite_sr_h2: [u8; 8],
     pub ppu_sprite_attribute: [u8; 8],
     pub ppu_sprite_pattern: [u8; 8],
     pub ppu_sprite_x_position: [u8; 8],
@@ -133,6 +139,8 @@ pub struct Emulator {
     pub ppu_sprite_shifter_counter: [u8; 8],
     pub ppu_sprite_pattern_l: u8,
     pub ppu_sprite_pattern_h: u8,
+    pub ppu_sprite_pattern_l2: u8,
+    pub ppu_sprite_pattern_h2: u8,
     pub ppu_next_scanline_contains_sprite_zero: bool,
     pub ppu_current_scanline_contains_sprite_zero: bool,
     pub ppu_can_detect_sprite_zero_hit: bool,
@@ -472,15 +480,20 @@ impl Emulator {
             ppu_mask_show_background_instant: false, ppu_mask_show_sprites_instant: false,
             ppu_mask_show_background_delayed: false, ppu_mask_show_sprites_delayed: false,
             ppu_bg_pattern_sr_l: 0, ppu_bg_pattern_sr_h: 0,
+            ppu_bg_pattern_sr_l2: 0, ppu_bg_pattern_sr_h2: 0,
             ppu_bg_attr_sr_l: 0, ppu_bg_attr_sr_h: 0,
             ppu_attr_latch_register: 0,
-            ppu_low_bit_plane: 0, ppu_high_bit_plane: 0, ppu_attribute: 0,
+            ppu_low_bit_plane: 0, ppu_high_bit_plane: 0,
+            ppu_low_bit_plane_hi: 0, ppu_high_bit_plane_hi: 0,
+            ppu_attribute: 0,
             ppu_sprite_sr_l: [0; 8], ppu_sprite_sr_h: [0; 8],
+            ppu_sprite_sr_l2: [0; 8], ppu_sprite_sr_h2: [0; 8],
             ppu_sprite_attribute: [0; 8], ppu_sprite_pattern: [0; 8],
             ppu_sprite_x_position: [0; 8], ppu_sprite_y_position: [0; 8],
             ppu_sprite_shifter_counter: [0; 8],
             vs_ppu_variant: 3,
             ppu_sprite_pattern_l: 0, ppu_sprite_pattern_h: 0,
+            ppu_sprite_pattern_l2: 0, ppu_sprite_pattern_h2: 0,
             ppu_next_scanline_contains_sprite_zero: false,
             ppu_current_scanline_contains_sprite_zero: false,
             ppu_can_detect_sprite_zero_hit: false,
@@ -1205,14 +1218,20 @@ impl Emulator {
         out.push(if self.ppu_mask_show_sprites_delayed { 1 } else { 0 });
         out.extend_from_slice(&self.ppu_bg_pattern_sr_l.to_le_bytes());
         out.extend_from_slice(&self.ppu_bg_pattern_sr_h.to_le_bytes());
+        out.extend_from_slice(&self.ppu_bg_pattern_sr_l2.to_le_bytes());
+        out.extend_from_slice(&self.ppu_bg_pattern_sr_h2.to_le_bytes());
         out.extend_from_slice(&self.ppu_bg_attr_sr_l.to_le_bytes());
         out.extend_from_slice(&self.ppu_bg_attr_sr_h.to_le_bytes());
         out.push(self.ppu_attr_latch_register);
         out.push(self.ppu_low_bit_plane);
         out.push(self.ppu_high_bit_plane);
+        out.push(self.ppu_low_bit_plane_hi);
+        out.push(self.ppu_high_bit_plane_hi);
         out.push(self.ppu_attribute);
         out.extend_from_slice(&self.ppu_sprite_sr_l);
         out.extend_from_slice(&self.ppu_sprite_sr_h);
+        out.extend_from_slice(&self.ppu_sprite_sr_l2);
+        out.extend_from_slice(&self.ppu_sprite_sr_h2);
         out.extend_from_slice(&self.ppu_sprite_attribute);
         out.extend_from_slice(&self.ppu_sprite_pattern);
         out.extend_from_slice(&self.ppu_sprite_x_position);
@@ -1220,6 +1239,8 @@ impl Emulator {
         out.extend_from_slice(&self.ppu_sprite_shifter_counter);
         out.push(self.ppu_sprite_pattern_l);
         out.push(self.ppu_sprite_pattern_h);
+        out.push(self.ppu_sprite_pattern_l2);
+        out.push(self.ppu_sprite_pattern_h2);
         out.push(if self.ppu_next_scanline_contains_sprite_zero { 1 } else { 0 });
         out.push(if self.ppu_current_scanline_contains_sprite_zero { 1 } else { 0 });
         out.push(if self.ppu_can_detect_sprite_zero_hit { 1 } else { 0 });
@@ -1501,14 +1522,20 @@ impl Emulator {
         self.ppu_mask_show_sprites_delayed = read_u8()? != 0;
         self.ppu_bg_pattern_sr_l = u16::from_le_bytes([read_u8()?, read_u8()?]);
         self.ppu_bg_pattern_sr_h = u16::from_le_bytes([read_u8()?, read_u8()?]);
+        self.ppu_bg_pattern_sr_l2 = u16::from_le_bytes([read_u8()?, read_u8()?]);
+        self.ppu_bg_pattern_sr_h2 = u16::from_le_bytes([read_u8()?, read_u8()?]);
         self.ppu_bg_attr_sr_l = u16::from_le_bytes([read_u8()?, read_u8()?]);
         self.ppu_bg_attr_sr_h = u16::from_le_bytes([read_u8()?, read_u8()?]);
         self.ppu_attr_latch_register = read_u8()?;
         self.ppu_low_bit_plane = read_u8()?;
         self.ppu_high_bit_plane = read_u8()?;
+        self.ppu_low_bit_plane_hi = read_u8()?;
+        self.ppu_high_bit_plane_hi = read_u8()?;
         self.ppu_attribute = read_u8()?;
         for i in 0..self.ppu_sprite_sr_l.len() { self.ppu_sprite_sr_l[i] = read_u8()?; }
         for i in 0..self.ppu_sprite_sr_h.len() { self.ppu_sprite_sr_h[i] = read_u8()?; }
+        for i in 0..self.ppu_sprite_sr_l2.len() { self.ppu_sprite_sr_l2[i] = read_u8()?; }
+        for i in 0..self.ppu_sprite_sr_h2.len() { self.ppu_sprite_sr_h2[i] = read_u8()?; }
         for i in 0..self.ppu_sprite_attribute.len() { self.ppu_sprite_attribute[i] = read_u8()?; }
         for i in 0..self.ppu_sprite_pattern.len() { self.ppu_sprite_pattern[i] = read_u8()?; }
         for i in 0..self.ppu_sprite_x_position.len() { self.ppu_sprite_x_position[i] = read_u8()?; }
@@ -1516,6 +1543,8 @@ impl Emulator {
         for i in 0..self.ppu_sprite_shifter_counter.len() { self.ppu_sprite_shifter_counter[i] = read_u8()?; }
         self.ppu_sprite_pattern_l = read_u8()?;
         self.ppu_sprite_pattern_h = read_u8()?;
+        self.ppu_sprite_pattern_l2 = read_u8()?;
+        self.ppu_sprite_pattern_h2 = read_u8()?;
         self.ppu_next_scanline_contains_sprite_zero = read_u8()? != 0;
         self.ppu_current_scanline_contains_sprite_zero = read_u8()? != 0;
         self.ppu_can_detect_sprite_zero_hit = read_u8()? != 0;

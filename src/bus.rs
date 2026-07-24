@@ -28,7 +28,10 @@ impl Emulator {
         } else if address < 0x2000 {
             self.data_bus = self.ram[(address & 0x7FF) as usize];
             self.data_pins_are_not_floating = true;        } else if address >= 0x2000 && address < 0x4000 {
-            let is_onebus = self.cart.as_ref().map_or(false, |c| c.memory_mapper == 256);
+            let is_onebus = self
+                .cart
+                .as_ref()
+                .map_or(false, |c| crate::mappers::one_bus::is_onebus_mapper(c.memory_mapper));
             if is_onebus && address >= 0x2010 {
                 let cart = self.cart.as_mut().unwrap();
                 let mut mapper = std::mem::replace(&mut cart.mapper_chip, Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default())));
@@ -69,7 +72,12 @@ impl Emulator {
                     0x2007 => {
                         if (self.ppu_v & 0x3FFF) >= 0x3F00 {
                             self.this_dot_read_from_palette_ram = true;
-                            let is_onebus = self.cart.as_ref().map_or(false, |c| c.memory_mapper == 256);
+                            let is_onebus = self
+                                .cart
+                                .as_ref()
+                                .map_or(false, |c| {
+                                    crate::mappers::one_bus::is_onebus_mapper(c.memory_mapper)
+                                });
                             let pal_addr = if is_onebus {
                                 (self.ppu_v & 0xFF) as usize
                             } else {
@@ -307,7 +315,10 @@ impl Emulator {
         if address < 0x2000 {
             self.ram[(address & 0x7FF) as usize] = input;
         } else if address < 0x4000 {
-            let is_onebus = self.cart.as_ref().map_or(false, |c| c.memory_mapper == 256);
+            let is_onebus = self
+                .cart
+                .as_ref()
+                .map_or(false, |c| crate::mappers::one_bus::is_onebus_mapper(c.memory_mapper));
             if !is_onebus || address < 0x2010 {
                 self.store_ppu_registers(address, input);
             }
@@ -369,7 +380,10 @@ impl Emulator {
             }
             self.apu_frame_counter_reset = if self.apu_put_cycle { 3 } else { 4 };
         } else if address >= 0x4020 && self.cart.is_some() {
-            let is_onebus = self.cart.as_ref().map_or(false, |c| c.memory_mapper == 256);
+            let is_onebus = self
+                .cart
+                .as_ref()
+                .map_or(false, |c| crate::mappers::one_bus::is_onebus_mapper(c.memory_mapper));
             if is_onebus && address <= 0x402F {
                 let apu_addr = 0x4000 + (address & 0x0F);
                 self.store_apu_registers(apu_addr, input);
@@ -390,7 +404,7 @@ impl Emulator {
                 self.irq_level_detector = false;
             }
 
-              if (address & 0xE001) == 0xE000 && matches!(cart.memory_mapper, 4 | 12 | 37 | 44 | 45 | 47 | 49 | 52 | 64 | 74 | 100 | 114 | 115 | 116 | 118 | 119 | 121 | 123 | 126 | 131 | 134 | 142 | 165 | 169 | 182 | 187 | 189 | 191 | 192 | 194 | 195 | 196 | 197 | 198 | 199 | 205 | 208 | 215 | 219 | 224 | 238 | 245 | 248 | 249 | 254 | 256 | 259 | 260 | 262 | 263 | 267 | 268 | 269 | 287 | 291 | 292 | 296 | 307 | 313 | 315 | 321 | 322 | 325 | 327 | 333 | 334 | 339 | 344 | 345 | 348 | 353 | 356 | 359 | 361 | 362 | 364 | 366 | 367 | 368 | 369 | 370 | 372 | 373 | 422 | 455 | 531 | 534) {
+              if (address & 0xE001) == 0xE000 && matches!(cart.memory_mapper, 4 | 12 | 37 | 44 | 45 | 47 | 49 | 52 | 64 | 74 | 100 | 114 | 115 | 116 | 118 | 119 | 121 | 123 | 126 | 131 | 134 | 142 | 165 | 169 | 182 | 187 | 189 | 191 | 192 | 194 | 195 | 196 | 197 | 198 | 199 | 205 | 208 | 215 | 219 | 224 | 238 | 245 | 248 | 249 | 254 | 256 | 259 | 260 | 262 | 263 | 267 | 268 | 269 | 287 | 291 | 292 | 296 | 307 | 313 | 315 | 321 | 322 | 325 | 327 | 333 | 334 | 339 | 344 | 345 | 348 | 353 | 356 | 359 | 361 | 362 | 364 | 366 | 367 | 368 | 369 | 370 | 372 | 373 | 377 | 422 | 455 | 531 | 534) {
                 self.irq_level_detector = false;
             } else if cart.memory_mapper == 5 && address == 0x5204 {
                 self.irq_level_detector = false;

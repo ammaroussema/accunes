@@ -1,5 +1,8 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
+use crate::mappers::one_bus::{
+    chr_or_from_296_regs, descramble_chr_byte, prg_or_from_296_regs, OneBus, OneBusBanking,
+};
 
 const MODE_MMC3: u8 = 0;
 const MODE_MMC1: u8 = 1;
@@ -7,26 +10,15 @@ const MODE_UNROM: u8 = 2;
 const MODE_CNROM: u8 = 3;
 
 fn prg_off(reg2c: u8, reg2e: u8) -> usize {
-    let mut off = 0usize;
-    if (reg2c & 1) != 0 { off |= 0x1000; }
-    if (reg2c & 4) != 0 { off |= 0x2000; }
-    if (reg2e & 1) != 0 { off |= 0x4000; }
-    off
+    prg_or_from_296_regs(reg2c, reg2e) as usize
 }
 
 fn chr_off(reg2c: u8, reg2e: u8) -> usize {
-    let mut off = 0usize;
-    if (reg2c & 2) != 0 { off |= 0x8000; }
-    if (reg2c & 8) != 0 { off |= 0x10000; }
-    if (reg2e & 1) != 0 { off |= 0x20000; }
-    off
-}
-
-fn descramble_byte(val: u8) -> u8 {
-    (val << 4 & 0x90) | (val >> 4 & 0x09) | (val << 1 & 0x44) | (val >> 1 & 0x22)
+    chr_or_from_296_regs(reg2c, reg2e)
 }
 
 pub struct Mapper296 {
+    core: OneBus,
     mode: u8,
     chrram_mode: bool,
     reg1e: u8,
@@ -58,12 +50,12 @@ pub struct Mapper296 {
     mmc1_last_write_cycle: i64,
 
     irq: bool,
-    a12_filter: u8,
 }
 
 impl Mapper296 {
     pub fn new() -> Self {
         Self {
+            core: OneBus::new(&[], &[], OneBusBanking::MAPPER256),
             mode: 0,
             chrram_mode: false,
             reg1e: 0,
@@ -95,8 +87,34 @@ impl Mapper296 {
             mmc1_last_write_cycle: -2,
 
             irq: false,
-            a12_filter: 0,
         }
+    }
+
+    fn refresh_banking(&mut self) {
+        let prg_or = prg_or_from_296_regs(self.reg2c, self.reg2e);
+        let chr_or = chr_or_from_296_regs(self.reg2c, self.reg2e);
+        self.core.banking = OneBusBanking {
+            prg_and: 0x0FFF,
+            prg_or,
+            chr_and: 0x7FFF,
+            chr_or,
+        };
+    }
+
+    fn sync_mmc3_to_core(&mut self) {
+        self.core.reg4100[0x05] = self.r8000 & !0x20;
+        self.core.reg2000[0x16] = self.chr_2k0;
+        self.core.reg2000[0x17] = self.chr_2k8;
+        self.core.reg2000[0x12] = self.chr_1k0;
+        self.core.reg2000[0x13] = self.chr_1k4;
+        self.core.reg2000[0x14] = self.chr_1k8;
+        self.core.reg2000[0x15] = self.chr_1kc;
+        self.core.reg4100[0x07] = self.bank_8c;
+        self.core.reg4100[0x08] = self.bank_a;
+        self.core.reg4100[0x06] = if self.mmc3_mirror { 1 } else { 0 };
+        self.core.irq_reload = self.irq_latch;
+        self.core.irq_counter = self.irq_counter;
+        self.core.irq_enabled = self.enable_irq;
     }
 
     fn bank_offset(&self) -> usize {
@@ -276,7 +294,8 @@ impl Mapper for Mapper296 {
         self.mmc1_last_write_cycle = -2;
 
         self.irq = false;
-        self.a12_filter = 0;
+        self.core.reset();
+        self.refresh_banking();
     }
 
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
@@ -330,10 +349,22 @@ impl Mapper for Mapper296 {
                 0x1D => {
                     self.mode = data & 3;
                     self.chrram_mode = (data & 4) != 0;
+                    self.core.reg4100[0x1D] = data;
                 }
-                0x1E => self.reg1e = data,
-                0x2C => self.reg2c = data,
-                0x2E => self.reg2e = data,
+                0x1E => {
+                    self.reg1e = data;
+                    self.core.reg4100[0x1E] = data;
+                }
+                0x2C => {
+                    self.reg2c = data;
+                    self.core.reg4100[0x2C] = data;
+                    self.refresh_banking();
+                }
+                0x2E => {
+                    self.reg2e = data;
+                    self.core.reg4100[0x2E] = data;
+                    self.refresh_banking();
+                }
                 _ => {}
             }
             return;
@@ -352,7 +383,10 @@ impl Mapper for Mapper296 {
             MODE_MMC3 => {
                 let mmc3_idx = address & 0xE001;
                 match mmc3_idx {
-                    0x8000 => self.r8000 = data,
+                    0x8000 => {
+                        self.r8000 = data;
+                        self.sync_mmc3_to_core();
+                    }
                     0x8001 => {
                         let mask = ((cart.prg_rom.len() / 0x2000).max(1) - 1) as u8;
                         let idx = self.r8000 & 0x07;
@@ -367,13 +401,30 @@ impl Mapper for Mapper296 {
                             7 => self.bank_a = data & mask,
                             _ => {}
                         }
+                        self.sync_mmc3_to_core();
                     }
-                    0xA000 => self.mmc3_mirror = (data & 1) != 0,
+                    0xA000 => {
+                        self.mmc3_mirror = (data & 1) != 0;
+                        self.sync_mmc3_to_core();
+                    }
                     0xA001 => {}
-                    0xC000 => self.irq_latch = data,
-                    0xC001 => self.reload_irq = true,
-                    0xE000 => self.enable_irq = false,
-                    0xE001 => self.enable_irq = true,
+                    0xC000 => {
+                        self.irq_latch = data;
+                        self.core.irq_reload = data;
+                    }
+                    0xC001 => {
+                        self.reload_irq = true;
+                        self.core.irq_counter = 0;
+                    }
+                    0xE000 => {
+                        self.enable_irq = false;
+                        self.core.irq_enabled = false;
+                        self.irq = false;
+                    }
+                    0xE001 => {
+                        self.enable_irq = true;
+                        self.core.irq_enabled = true;
+                    }
                     _ => {}
                 }
             }
@@ -494,7 +545,7 @@ impl Mapper for Mapper296 {
             }
         };
         let byte = if self.descramble() {
-            descramble_byte(byte)
+            descramble_chr_byte(byte)
         } else {
             byte
         };
@@ -527,36 +578,25 @@ impl Mapper for Mapper296 {
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
-        ppu_a12_prev: bool,
-        _scanline: u16,
-        _dot: u16,
+        _ppu_a12_prev: bool,
+        scanline: u16,
+        dot: u16,
         _ppu_sprite_x16: bool,
-        _rendering_on: bool,
+        rendering_on: bool,
     ) -> bool {
         if self.mode != MODE_MMC3 {
             return false;
         }
-        let a12 = (ppu_address_bus & 0x1000) != 0;
-        if a12 && !ppu_a12_prev && self.a12_filter < 8 {
-            self.a12_filter = self.a12_filter.wrapping_add(1);
-        }
-        if a12 && !ppu_a12_prev && self.a12_filter >= 8 {
-            self.a12_filter = 0;
-            if self.reload_irq {
-                self.reload_irq = false;
-            } else if self.irq_counter == 0 {
-                self.irq_counter = self.irq_latch;
-            } else {
-                self.irq_counter = self.irq_counter.wrapping_sub(1);
-            }
-            if self.irq_counter == 0 && self.enable_irq {
-                self.irq = true;
-            }
+        if self.core.ppu_cycle(ppu_address_bus, scanline, dot, rendering_on) {
+            self.irq = true;
         }
         false
     }
 
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
+        if self.mode == MODE_MMC3 && self.core.cpu_cycle() {
+            self.irq = true;
+        }
         let prev_irq = self.irq;
         self.irq = false;
         prev_irq

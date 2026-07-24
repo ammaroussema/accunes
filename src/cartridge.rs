@@ -495,6 +495,10 @@ impl Cartridge {
             chr_rom.copy_from_slice(&rom[0x10 + trainer_len + prg_rom_len..0x10 + trainer_len + prg_rom_len + chr_rom_len]);
         }
 
+        // DEBUG: print detected ROM sizes
+        println!("ROM SIZES: prg_size={} prg_rom_len=${:X} chr_size={} chr_rom_len=${:X} prg_rom_file_len=${:X}",
+            prg_size, prg_rom_len, chr_size, chr_rom_len, prg_rom.len());
+
         let game_data_end = 0x10 + trainer_len + prg_rom_len + chr_rom_len;
         let i_nes_game_crc32 = crate::crc::crc32(&rom[0x10 + trainer_len..game_data_end]);
         if crate::crc::lookup_crc_override(i_nes_game_crc32).is_some() {
