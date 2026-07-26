@@ -204,6 +204,9 @@ impl Cartridge {
                 }
 
                 offset += length;
+                while offset < rom.len() && rom[offset] == 0 {
+                    offset += 1;
+                }
             }
 
             let mut prg_rom = Vec::new();
@@ -581,7 +584,7 @@ impl Cartridge {
             vec![0u8; 8 * 1024]
         } else if memory_mapper == 111 {
             vec![0u8; 32 * 1024]
-        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 372 | 375) {
+        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 372 | 375 | 381 | 382) {
             let chr_ram_size = if is_nes20 && memory_mapper == 268 {
                 let vram_shift = rom[11] & 0x0F;
                 let battery_shift = (rom[11] >> 4) & 0x0F;
@@ -604,7 +607,7 @@ impl Cartridge {
         if memory_mapper == 77 {
             using_chr_ram = true;
         }
-        if matches!(memory_mapper, 74 | 119 | 111 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 372 | 375) {
+        if matches!(memory_mapper, 74 | 119 | 111 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 372 | 375 | 381 | 382) {
             using_chr_ram = true;
         }
         if memory_mapper == 314 && chr_size == 0 {
