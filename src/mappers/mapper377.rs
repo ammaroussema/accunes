@@ -53,7 +53,9 @@ impl Mapper377 {
 }
 
 impl Mapper for Mapper377 {
-    fn reset(&mut self) {
+        fn reset(&mut self) {}
+
+    fn reset_power_cycle(&mut self) {
         self.outer_bank = 0;
         self.mmc3.reset();
     }

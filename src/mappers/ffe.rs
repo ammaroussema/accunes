@@ -165,7 +165,9 @@ impl MapperFfe {
 }
 
 impl Mapper for MapperFfe {
-    fn reset(&mut self) {
+        fn reset(&mut self) {}
+
+    fn reset_power_cycle(&mut self) {
         self.latch = 0;
         self.preg = [0xFF; 4];
         self.creg = [0; 8];

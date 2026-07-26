@@ -277,6 +277,9 @@ pub use crate::mappers::mapper365::Mapper365;
 pub use crate::mappers::mapper385::Mapper385;
 pub use crate::mappers::mapper389::Mapper389;
 pub use crate::mappers::mapper390::Mapper390;
+pub use crate::mappers::mapper391::Mapper391;
+pub use crate::mappers::mapper392::Mapper392;
+pub use crate::mappers::mapper393::Mapper393;
 pub use crate::mappers::mapper409::Mapper409;
 pub use crate::mappers::mapper418::Mapper418;
 pub use crate::mappers::mapper437::Mapper437;
@@ -466,6 +469,12 @@ pub trait Mapper: Send {
 
     // and finally mapper reset handling
     fn reset(&mut self) {}
+
+    /// Called on power cycle (hard reset). Defaults to reset().
+    /// Override in multicart mappers to preserve game selection on soft reset.
+    fn reset_power_cycle(&mut self) {
+        self.reset();
+    }
 }
 
 
@@ -1037,8 +1046,11 @@ pub fn create_mapper(
         387 => Box::new(Mapper90::new(Mapper90Variant::Mapper387)),
         388 => Box::new(Mapper90::new(Mapper90Variant::Mapper388)),
         389 => Box::new(Mapper389::new()),
-        390 => Box::new(Mapper390::new()),
-        397 => Box::new(Mapper90::new(Mapper90Variant::Mapper397)),
+         390 => Box::new(Mapper390::new()),
+         391 => Box::new(Mapper391::new(header, rom, rom_name)),
+         392 => Box::new(Mapper392::new(header, rom, rom_name)),
+         393 => Box::new(Mapper393::new(header, rom, rom_name)),
+         397 => Box::new(Mapper90::new(Mapper90Variant::Mapper397)),
         409 => Box::new(Mapper409::new()),
         418 => Box::new(Mapper418::new()),
         422 => Box::new(MapperAx5202p::new(Ax5202pVariant::Mapper422)),

@@ -22,7 +22,11 @@ impl Mapper for Mapper320 {
         if address >= 0x8000 {
             let bank_base = (self.latch_addr as usize) << 3;
             let mask = if (self.latch_addr & 0x10) != 0 { 0x07 } else { 0x0F };
-            let prg_bank = bank_base | (self.latch_data as usize & mask);
+            let prg_bank = if address < 0xC000 {
+                bank_base | (self.latch_data as usize & mask)
+            } else {
+                bank_base | mask
+            };
             let offset = prg_bank * 0x4000 + (address as usize & 0x3FFF);
             FetchResult {
                 data: cart.prg_rom[offset % cart.prg_rom.len().max(1)],
@@ -46,21 +50,16 @@ impl Mapper for Mapper320 {
                 cart.prg_ram[offset] = data;
             }
         } else if address >= 0x8000 {
-            let prev = self.latch_addr;
             let curr_low = address & 0xFFF;
-            if (curr_low ^ prev) & curr_low & 0x20 != 0 {
-                self.latch_addr = address;
-            }
+            let rising_bit5 = (curr_low ^ self.latch_addr) & curr_low & 0x20;
+            let new_addr_param = if rising_bit5 != 0 { curr_low } else { self.latch_addr };
+            self.latch_addr = (address & 0xF000) | new_addr_param;
             self.latch_data = data;
         }
     }
 
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
-        if cart.nametable_horizontal_mirroring {
-            (address & 0x33FF) | ((address & 0x0800) >> 1)
-        } else {
-            address & 0x37FF
-        }
+        mirror_h_or_v(cart.nametable_horizontal_mirroring, address)
     }
 
     fn fetch_ppu(
@@ -71,7 +70,7 @@ impl Mapper for Mapper320 {
         chr_ram: &[u8],
         _prg_vram: &[u8],
         _using_chr_ram: bool,
-        _nametable_horizontal_mirroring: bool,
+        nametable_horizontal_mirroring: bool,
         _alternative_nametable_arrangement: bool,
         ppu_address_bus: u16,
         ppu_octal_latch: u8,
@@ -83,7 +82,7 @@ impl Mapper for Mapper320 {
             let len = chr_ram.len();
             new_addr_bus |= if len > 0 { chr_ram[(address as usize & 0x1FFF) % len] as u16 } else { 0 };
         } else {
-            new_addr_bus |= vram[(mirror_h_or_v(_nametable_horizontal_mirroring, address) & 0x7FF) as usize] as u16;
+            new_addr_bus |= vram[(mirror_h_or_v(nametable_horizontal_mirroring, address) & 0x7FF) as usize] as u16;
         }
         (new_addr_bus as u8, new_addr_bus)
     }

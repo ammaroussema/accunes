@@ -18,6 +18,10 @@ impl Mapper31 {
 }
 
 impl Mapper for Mapper31 {
+    fn reset_power_cycle(&mut self) {
+        self.prg_banks = [0xFF; 8];
+        for bank in self.prg_banks.iter_mut() { *bank = 0xFF; }
+    }
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let bank_index = ((address - 0x8000) / 0x1000) as usize;

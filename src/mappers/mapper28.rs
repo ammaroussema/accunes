@@ -73,6 +73,13 @@ impl Mapper28 {
 }
 
 impl Mapper for Mapper28 {
+    fn reset_power_cycle(&mut self) {
+        self.reg = 0;
+        self.chr = 0;
+        self.prg = 15;
+        self.mode = 0;
+        self.outer = 63;
+    }
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let (prglo, prghi, _) = self.sync();

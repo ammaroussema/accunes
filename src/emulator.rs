@@ -729,6 +729,11 @@ impl Emulator {
         Self::init_ram(&mut self.ram, &mut self.vram, mode);
         self.oam2 = [0xFFu8; 32];
         self.reset();
+        if let Some(ref mut cart) = self.cart {
+            let saved_dip = cart.mapper_chip.get_dip_switches();
+            cart.mapper_chip.reset_power_cycle();
+            cart.mapper_chip.set_dip_switches(saved_dip);
+        }
     }
 
     pub fn apply_apu_alignment(&mut self) {

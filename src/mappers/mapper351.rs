@@ -189,7 +189,9 @@ impl Mapper351 {
 }
 
 impl Mapper for Mapper351 {
-    fn reset(&mut self) {
+        fn reset(&mut self) {}
+
+    fn reset_power_cycle(&mut self) {
         self.reg = [0; 4];
         self.mmc3.reset();
         self.mmc1_core.reset();

@@ -17,6 +17,7 @@ impl Mapper29 {
 }
 
 impl Mapper for Mapper29 {
+    fn reset_power_cycle(&mut self) { self.latch = 0; }
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let prg_bank = ((self.latch & 0x1C) >> 2) as usize;

@@ -12,6 +12,12 @@ impl Mapper261 {
 }
 
 impl Mapper for Mapper261 {
+    fn reset(&mut self) {}
+
+    fn reset_power_cycle(&mut self) {
+        self.addr = 0;
+    }
+
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let prg_bank = (((self.addr >> 6) & 0x0E) | ((self.addr >> 5) & 0x01)) as usize;

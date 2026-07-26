@@ -31,12 +31,15 @@ impl Mapper297 {
         if self.mode & 1 != 0 {
             let adj = (self.prg & 0x07) | 0x08;
             match (self.control >> 2) & 3 {
-                0 | 1 => (adj as usize >> 1) % num_16k,
+                0 | 1 => {
+                    let base_16k = (adj & 0xFE) as usize;
+                    if slot == 0 { base_16k % num_16k } else { (base_16k | 1) % num_16k }
+                }
                 2 => {
-                    if slot == 0 { 0 } else { adj as usize % num_16k }
+                    if slot == 0 { 0x08 % num_16k } else { adj as usize % num_16k }
                 }
                 _ => {
-                    if slot == 0 { adj as usize % num_16k } else { (0x07 | 0x08) as usize % num_16k }
+                    if slot == 0 { adj as usize % num_16k } else { 0x0F % num_16k }
                 }
             }
         } else {
@@ -48,14 +51,18 @@ impl Mapper297 {
 
 impl Mapper for Mapper297 {
     fn reset(&mut self) {
-        self.mode = 0;
-        self.latch = 0;
         self.shift = 0;
         self.write_count = 0;
         self.control = 0x0C;
         self.chr0 = 0;
         self.chr1 = 0;
         self.prg = 0;
+    }
+
+    fn reset_power_cycle(&mut self) {
+        self.mode = 0;
+        self.latch = 0;
+        self.reset();
     }
 
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
@@ -79,8 +86,8 @@ impl Mapper for Mapper297 {
     }
 
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
-        if address >= 0x5000 && address <= 0x5FFF {
-            self.mode = (address as u8) & 3;
+        if address >= 0x4000 && address <= 0x5FFF && (address & 0x100) != 0 {
+            self.mode = data;
             return;
         }
         if address >= 0x6000 && address < 0x8000 {
@@ -147,19 +154,22 @@ impl Mapper for Mapper297 {
         let address = (ppu_address_bus & 0x3F00) | ppu_octal_latch as u16;
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
         if address < 0x2000 {
-            let bank = if self.mode & 1 != 0 {
+            let offset = if self.mode & 1 != 0 {
                 let chr_mode = (self.control >> 4) & 1;
                 if chr_mode == 0 {
-                    ((self.chr0 & 0x1F) | 0x20) as usize >> 1
+                    let bank_8k = ((self.chr0 & 0x1F) | 0x20) as usize >> 1;
+                    bank_8k * 0x2000 + (address as usize & 0x1FFF)
                 } else if address < 0x1000 {
-                    ((self.chr0 & 0x1F) | 0x20) as usize
+                    let bank_4k = ((self.chr0 & 0x1F) | 0x20) as usize;
+                    bank_4k * 0x1000 + (address as usize & 0xFFF)
                 } else {
-                    ((self.chr1 & 0x1F) | 0x20) as usize
+                    let bank_4k = ((self.chr1 & 0x1F) | 0x20) as usize;
+                    bank_4k * 0x1000 + (address as usize & 0xFFF)
                 }
             } else {
-                (self.latch & 0x0F) as usize
+                let bank_8k = (self.latch & 0x0F) as usize;
+                bank_8k * 0x2000 + (address as usize & 0x1FFF)
             };
-            let offset = bank * 0x2000 + (address as usize & 0x1FFF);
             let byte = if using_chr_ram && !chr_ram.is_empty() {
                 chr_ram[offset % chr_ram.len()]
             } else if !chr_rom.is_empty() {

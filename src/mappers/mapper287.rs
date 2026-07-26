@@ -65,7 +65,7 @@ impl Mapper for Mapper287 {
                 _ => 0,
             };
 
-            let bank = (raw_bank & 0x0F) | ((self.ext_reg as usize & 0x0F) << 4);
+            let bank = (raw_bank & 0x0F) | ((self.ext_reg as usize) << 4);
             let num_banks = if num_8k > 0 { num_8k } else { 1 };
             let bank = bank % num_banks;
 
@@ -88,11 +88,10 @@ impl Mapper for Mapper287 {
     }
 
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
-        if address >= 0x5000 && address <= 0x5FFF {
+        if address >= 0x6000 && address <= 0x7FFF && (self.mmc3.prg_ram_protect & 0x40) == 0 {
             self.ext_reg = (address & 0xFF) as u8;
-        } else {
-            self.mmc3.store_prg(cart, address, data);
         }
+        self.mmc3.store_prg(cart, address, data);
     }
 
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
@@ -135,7 +134,7 @@ impl Mapper for Mapper287 {
                 self.mmc3.chr_1kc,
                 address,
             );
-            let bank = (raw as u16 & 0x7F) | ((self.ext_reg as u16 & 0x7F) << 7);
+            let bank = (raw as u16 & 0x7F) | ((self.ext_reg as u16) << 7);
             let byte = if using_chr_ram && !chr_ram.is_empty() {
                 let offset = (bank as usize) * 0x0400 + (address as usize & 0x03FF);
                 chr_ram[offset % chr_ram.len()]
@@ -175,7 +174,7 @@ impl Mapper for Mapper287 {
                     self.mmc3.chr_1kc,
                     address,
                 );
-                let bank = (raw as u16 & 0x7F) | ((self.ext_reg as u16 & 0x7F) << 7);
+                let bank = (raw as u16 & 0x7F) | ((self.ext_reg as u16) << 7);
                 let offset = (bank as usize) * 0x0400 + (address as usize & 0x03FF);
                 let len = cart.chr_ram.len();
                 cart.chr_ram[offset % len] = data;

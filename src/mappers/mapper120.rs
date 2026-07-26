@@ -12,6 +12,7 @@ impl Mapper120 {
 }
 
 impl Mapper for Mapper120 {
+    fn reset_power_cycle(&mut self) { self.reg = 0; }
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let offset = (2 * 0x8000) + (address as usize & 0x7FFF);

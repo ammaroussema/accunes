@@ -29,7 +29,9 @@ impl Mapper270 {
 }
 
 impl Mapper for Mapper270 {
-    fn reset(&mut self) {
+        fn reset(&mut self) {}
+
+    fn reset_power_cycle(&mut self) {
         self.reg4242 = 0;
         self.core.reset();
         self.core.reg4100[0x2C] = 0;

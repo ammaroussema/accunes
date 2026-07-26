@@ -352,8 +352,8 @@ impl Cartridge {
                 _ => 0,
             };
 
-            let using_chr_ram = chr_rom.is_empty() || memory_mapper == 268;
-            let chr_ram = if using_chr_ram || memory_mapper == 268 {
+            let using_chr_ram = chr_rom.is_empty() || memory_mapper == 268 || memory_mapper == 286;
+            let chr_ram = if using_chr_ram || memory_mapper == 268 || memory_mapper == 286 {
                 if memory_mapper == 268 {
                     let vram_shift = match rom.get(11) {
                         Some(&b) => b & 0x0F,
@@ -367,6 +367,13 @@ impl Cartridge {
                     let battery_kb = if battery_shift == 0 { 0 } else { (64usize << battery_shift) / 1024 };
                     let size = (vram_kb + battery_kb) * 1024;
                     vec![0u8; if size > 0 { size } else { 0x40000 }]
+                } else if memory_mapper == 286 {
+                    let mut ram = vec![0u8; chr_rom.len().max(0x2000)];
+                    if !chr_rom.is_empty() {
+                        let len = chr_rom.len().min(ram.len());
+                        ram[..len].copy_from_slice(&chr_rom[..len]);
+                    }
+                    ram
                 } else {
                     vec![0u8; 0x2000]
                 }
@@ -584,6 +591,13 @@ impl Cartridge {
             vec![0u8; 8 * 1024]
         } else if memory_mapper == 111 {
             vec![0u8; 32 * 1024]
+        } else if memory_mapper == 286 {
+            let mut ram = vec![0u8; chr_rom.len().max(0x2000)];
+            if !chr_rom.is_empty() {
+                let len = chr_rom.len().min(ram.len());
+                ram[..len].copy_from_slice(&chr_rom[..len]);
+            }
+            ram
         } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 372 | 375 | 381 | 382) {
             let chr_ram_size = if is_nes20 && memory_mapper == 268 {
                 let vram_shift = rom[11] & 0x0F;
@@ -607,7 +621,7 @@ impl Cartridge {
         if memory_mapper == 77 {
             using_chr_ram = true;
         }
-        if matches!(memory_mapper, 74 | 119 | 111 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 372 | 375 | 381 | 382) {
+        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 372 | 375 | 381 | 382) {
             using_chr_ram = true;
         }
         if memory_mapper == 314 && chr_size == 0 {

@@ -70,10 +70,12 @@ impl Mapper for Mapper274 {
 
     fn store_prg(&mut self, _cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x8000 {
-            if address < 0xC000 {
+            if address < 0xA000 {
                 self.reg[0] = data;
+            } else if address < 0xC000 {
+                self.reg[1] = data & 0x7F;
             } else {
-                self.reg[1] = data & 0x7F | if address >= 0xE000 { 0x80 } else { 0 };
+                self.reg[1] = data & 0x7F | 0x80;
             }
         }
     }

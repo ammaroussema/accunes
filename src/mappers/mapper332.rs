@@ -29,23 +29,17 @@ impl Mapper for Mapper332 {
             }
             let prg = (self.reg[0] & 0x07) | (self.reg[0] >> 3 & 0x08);
             let nrom256 = (self.reg[0] & 0x08) == 0;
-            if nrom256 {
-                let bank0 = (prg as usize & !1) * 0x4000;
-                let bank1 = (prg as usize | 1) * 0x4000;
-                let offset = address as usize & 0x3FFF;
-                let base = if address < 0xC000 { bank0 } else { bank1 };
-                return FetchResult {
-                    data: cart.prg_rom[(base + offset) % cart.prg_rom.len().max(1)],
-                    driven: true,
-                };
+            let bank = prg as usize;
+            let bank = if nrom256 {
+                if address < 0xC000 { bank & !1 } else { bank | 1 }
             } else {
-                let bank = prg as usize;
-                let offset = bank * 0x8000 + (address as usize & 0x7FFF);
-                return FetchResult {
-                    data: cart.prg_rom[offset % cart.prg_rom.len().max(1)],
-                    driven: true,
-                };
-            }
+                bank
+            };
+            let offset = bank * 0x4000 + (address as usize & 0x3FFF);
+            return FetchResult {
+                data: cart.prg_rom[offset % cart.prg_rom.len().max(1)],
+                driven: true,
+            };
         }
         FetchResult { data: 0, driven: false }
     }

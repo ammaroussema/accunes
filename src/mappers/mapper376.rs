@@ -60,7 +60,9 @@ impl Mapper376 {
 }
 
 impl Mapper for Mapper376 {
-    fn reset(&mut self) {
+        fn reset(&mut self) {}
+
+    fn reset_power_cycle(&mut self) {
         self.reg = [0; 2];
         self.mmc3.reset();
     }

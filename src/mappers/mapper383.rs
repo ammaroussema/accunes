@@ -144,7 +144,9 @@ impl Mapper383 {
 }
 
 impl Mapper for Mapper383 {
-    fn reset(&mut self) {
+        fn reset(&mut self) {}
+
+    fn reset_power_cycle(&mut self) {
         self.a15 = 0;
         self.a16 = 0;
         self.a17a18 = 0;

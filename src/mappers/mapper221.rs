@@ -33,6 +33,10 @@ impl Mapper221 {
 }
 
 impl Mapper for Mapper221 {
+    fn reset_power_cycle(&mut self) {
+        self.mode = 0;
+        self.prg_reg = 0;
+    }
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let (prg_bank_0, prg_bank_1, _) = self.update_state();

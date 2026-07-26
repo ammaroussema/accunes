@@ -69,7 +69,9 @@ impl Mapper260 {
 }
 
 impl Mapper for Mapper260 {
-    fn reset(&mut self) {
+    fn reset(&mut self) {}
+
+    fn reset_power_cycle(&mut self) {
         self.reg = [0; 4];
         self.mmc3.reset();
     }
@@ -175,9 +177,9 @@ impl Mapper for Mapper260 {
         if address < 0x2000 {
             let bank = if self.is_mmc3_mode() {
                 let raw_bank = self.mmc3_raw_chr_bank(address);
-                ((raw_bank & self.chr_and()) as u16 | (self.chr_or() & !u16::from(self.chr_and()))) as u8
+                (raw_bank & self.chr_and()) as u16 | (self.chr_or() & !u16::from(self.chr_and()))
             } else {
-                self.non_mmc3_chr_bank()
+                self.non_mmc3_chr_bank() as u16
             };
             let offset = (bank as usize) * 0x0400 + (address as usize & 0x03FF);
             let byte = if using_chr_ram && !chr_ram.is_empty() {
@@ -210,9 +212,9 @@ impl Mapper for Mapper260 {
             if cart.using_chr_ram && !cart.chr_ram.is_empty() {
                 let bank = if self.is_mmc3_mode() {
                     let raw_bank = self.mmc3_raw_chr_bank(address);
-                    ((raw_bank & self.chr_and()) as u16 | (self.chr_or() & !u16::from(self.chr_and()))) as u8
+                    (raw_bank & self.chr_and()) as u16 | (self.chr_or() & !u16::from(self.chr_and()))
                 } else {
-                    self.non_mmc3_chr_bank()
+                    self.non_mmc3_chr_bank() as u16
                 };
                 let offset = (bank as usize) * 0x0400 + (address as usize & 0x03FF);
                 let len = cart.chr_ram.len();

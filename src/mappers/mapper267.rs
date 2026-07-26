@@ -10,7 +10,7 @@ pub struct Mapper267 {
 impl Mapper267 {
     pub fn new(header: &[u8], rom: &[u8], rom_name: &str) -> Self {
         let chr_size = if header.len() > 5 { header[5] } else { 0 };
-        let config = Mmc3Config::for_ines(header, 0, if chr_size == 0 { 0 } else { chr_size }, rom, rom_name);
+        let config = Mmc3Config { ax5202p: true, ..Mmc3Config::for_ines(header, 0, if chr_size == 0 { 0 } else { chr_size }, rom, rom_name) };
         Self { mmc3: MapperMMC3::new(config), reg: 0 }
     }
 
@@ -62,6 +62,19 @@ impl Mapper for Mapper267 {
             if self.reg & 0x80 == 0 {
                 self.reg = data;
             }
+        } else if address >= 0x6000 && address < 0x8000 {
+            if self.reg & 0x80 == 0 {
+                let protect = self.mmc3.prg_ram_protect;
+                let write_ok = if self.mmc3.config.ax5202p {
+                    (protect & 0x40) == 0
+                } else {
+                    (protect & 0x80) != 0 && (protect & 0x40) == 0
+                };
+                if write_ok {
+                    self.reg = data;
+                }
+            }
+            self.mmc3.store_prg(cart, address, data);
         } else {
             self.mmc3.store_prg(cart, address, data);
         }

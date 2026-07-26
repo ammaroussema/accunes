@@ -99,7 +99,9 @@ impl MapperSL1632 {
 }
 
 impl Mapper for MapperSL1632 {
-    fn reset(&mut self) {
+        fn reset(&mut self) {}
+
+    fn reset_power_cycle(&mut self) {
         self.chrcmd = [0; 8];
         self.prg0 = 0;
         self.prg1 = 0;

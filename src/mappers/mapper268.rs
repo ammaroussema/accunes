@@ -166,9 +166,19 @@ impl Mapper for Mapper268 {
     }
 
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
-        if address >= 0x5000 && address < 0x6000 {
-            self.mmc3.store_prg(cart, address, data);
-        } else if address >= 0x6000 && address < 0x8000 {
+        let regs_at_5000 = (cart.sub_mapper & 1) != 0;
+        let in_reg_range = if regs_at_5000 {
+            address >= 0x5000 && address < 0x6000
+        } else {
+            address >= 0x6000 && address < 0x8000
+        };
+        if in_reg_range {
+            if !regs_at_5000 && !cart.prg_ram.is_empty() {
+                let off = (address - 0x6000) as usize;
+                if off < cart.prg_ram.len() {
+                    cart.prg_ram[off] = data;
+                }
+            }
             let addr = (address & 7) as usize;
             if (self.reg[3] & 0x80) == 0 || addr == 2 {
                 let val = if addr == 2 {
@@ -181,7 +191,6 @@ impl Mapper for Mapper268 {
                     self.reg[addr] = val;
                 }
             }
-            self.mmc3.store_prg(cart, address, data);
         } else {
             self.mmc3.store_prg(cart, address, data);
         }

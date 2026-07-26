@@ -1,4 +1,4 @@
-﻿use crate::cartridge::Cartridge;
+use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
 
 pub struct Mapper285 {

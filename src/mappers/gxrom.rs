@@ -12,6 +12,10 @@ impl Mapper66 {
 }
 
 impl Mapper for Mapper66 {
+    fn reset_power_cycle(&mut self) {
+        self.bank_select = 0;
+    }
+
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let bank = (self.bank_select >> 4) as usize;

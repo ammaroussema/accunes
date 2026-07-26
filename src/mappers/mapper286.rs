@@ -1,4 +1,4 @@
-﻿use crate::cartridge::Cartridge;
+use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
 
 pub struct Mapper286 {
@@ -10,12 +10,16 @@ pub struct Mapper286 {
 
 impl Mapper286 {
     pub fn new() -> Self {
-        Self { prg: [0; 4], chr: [0; 4], mirroring: 0, dip_switches: 0 }
+        Self { prg: [0xC, 0xD, 0xE, 0xF], chr: [0; 4], mirroring: 0, dip_switches: 0 }
     }
 }
 
 impl Mapper for Mapper286 {
     fn reset(&mut self) {
+        // soft reset — preserve state (reference: only hard reset clears registers)
+    }
+
+    fn reset_power_cycle(&mut self) {
         for i in 0..4 {
             self.prg[i] = 0xC | i as u8;
             self.chr[i] = 0;
@@ -47,10 +51,10 @@ impl Mapper for Mapper286 {
             let ah = address & 0xF000;
             if ah == 0x8000 || ah == 0x9000 {
                 self.chr[((address >> 10) & 3) as usize] = (address & 0x1F) as u8;
-        } else if ah == 0xA000 || ah == 0xB000 {
-            if self.dip_switches == 0 || (address & self.dip_switches as u16) != 0 {
-                self.prg[((address >> 10) & 3) as usize] = (address & 0x0F) as u8;
-            }
+            } else if ah == 0xA000 || ah == 0xB000 {
+                if self.dip_switches == 0 || (address & self.dip_switches as u16) != 0 {
+                    self.prg[((address >> 10) & 3) as usize] = (address & 0x0F) as u8;
+                }
             } else if ah == 0xC000 {
                 self.mirroring = address as u8 & 1;
             }
@@ -72,7 +76,7 @@ impl Mapper for Mapper286 {
         _prg_ram: &[u8],
         chr_ram: &[u8],
         _prg_vram: &[u8],
-        _using_chr_ram: bool,
+        using_chr_ram: bool,
         _nametable_horizontal_mirroring: bool,
         _alternative_nametable_arrangement: bool,
         ppu_address_bus: u16,
@@ -84,9 +88,12 @@ impl Mapper for Mapper286 {
         if address < 0x2000 {
             let slot = (address >> 11) as usize & 3;
             let bank = (self.chr[slot] as usize) & 0x1F;
-            let src = if !chr_rom.is_empty() { chr_rom } else { chr_ram };
             let offset = bank * 0x800 + (address as usize & 0x7FF);
-            let byte = if offset < src.len() { src[offset] } else { 0 };
+            let byte = if using_chr_ram && !chr_ram.is_empty() {
+                chr_ram[offset % chr_ram.len()]
+            } else if !chr_rom.is_empty() {
+                chr_rom[offset % chr_rom.len()]
+            } else { 0 };
             new_addr_bus |= byte as u16;
         } else {
             let mirrored = if self.mirroring != 0 {

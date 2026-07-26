@@ -176,7 +176,9 @@ impl MapperSL12 {
 }
 
 impl Mapper for MapperSL12 {
-    fn reset(&mut self) {
+        fn reset(&mut self) {}
+
+    fn reset_power_cycle(&mut self) {
         *self = Self::new();
     }
 

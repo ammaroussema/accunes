@@ -1,4 +1,4 @@
-﻿use crate::cartridge::Cartridge;
+use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
 use crate::mappers::nrom::mirror_address;
 

@@ -32,6 +32,18 @@ impl Mapper19 {
 }
 
 impl Mapper for Mapper19 {
+    fn reset_power_cycle(&mut self) {
+        self.prg = [0; 3];
+        self.chr = [0; 8];
+        self.nta = [0xFF; 4];
+        self.dopol = 0;
+        self.gorfus = 0xFF;
+        self.gorko = 0;
+        self.iram = [0; 128];
+        self.irq_count = 0;
+        self.irq_enable = false;
+        self.irq_pending = false;
+    }
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let bank = match address {

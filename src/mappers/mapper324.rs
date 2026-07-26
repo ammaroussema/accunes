@@ -55,8 +55,8 @@ impl Mapper for Mapper324 {
             let index = (address as usize) % cart.prg_rom.len().max(1);
             let rom_data = cart.prg_rom[index];
             let bus_data = data & rom_data;
-            if self.is_locked() || (self.latch_data & 0x80) != 0 || (bus_data & 0x80) == 0 {
-                self.latch_data = (self.latch_data & !7) | (bus_data & 7);
+            if self.is_locked() || (self.latch_data & 0x80) != 0 || (data & 0x80) == 0 {
+                self.latch_data = (self.latch_data & !7) | (data & 7);
             } else {
                 self.latch_data = bus_data;
             }
@@ -64,11 +64,7 @@ impl Mapper for Mapper324 {
     }
 
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
-        if cart.nametable_horizontal_mirroring {
-            (address & 0x33FF) | ((address & 0x0800) >> 1)
-        } else {
-            address & 0x37FF
-        }
+        mirror_h_or_v(cart.nametable_horizontal_mirroring, address)
     }
 
     fn fetch_ppu(

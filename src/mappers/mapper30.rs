@@ -147,6 +147,12 @@ impl Mapper30 {
 }
 
 impl Mapper for Mapper30 {
+    fn reset_power_cycle(&mut self) {
+        self.flash.mode = crate::mappers::mapper30::ChipMode::WaitingForCommand;
+        self.flash.cycle = 0;
+        self.flash.software_id = false;
+        self.prg_bank = 0;
+    }
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             if self.has_battery {

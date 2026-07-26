@@ -659,7 +659,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.2.6";
+const APP_VERSION: &str = "1.2.7";
 
 fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     let a = a.trim_start_matches('v');
@@ -1007,7 +1007,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.2.6")
+        .with_title("AccuNES 1.2.7")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -3497,12 +3497,12 @@ fn main() {
                                                     match cartridge::Cartridge::from_file(&path_str) {
                                                         Ok(cart) => {
                                                             emu_clone.lock().unwrap().load_cartridge(cart);
-                                                            emu_clone.lock().unwrap().reset();
-                                                            *rom_loaded_clone.borrow_mut() = true;
-                                                            rom_loaded_flag_clone.store(true, Ordering::Relaxed);
-                                                            *current_rom_clone.borrow_mut() = Some(path_str.clone());
-                                                            
-                                                            let mapper_id = emu_clone.lock().unwrap().memory_mapper();
+                                                    emu_clone.lock().unwrap().reset();
+                                                    *rom_loaded_clone.borrow_mut() = true;
+                                                    rom_loaded_flag_clone.store(true, Ordering::Relaxed);
+                                                    *current_rom_clone.borrow_mut() = Some(path_str.clone());
+                                                    
+                                                    let mapper_id = emu_clone.lock().unwrap().memory_mapper();
                                                             let crc = emu_clone.lock().unwrap().prg_rom_crc32();
                                                              if let Some(game) = load_dip_game(crc, mapper_id) {
                                                                  let mut emu = emu_clone.lock().unwrap();
@@ -4116,9 +4116,9 @@ fn main() {
                         } else if lower.ends_with(".fds") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.2.6: {}", filename)
+                        format!("AccuNES 1.2.7: {}", filename)
                     } else {
-                        "AccuNES 1.2.6".to_string()
+                        "AccuNES 1.2.7".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -4532,7 +4532,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.2.6",
+                        "Version: 1.2.7",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
