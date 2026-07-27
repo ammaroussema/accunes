@@ -52,6 +52,10 @@ $PackageDir = Join-Path $ProjectRoot "$TargetDir\accunes"
 $ExeSource = Join-Path $ProjectRoot "$TargetDir\accunes.exe"
 $ExeDest = Join-Path $PackageDir "accunes.exe"
 
+if (-not (Test-Path -LiteralPath $PackageDir)) {
+    New-Item -ItemType Directory -Path $PackageDir -Force | Out-Null
+}
+
 if (Test-Path -LiteralPath $ExeSource) {
     Copy-Item -LiteralPath $ExeSource -Destination $ExeDest -Force
     Write-Host "Copied accunes.exe -> $PackageDir"
@@ -61,12 +65,18 @@ $ZipName = "accunes-$version-$Suffix.zip"
 $ZipPath = Join-Path $ProjectRoot "$TargetDir\$ZipName"
 if (Test-Path -LiteralPath $ZipPath) { Remove-Item -LiteralPath $ZipPath -Force }
 
+Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [System.IO.Compression.ZipFile]::Open($ZipPath, [System.IO.Compression.ZipArchiveMode]::Create)
 $packageDirFull = Resolve-Path -LiteralPath $PackageDir
+$dirEntry = $zip.CreateEntry("accunes/")
+$dirEntry.Dispose()
 Get-ChildItem -LiteralPath $packageDirFull -Recurse | ForEach-Object {
-    $relativePath = $_.FullName.Substring($packageDirFull.Path.Length + 1).Replace("\", "/")
-    if (-not $_.PSIsContainer) {
+    $relativePath = "accunes/$($_.FullName.Substring($packageDirFull.Path.Length + 1).Replace('\', '/'))"
+    if ($_.PSIsContainer) {
+        $entry = $zip.CreateEntry("$relativePath/")
+        $entry.Dispose()
+    } else {
         $entry = $zip.CreateEntry($relativePath, [System.IO.Compression.CompressionLevel]::Optimal)
         $stream = $entry.Open()
         $fileBytes = [System.IO.File]::ReadAllBytes($_.FullName)
