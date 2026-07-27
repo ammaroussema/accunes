@@ -7,13 +7,16 @@ to check them out too!
 
 ## Features
 
-- **cycle-accurate CPU/PPU/APU** — emulates the NES at the ppu half cycle level!
-- **extensive mapper support** — plane 0 mappers (mappers 0-255) should be fully supported, the other planes have some working mappers
-    but currently wip!
-- **hardware-accurate PPU** — sprite evaluation, oam corruption, pal/dendy timing, odd-frame skip, palette corruption edge cases!
-- **save states** — quick save/load states, plus 8 save slots per game!
-- **controller support** — keyboard bindings and gamepad input via gilrs!
-- **audio** — cycle-accurate apu with dmc, sweep, length counter and frame counters!
+- **cycle accurate 6502 cpu** (all legal and illegal opcodes , addressing modes, interrupts, dma and open bus edge cases are handled!!!)
+- **scanline accurate ppu at half cycle level accuracy**!!! (sprite/bg rendering, accurate vblank and nmi timing, sprite eval, open bus and oam dma edge cases all handled!!!)
+- **accurate apu at cycle at half cycle level accuracy**!!! (all channels implemented, irqs, dmc, controller strobing, clocking and dmc dma edge cases are handled!!!)
+- passes **ALL ACCURACYCOIN tests!** (141/141 as of today!!) passes **all blargg tests** too!!
+- also as of today, a whopping **~402 mappers** are supported!!! (this was and still is very challenging to implement, some mappers may not be fully working yet but i think i'm making good progress on matching something like nintendulator's insane mapper counts!!!)
+- **saving/loading** save states, **per game slots** system + **quick save/quick load** systems!
+- **battery backed ram** saving for games that need it!
+- **nes gamepads, zappers, power pads, snes gamepads, snes mouse, subor mouse and four score** controller types supported!
+- supports **windows x64, x32 and ARM** devices!
+
 
 ## Building
 
@@ -78,15 +81,6 @@ for the windows arm debug version!
 
 output folders/archives for both methods are usually inside the target folder.
 
-### Dependencies
-
-- `winit` — windowing and events
-- `softbuffer` — directx 11/12 surface rendering
-- `cpal` — audio output
-- `gilrs` — gamepad input
-- `image` — icon loading
-- `rfd` — file dialogs
-- `font8x8` — debug overlay font
 
 ## Usage
 
@@ -98,7 +92,6 @@ possible future additions:
 - famicom expansion port!
 - cheats!
 - tas record/playback!
-- auto update check!
 if you have more suggestions feel free to send them through github!
 
 ## Credits
