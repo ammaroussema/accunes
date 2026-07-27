@@ -443,11 +443,11 @@ pub enum ControllerType {
 }
 
 impl ControllerType {
-    pub fn next(self, allow_paddle: bool) -> Self {
+    pub fn next(self) -> Self {
         match self {
             ControllerType::None => ControllerType::Gamepad,
             ControllerType::Gamepad => ControllerType::Zapper,
-            ControllerType::Zapper => if allow_paddle { ControllerType::Paddle } else { ControllerType::PowerPadA },
+            ControllerType::Zapper => ControllerType::Paddle,
             ControllerType::Paddle => ControllerType::PowerPadA,
             ControllerType::PowerPadA => ControllerType::PowerPadB,
             ControllerType::PowerPadB => ControllerType::SNESPad,

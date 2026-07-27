@@ -4,13 +4,15 @@ use crate::mapper::{FetchResult, Mapper};
 pub struct MapperAxROM {
     bank_select: u8,
     single_screen_high: bool,
+    submapper_id: u8,
 }
 
 impl MapperAxROM {
-    pub fn new() -> Self {
+    pub fn new(submapper_id: u8) -> Self {
         Self {
             bank_select: 0,
             single_screen_high: false,
+            submapper_id,
         }
     }
 
@@ -42,10 +44,18 @@ impl Mapper for MapperAxROM {
         }
     }
 
-    fn store_prg(&mut self, _cart: &mut Cartridge, address: u16, data: u8) {
+    fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x4020 {
-            self.bank_select = data & 0x0F;
-            self.single_screen_high = (data & 0x10) != 0;
+            let mut value = data;
+            if self.submapper_id == 2 && !cart.prg_rom.is_empty() {
+                let banks_32k = (cart.prg_rom.len() / 0x8000).max(1);
+                let bank = (self.bank_select & 0x0F) as usize % banks_32k;
+                let prg_offset = bank * 0x8000 + (address as usize & 0x7FFF);
+                let prg_data = cart.prg_rom[prg_offset % cart.prg_rom.len()];
+                value &= prg_data;
+            }
+            self.bank_select = value & 0x0F;
+            self.single_screen_high = (value & 0x10) != 0;
         }
     }
 

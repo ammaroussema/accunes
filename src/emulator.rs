@@ -3,6 +3,8 @@
 use crate::cartridge::Cartridge;
 use crate::config;
 use crate::region::{Region, TvSystem};
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 // so of course it'd only make sense for this to start with a massive struct with like thousands of public variable declarations!!
 
@@ -333,38 +335,38 @@ pub struct Emulator {
 
     pub apu_controller_ports_strobing: bool,
     pub apu_controller_ports_strobed: bool,
-    pub controller_port1: u8,
-    pub controller_port2: u8,
+    pub controller_port1: Arc<AtomicU8>,
+    pub controller_port2: Arc<AtomicU8>,
     pub controller_shift_register1: u8,
     pub controller_shift_register2: u8,
     pub controller1_shift_counter: u8,
     pub controller2_shift_counter: u8,
     pub data_pins_are_not_floating: bool,
 
-    pub zapper_x: f32,
-    pub zapper_y: f32,
-    pub zapper_trigger: bool,
-    pub zapper_bogo: u8,
-    pub paddle_x: [u8; 2],
-    pub paddle_button: [bool; 2],
+    pub zapper_x: Arc<Mutex<f32>>,
+    pub zapper_y: Arc<Mutex<f32>>,
+    pub zapper_trigger: Arc<AtomicBool>,
+    pub zapper_bogo: Arc<AtomicU8>,
+    pub paddle_x: Arc<Mutex<[u8; 2]>>,
+    pub paddle_button: Arc<Mutex<[bool; 2]>>,
     pub paddle_readbit: [u8; 2],
-    pub powerpad_state: [u16; 2],
+    pub powerpad_state: Arc<Mutex<[u16; 2]>>,
     pub powerpad_shift_d3: [u8; 2],
     pub powerpad_shift_d4: [u8; 2],
-    pub snes_state: [u16; 2],
+    pub snes_state: Arc<Mutex<[u16; 2]>>,
     pub snes_readbit: [u8; 2],
     pub snes_mouse_state: [u32; 2],
     pub snes_mouse_readbit: [u8; 2],
-    pub snes_mouse_delta_x: [f32; 2],
-    pub snes_mouse_delta_y: [f32; 2],
-    pub snes_mouse_buttons: [u8; 2],
-    pub subor_mouse_buttons: [u8; 2],
-    pub subor_mouse_dx: [i32; 2],
-    pub subor_mouse_dy: [i32; 2],
+    pub snes_mouse_delta_x: Arc<Mutex<[f32; 2]>>,
+    pub snes_mouse_delta_y: Arc<Mutex<[f32; 2]>>,
+    pub snes_mouse_buttons: Arc<Mutex<[u8; 2]>>,
+    pub subor_mouse_buttons: Arc<Mutex<[u8; 2]>>,
+    pub subor_mouse_dx: Arc<Mutex<[i32; 2]>>,
+    pub subor_mouse_dy: Arc<Mutex<[i32; 2]>>,
     pub subor_mouse_latch: [u8; 2],
 
-    pub controller_port3: u8,
-    pub controller_port4: u8,
+    pub controller_port3: Arc<AtomicU8>,
+    pub controller_port4: Arc<AtomicU8>,
     pub fourscore_readbit: [u8; 2],
 
     pub controller1_type: config::ControllerType,
@@ -618,23 +620,24 @@ impl Emulator {
             noise_envelope_start_flag: false,
 
             apu_controller_ports_strobing: false, apu_controller_ports_strobed: false,
-            controller_port1: 0, controller_port2: 0,
+            controller_port1: Arc::new(AtomicU8::new(0)), controller_port2: Arc::new(AtomicU8::new(0)),
             controller_shift_register1: 0, controller_shift_register2: 0,
             controller1_shift_counter: 0, controller2_shift_counter: 0,
             data_pins_are_not_floating: false,
-            zapper_x: 0.0, zapper_y: 0.0, zapper_trigger: false, zapper_bogo: 0,
-            paddle_x: [0; 2], paddle_button: [false; 2], paddle_readbit: [0; 2],
-            powerpad_state: [0; 2], powerpad_shift_d3: [0xFF; 2], powerpad_shift_d4: [0xFF; 2],
-            snes_state: [0; 2], snes_readbit: [0; 2],
+            zapper_x: Arc::new(Mutex::new(0.0)), zapper_y: Arc::new(Mutex::new(0.0)),
+            zapper_trigger: Arc::new(AtomicBool::new(false)), zapper_bogo: Arc::new(AtomicU8::new(0)),
+            paddle_x: Arc::new(Mutex::new([0; 2])), paddle_button: Arc::new(Mutex::new([false; 2])), paddle_readbit: [0; 2],
+            powerpad_state: Arc::new(Mutex::new([0; 2])), powerpad_shift_d3: [0xFF; 2], powerpad_shift_d4: [0xFF; 2],
+            snes_state: Arc::new(Mutex::new([0; 2])), snes_readbit: [0; 2],
             snes_mouse_state: [0; 2], snes_mouse_readbit: [0; 2],
-            snes_mouse_delta_x: [0.0; 2], snes_mouse_delta_y: [0.0; 2],
-            snes_mouse_buttons: [0; 2],
-            subor_mouse_buttons: [0; 2],
-            subor_mouse_dx: [0; 2],
-            subor_mouse_dy: [0; 2],
+            snes_mouse_delta_x: Arc::new(Mutex::new([0.0; 2])), snes_mouse_delta_y: Arc::new(Mutex::new([0.0; 2])),
+            snes_mouse_buttons: Arc::new(Mutex::new([0; 2])),
+            subor_mouse_buttons: Arc::new(Mutex::new([0; 2])),
+            subor_mouse_dx: Arc::new(Mutex::new([0; 2])),
+            subor_mouse_dy: Arc::new(Mutex::new([0; 2])),
             subor_mouse_latch: [0; 2],
-            controller_port3: 0,
-            controller_port4: 0,
+            controller_port3: Arc::new(AtomicU8::new(0)),
+            controller_port4: Arc::new(AtomicU8::new(0)),
             fourscore_readbit: [0; 2],
             controller1_type: config::ControllerType::None,
             controller2_type: config::ControllerType::None,
@@ -792,7 +795,7 @@ impl Emulator {
         self.do_dmc_dma = false;
         self.do_oam_dma = false;
         self.operation_cycle = 0;
-        self.zapper_bogo = 0;
+        self.zapper_bogo.store(0, Ordering::Relaxed);
 
         self.apply_apu_alignment();
 
@@ -935,8 +938,12 @@ impl Emulator {
 
     // run one frame!
     pub fn core_frame_advance(&mut self) {
-        if self.zapper_bogo > 0 {
-            self.zapper_bogo -= 1;
+        let mut bogo = self.zapper_bogo.load(Ordering::Relaxed);
+        while bogo > 0 {
+            match self.zapper_bogo.compare_exchange_weak(bogo, bogo - 1, Ordering::Relaxed, Ordering::Relaxed) {
+                Ok(_) => break,
+                Err(v) => bogo = v,
+            }
         }
         self.frame_advance_reached_vblank = false;
         while !self.frame_advance_reached_vblank {
@@ -1110,11 +1117,13 @@ impl Emulator {
 
     // zapper light hit detection
     pub fn zapper_check_hit(&self) -> bool {
-        if self.zapper_bogo > 0 {
+        if self.zapper_bogo.load(Ordering::Relaxed) > 0 {
             return false;
         }
-        let sx = (self.zapper_x * 255.0).round() as usize;
-        let sy = (self.zapper_y * 239.0).round() as usize;
+        let zx = *self.zapper_x.lock().unwrap();
+        let zy = *self.zapper_y.lock().unwrap();
+        let sx = (zx * 255.0).round() as usize;
+        let sy = (zy * 239.0).round() as usize;
         let sx = sx.min(255);
         let sy = sy.min(239);
         let pixel = self.screen[sy * 256 + sx];
@@ -1409,8 +1418,8 @@ impl Emulator {
         out.push(if self.noise_envelope_start_flag { 1 } else { 0 });
         out.push(if self.apu_controller_ports_strobing { 1 } else { 0 });
         out.push(if self.apu_controller_ports_strobed { 1 } else { 0 });
-        out.push(self.controller_port1);
-        out.push(self.controller_port2);
+        out.push(self.controller_port1.load(Ordering::Relaxed));
+        out.push(self.controller_port2.load(Ordering::Relaxed));
         out.push(self.controller_shift_register1);
         out.push(self.controller_shift_register2);
         out.push(self.controller1_shift_counter);
@@ -1713,8 +1722,8 @@ impl Emulator {
         self.noise_envelope_start_flag = read_u8()? != 0;
         self.apu_controller_ports_strobing = read_u8()? != 0;
         self.apu_controller_ports_strobed = read_u8()? != 0;
-        self.controller_port1 = read_u8()?;
-        self.controller_port2 = read_u8()?;
+        self.controller_port1.store(read_u8()?, Ordering::Relaxed);
+        self.controller_port2.store(read_u8()?, Ordering::Relaxed);
         self.controller_shift_register1 = read_u8()?;
         self.controller_shift_register2 = read_u8()?;
         self.controller1_shift_counter = read_u8()?;

@@ -4,6 +4,7 @@
 */
 
 use crate::emulator::Emulator;
+use std::sync::atomic::Ordering;
 
 pub const PPU_BUS_DECAY_CONSTANT: i32 = 1786830;
 
@@ -144,9 +145,9 @@ impl Emulator {
                     let readbit = self.fourscore_readbit[w];
                     let shift = 7 - (readbit & 7);
                     let ret = if readbit >= 8 {
-                        (if w == 0 { self.controller_port3 } else { self.controller_port4 } >> shift) & 1
+                        (if w == 0 { self.controller_port3.load(Ordering::Relaxed) } else { self.controller_port4.load(Ordering::Relaxed) } >> shift) & 1
                     } else {
-                        (if w == 0 { self.controller_port1 } else { self.controller_port2 } >> shift) & 1
+                        (if w == 0 { self.controller_port1.load(Ordering::Relaxed) } else { self.controller_port2.load(Ordering::Relaxed) } >> shift) & 1
                     };
                     let mut val = if readbit >= 16 { 0 } else { ret };
                     if readbit == if w == 0 { 19 } else { 18 } { val = 1; }
@@ -161,20 +162,46 @@ impl Emulator {
                     self.internal_bus = self.data_bus;
                     return self.data_bus;
                 }
-                // arkanoid paddle on port 2 ($4017)
-                if reg == 0x17 && self.controller2_type == crate::config::ControllerType::Paddle {
-                    let idx = 1usize;
+                // arkanoid paddle on port 1 ($4016)
+                if reg == 0x16 && self.controller1_type == crate::config::ControllerType::Paddle {
+                    let idx = 0usize;
                     let mut paddle_val = 0u8;
+                    let px = self.paddle_x.lock().unwrap();
+                    let pb = self.paddle_button.lock().unwrap();
                     if self.paddle_readbit[idx] < 8 {
-                        let bit = (self.paddle_x[idx] >> (7 - self.paddle_readbit[idx])) & 1;
+                        let bit = (px[idx] >> (7 - self.paddle_readbit[idx])) & 1;
                         paddle_val |= bit << 4;
                         self.paddle_readbit[idx] += 1;
                     } else {
                         paddle_val |= 1 << 4;
                     }
-                    if self.paddle_button[idx] {
-                        paddle_val |= 1 << 3;
+                    if pb[idx] { paddle_val |= 1 << 3; }
+                    drop(px); drop(pb);
+                    paddle_val |= self.data_bus & 0xE7;
+                    self.apu_controller_ports_strobed = false;
+                    if self.do_oam_dma && self.data_pins_are_not_floating {
+                        self.internal_bus = self.data_bus;
+                        return self.data_bus;
                     }
+                    self.data_bus = paddle_val;
+                    self.internal_bus = self.data_bus;
+                    return self.data_bus;
+                }
+                // arkanoid paddle on port 2 ($4017)
+                if reg == 0x17 && self.controller2_type == crate::config::ControllerType::Paddle {
+                    let idx = 1usize;
+                    let mut paddle_val = 0u8;
+                    let px = self.paddle_x.lock().unwrap();
+                    let pb = self.paddle_button.lock().unwrap();
+                    if self.paddle_readbit[idx] < 8 {
+                        let bit = (px[idx] >> (7 - self.paddle_readbit[idx])) & 1;
+                        paddle_val |= bit << 4;
+                        self.paddle_readbit[idx] += 1;
+                    } else {
+                        paddle_val |= 1 << 4;
+                    }
+                    if pb[idx] { paddle_val |= 1 << 3; }
+                    drop(px); drop(pb);
                     paddle_val |= self.data_bus & 0xE7;
                     self.apu_controller_ports_strobed = false;
                     if self.do_oam_dma && self.data_pins_are_not_floating {
@@ -188,7 +215,7 @@ impl Emulator {
                 // zapper on port 2: bypass shift register mechanism
                 if reg == 0x17 && self.controller2_type == crate::config::ControllerType::Zapper {
                     let mut zapper_val = 0u8;
-                    if self.zapper_trigger {
+                    if self.zapper_trigger.load(Ordering::Relaxed) {
                         zapper_val |= 0x10;
                     }
                     if !self.zapper_check_hit() {
@@ -210,11 +237,13 @@ impl Emulator {
                 let ctype = if reg == 0x16 { self.controller1_type } else { self.controller2_type };
                 if ctype == crate::config::ControllerType::SNESPad {
                     let idx = (reg == 0x17) as usize;
+                    let snes_state_lock = self.snes_state.lock().unwrap();
                     let snes_val = if self.snes_readbit[idx] < 16 {
-                        (self.snes_state[idx] >> self.snes_readbit[idx]) & 1
+                        (snes_state_lock[idx] >> self.snes_readbit[idx]) & 1
                     } else {
                         1
                     };
+                    drop(snes_state_lock);
                     self.snes_readbit[idx] += 1;
                     self.apu_controller_ports_strobed = false;
                     let snes_byte = (snes_val as u8) | (self.data_bus & 0xFE);
@@ -260,8 +289,8 @@ impl Emulator {
                 }
 
                 if self.apu_controller_ports_strobing {
-                    self.controller_shift_register1 = self.controller_port1;
-                    self.controller_shift_register2 = self.controller_port2;
+                    self.controller_shift_register1 = self.controller_port1.load(Ordering::Relaxed);
+                    self.controller_shift_register2 = self.controller_port2.load(Ordering::Relaxed);
                 }
 
                 let sr_bit = if reg == 0x16 {
@@ -336,29 +365,39 @@ impl Emulator {
                 self.fourscore_readbit[0] = 0;
                 self.fourscore_readbit[1] = 0;
                 // latch accumulated mouse deltas into state
-                for p in 0..2usize {
-                    let dx = self.snes_mouse_delta_x[p].round() as i16;
-                    let dy = self.snes_mouse_delta_y[p].round() as i16;
-                    let cx = dx.clamp(-128, 127);
-                    let cy = dy.clamp(-128, 127);
-                    self.snes_mouse_state[p] =
-                        (if self.snes_mouse_buttons[p] & 1 != 0 { 0 } else { 1 })
-                        | (if self.snes_mouse_buttons[p] & 2 != 0 { 0 } else { 1 } << 1)
-                        | (((cx as i16 + 128) as u32) << 8)
-                        | (((cy as i16 + 128) as u32) << 16);
-                    self.snes_mouse_delta_x[p] = 0.0;
-                    self.snes_mouse_delta_y[p] = 0.0;
+                {
+                    let dx_lock = &mut *self.snes_mouse_delta_x.lock().unwrap();
+                    let dy_lock = &mut *self.snes_mouse_delta_y.lock().unwrap();
+                    let btns = self.snes_mouse_buttons.lock().unwrap();
+                    for p in 0..2usize {
+                        let dx = dx_lock[p].round() as i16;
+                        let dy = dy_lock[p].round() as i16;
+                        let cx = dx.clamp(-128, 127);
+                        let cy = dy.clamp(-128, 127);
+                        self.snes_mouse_state[p] =
+                            (if btns[p] & 1 != 0 { 0 } else { 1 })
+                            | (if btns[p] & 2 != 0 { 0 } else { 1 } << 1)
+                            | (((cx as i16 + 128) as u32) << 8)
+                            | (((cy as i16 + 128) as u32) << 16);
+                        dx_lock[p] = 0.0;
+                        dy_lock[p] = 0.0;
+                    }
                 }
                 // subor mouse: build latch from accumulated deltas (inertia)
-                for p in 0..2usize {
-                    let mut latch = self.subor_mouse_buttons[p] & 0x03;
-                    let dx = self.subor_mouse_dx[p];
-                    let dy = self.subor_mouse_dy[p];
-                    if dx > 0 { latch |= 0x08; self.subor_mouse_dx[p] -= 1; }
-                    else if dx < 0 { latch |= 0x0C; self.subor_mouse_dx[p] += 1; }
-                    if dy > 0 { latch |= 0x20; self.subor_mouse_dy[p] -= 1; }
-                    else if dy < 0 { latch |= 0x30; self.subor_mouse_dy[p] += 1; }
-                    self.subor_mouse_latch[p] = latch;
+                {
+                    let sub_btns = self.subor_mouse_buttons.lock().unwrap();
+                    let sdx = &mut *self.subor_mouse_dx.lock().unwrap();
+                    let sdy = &mut *self.subor_mouse_dy.lock().unwrap();
+                    for p in 0..2usize {
+                        let mut latch = sub_btns[p] & 0x03;
+                        let dx = sdx[p];
+                        let dy = sdy[p];
+                        if dx > 0 { latch |= 0x08; sdx[p] -= 1; }
+                        else if dx < 0 { latch |= 0x0C; sdx[p] += 1; }
+                        if dy > 0 { latch |= 0x20; sdy[p] -= 1; }
+                        else if dy < 0 { latch |= 0x30; sdy[p] += 1; }
+                        self.subor_mouse_latch[p] = latch;
+                    }
                 }
             }
             if self.cart.as_ref().is_some_and(|c| c.memory_mapper == 99) {
@@ -404,7 +443,7 @@ impl Emulator {
                 self.irq_level_detector = false;
             }
 
-              if (address & 0xE001) == 0xE000 && matches!(cart.memory_mapper, 4 | 12 | 37 | 44 | 45 | 47 | 49 | 52 | 64 | 74 | 100 | 114 | 115 | 116 | 118 | 119 | 121 | 123 | 126 | 131 | 134 | 142 | 165 | 169 | 182 | 187 | 189 | 191 | 192 | 194 | 195 | 196 | 197 | 198 | 199 | 205 | 208 | 215 | 219 | 224 | 238 | 245 | 248 | 249 | 254 | 256 | 259 | 260 | 262 | 263 | 267 | 268 | 269 | 287 | 291 | 292 | 296 | 307 | 313 | 315 | 321 | 322 | 325 | 327 | 333 | 334 | 339 | 344 | 345 | 348 | 353 | 356 | 359 | 361 | 362 | 364 | 366 | 367 | 368 | 369 | 370 | 372 | 373 | 377 | 383 | 391 | 392 | 393 | 422 | 455 | 531 | 534) {
+              if (address & 0xE001) == 0xE000 && matches!(cart.memory_mapper, 4 | 12 | 37 | 44 | 45 | 47 | 49 | 52 | 64 | 74 | 100 | 114 | 115 | 116 | 118 | 119 | 121 | 123 | 126 | 131 | 134 | 142 | 165 | 169 | 182 | 187 | 189 | 191 | 192 | 194 | 195 | 196 | 197 | 198 | 199 | 205 | 208 | 215 | 219 | 224 | 238 | 245 | 248 | 249 | 254 | 256 | 259 | 260 | 262 | 263 | 267 | 268 | 269 | 287 | 291 | 292 | 296 | 307 | 313 | 315 | 321 | 322 | 325 | 327 | 333 | 334 | 339 | 344 | 345 | 348 | 353 | 356 | 359 | 361 | 362 | 364 | 366 | 367 | 368 | 369 | 370 | 372 | 373 | 377 | 383 | 391 | 392 | 393 | 394 | 395 | 422 | 455 | 531 | 534) {
                 self.irq_level_detector = false;
             } else if cart.memory_mapper == 5 && address == 0x5204 {
                 self.irq_level_detector = false;
@@ -495,7 +534,6 @@ impl Emulator {
                     self.apu_length_counter_reload_value_triangle = APU_LENGTH_COUNTER_LUT[(input >> 3) as usize];
                     self.apu_length_counter_reload_triangle = true;
                 }
-                self.apu_channel_timer_triangle |= ((input & 0x7) as u16) << 8;
                 self.triangle_linear_counter_reload_flag = true;
             }
             0x400F => {

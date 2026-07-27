@@ -556,7 +556,7 @@ impl Mapper for MapperMMC3 {
 
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if address < 0x2000 {
-            if cart.using_chr_ram && !cart.chr_ram.is_empty() {
+            if !cart.chr_ram.is_empty() {
                 let bank = self.chr_bank(address);
                 let offset = (bank as usize) * 0x0400 + (address as usize & 0x03FF);
                 let len = cart.chr_ram.len();

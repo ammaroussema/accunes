@@ -61,5 +61,18 @@ $ZipName = "accunes-$version-$Suffix.zip"
 $ZipPath = Join-Path $ProjectRoot "$TargetDir\$ZipName"
 if (Test-Path -LiteralPath $ZipPath) { Remove-Item -LiteralPath $ZipPath -Force }
 
-Compress-Archive -Path $PackageDir -DestinationPath $ZipPath
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [System.IO.Compression.ZipFile]::Open($ZipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+$packageDirFull = Resolve-Path -LiteralPath $PackageDir
+Get-ChildItem -LiteralPath $packageDirFull -Recurse | ForEach-Object {
+    $relativePath = $_.FullName.Substring($packageDirFull.Path.Length + 1).Replace("\", "/")
+    if (-not $_.PSIsContainer) {
+        $entry = $zip.CreateEntry($relativePath, [System.IO.Compression.CompressionLevel]::Optimal)
+        $stream = $entry.Open()
+        $fileBytes = [System.IO.File]::ReadAllBytes($_.FullName)
+        $stream.Write($fileBytes, 0, $fileBytes.Length)
+        $stream.Dispose()
+    }
+}
+$zip.Dispose()
 Write-Host "Created: $ZipPath"

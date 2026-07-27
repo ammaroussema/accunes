@@ -3,6 +3,7 @@
 // accurately enough!
 
 use crate::emulator::Emulator;
+use std::sync::atomic::Ordering;
 
 const NOISE_PERIOD_LUT_NTSC: [u16; 16] = [
     4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068
@@ -84,7 +85,12 @@ impl Emulator {
         };
 
         // --- triangle ---
-        let tri_val = TRIANGLE_TABLE[self.triangle_sequencer_step as usize] as f32;
+        let tri_active = self.apu_length_counter_triangle > 0 && self.triangle_linear_counter > 0;
+        let tri_val = if tri_active {
+            TRIANGLE_TABLE[self.triangle_sequencer_step as usize] as f32
+        } else {
+            0.0
+        };
 
         // --- noise ---
         let noise_active = self.apu_status_noise
@@ -171,23 +177,26 @@ impl Emulator {
                     // vs system zapper: set controller_port1 for shift register on $4016
                     if self.controller1_type == crate::config::ControllerType::Zapper {
                         if self.cart.as_ref().map(|c| c.is_vs_system).unwrap_or(false) {
-                            self.controller_port1 = 0x08
-                                | (self.zapper_trigger as u8)
-                                | ((self.zapper_check_hit() as u8) << 1);
+                            self.controller_port1.store(0x08
+                                | (self.zapper_trigger.load(Ordering::Relaxed) as u8)
+                                | ((self.zapper_check_hit() as u8) << 1), Ordering::Relaxed);
                         }
                     }
-                    self.controller_shift_register1 = self.controller_port1;
-                    self.controller_shift_register2 = self.controller_port2;
+                    self.controller_shift_register1 = self.controller_port1.load(Ordering::Relaxed);
+                    self.controller_shift_register2 = self.controller_port2.load(Ordering::Relaxed);
                     // powerpad: latch d3/d4 shift registers from button state
-                    if self.controller1_type == crate::config::ControllerType::PowerPadA || self.controller1_type == crate::config::ControllerType::PowerPadB {
-                        let s = self.powerpad_state[0];
-                        self.powerpad_shift_d3[0] = (((s >> 1) & 1) << 7 | ((s >> 0) & 1) << 6 | ((s >> 4) & 1) << 5 | ((s >> 8) & 1) << 4 | ((s >> 5) & 1) << 3 | ((s >> 9) & 1) << 2 | ((s >> 10) & 1) << 1 | ((s >> 6) & 1)) as u8;
-                        self.powerpad_shift_d4[0] = (((s >> 3) & 1) << 7 | ((s >> 2) & 1) << 6 | ((s >> 11) & 1) << 5 | ((s >> 7) & 1) << 4) as u8;
-                    }
-                    if self.controller2_type == crate::config::ControllerType::PowerPadA || self.controller2_type == crate::config::ControllerType::PowerPadB {
-                        let s = self.powerpad_state[1];
-                        self.powerpad_shift_d3[1] = (((s >> 1) & 1) << 7 | ((s >> 0) & 1) << 6 | ((s >> 4) & 1) << 5 | ((s >> 8) & 1) << 4 | ((s >> 5) & 1) << 3 | ((s >> 9) & 1) << 2 | ((s >> 10) & 1) << 1 | ((s >> 6) & 1)) as u8;
-                        self.powerpad_shift_d4[1] = (((s >> 3) & 1) << 7 | ((s >> 2) & 1) << 6 | ((s >> 11) & 1) << 5 | ((s >> 7) & 1) << 4) as u8;
+                    {
+                        let pp = self.powerpad_state.lock().unwrap();
+                        if self.controller1_type == crate::config::ControllerType::PowerPadA || self.controller1_type == crate::config::ControllerType::PowerPadB {
+                            let s = pp[0];
+                            self.powerpad_shift_d3[0] = (((s >> 1) & 1) << 7 | ((s >> 0) & 1) << 6 | ((s >> 4) & 1) << 5 | ((s >> 8) & 1) << 4 | ((s >> 5) & 1) << 3 | ((s >> 9) & 1) << 2 | ((s >> 10) & 1) << 1 | ((s >> 6) & 1)) as u8;
+                            self.powerpad_shift_d4[0] = (((s >> 3) & 1) << 7 | ((s >> 2) & 1) << 6 | ((s >> 11) & 1) << 5 | ((s >> 7) & 1) << 4) as u8;
+                        }
+                        if self.controller2_type == crate::config::ControllerType::PowerPadA || self.controller2_type == crate::config::ControllerType::PowerPadB {
+                            let s = pp[1];
+                            self.powerpad_shift_d3[1] = (((s >> 1) & 1) << 7 | ((s >> 0) & 1) << 6 | ((s >> 4) & 1) << 5 | ((s >> 8) & 1) << 4 | ((s >> 5) & 1) << 3 | ((s >> 9) & 1) << 2 | ((s >> 10) & 1) << 1 | ((s >> 6) & 1)) as u8;
+                            self.powerpad_shift_d4[1] = (((s >> 3) & 1) << 7 | ((s >> 2) & 1) << 6 | ((s >> 11) & 1) << 5 | ((s >> 7) & 1) << 4) as u8;
+                        }
                     }
                     if self.controller1_type == crate::config::ControllerType::SNESPad {
                         self.snes_readbit[0] = 0;
@@ -209,8 +218,6 @@ impl Emulator {
             // clock channel timers
             self.apu_channel_timer_pulse1 = self.apu_channel_pulse1_sub();
             self.apu_channel_timer_pulse2 = self.apu_channel_pulse2_sub();
-            self.apu_channel_timer_noise = self.apu_channel_timer_noise.wrapping_sub(1);
-
             // clock detailed oscillators on apu get cycles
             // pulse 1
             if self.pulse1_timer == 0 {
@@ -304,8 +311,6 @@ impl Emulator {
                 }
             }
         }
-
-        self.apu_channel_timer_triangle = self.apu_channel_timer_triangle.wrapping_sub(1);
 
         // clock triangle & noise oscillators (they clock on every cpu cycle)
         // triangle

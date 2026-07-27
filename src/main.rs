@@ -18,7 +18,7 @@ mod region;
 use region::Region;
 use emulator::Emulator;
 use std::sync::{Arc, Mutex, mpsc};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -659,7 +659,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.2.7";
+const APP_VERSION: &str = "1.2.8";
 
 fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     let a = a.trim_start_matches('v');
@@ -1007,7 +1007,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.2.7")
+        .with_title("AccuNES 1.2.8")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -1019,8 +1019,44 @@ fn main() {
     let surface = Rc::new(RefCell::new(unsafe { Surface::new(&context, &window) }.expect("Failed to create softbuffer surface")));
 
     let emu = Arc::new(Mutex::new(Emulator::new()));
+    let controller_port1 = Arc::new(AtomicU8::new(0));
+    let controller_port2 = Arc::new(AtomicU8::new(0));
+    let controller_port3 = Arc::new(AtomicU8::new(0));
+    let controller_port4 = Arc::new(AtomicU8::new(0));
+    let zapper_x = Arc::new(Mutex::new(0.0f32));
+    let zapper_y = Arc::new(Mutex::new(0.0f32));
+    let zapper_trigger = Arc::new(AtomicBool::new(false));
+    let zapper_bogo = Arc::new(AtomicU8::new(0));
+    let paddle_x = Arc::new(Mutex::new([0u8; 2]));
+    let paddle_button = Arc::new(Mutex::new([false; 2]));
+    let powerpad_state = Arc::new(Mutex::new([0u16; 2]));
+    let snes_state = Arc::new(Mutex::new([0u16; 2]));
+    let snes_mouse_delta_x = Arc::new(Mutex::new([0.0f32; 2]));
+    let snes_mouse_delta_y = Arc::new(Mutex::new([0.0f32; 2]));
+    let snes_mouse_buttons = Arc::new(Mutex::new([0u8; 2]));
+    let subor_mouse_buttons = Arc::new(Mutex::new([0u8; 2]));
+    let subor_mouse_dx = Arc::new(Mutex::new([0i32; 2]));
+    let subor_mouse_dy = Arc::new(Mutex::new([0i32; 2]));
     {
         let mut e = emu.lock().unwrap();
+        e.controller_port1 = controller_port1.clone();
+        e.controller_port2 = controller_port2.clone();
+        e.controller_port3 = controller_port3.clone();
+        e.controller_port4 = controller_port4.clone();
+        e.zapper_x = zapper_x.clone();
+        e.zapper_y = zapper_y.clone();
+        e.zapper_trigger = zapper_trigger.clone();
+        e.zapper_bogo = zapper_bogo.clone();
+        e.paddle_x = paddle_x.clone();
+        e.paddle_button = paddle_button.clone();
+        e.powerpad_state = powerpad_state.clone();
+        e.snes_state = snes_state.clone();
+        e.snes_mouse_delta_x = snes_mouse_delta_x.clone();
+        e.snes_mouse_delta_y = snes_mouse_delta_y.clone();
+        e.snes_mouse_buttons = snes_mouse_buttons.clone();
+        e.subor_mouse_buttons = subor_mouse_buttons.clone();
+        e.subor_mouse_dx = subor_mouse_dx.clone();
+        e.subor_mouse_dy = subor_mouse_dy.clone();
         e.region_preference = config::load_region();
     }
     let cpal_device = cpal::default_host().default_output_device().expect("Failed to get default output device");
@@ -1078,11 +1114,7 @@ fn main() {
     let confirm_on_exit = Rc::new(RefCell::new(config::load_confirm_on_exit()));
     let auto_save_sram = Rc::new(RefCell::new(config::load_auto_save_sram()));
     let check_updates_on_startup = Rc::new(RefCell::new(config::load_check_updates_on_startup()));
-    let controller1_type = {
-        let mut ct = config::load_controller_type("controller1_type");
-        if ct == config::ControllerType::Paddle { ct = config::ControllerType::Gamepad; }
-        Rc::new(RefCell::new(ct))
-    };
+    let controller1_type = Rc::new(RefCell::new(config::load_controller_type("controller1_type")));
     let controller2_type = Rc::new(RefCell::new(config::load_controller_type("controller2_type")));
     emu.lock().unwrap().controller1_type = *controller1_type.borrow();
     emu.lock().unwrap().controller2_type = *controller2_type.borrow();
@@ -1091,6 +1123,7 @@ fn main() {
     let controller2_bindings = Rc::new(RefCell::new(config::load_bindings("controller2")));
     let zapper_trigger_binding = Rc::new(RefCell::new(config::load_zapper_trigger()));
 
+    let paddle1_button_binding = Rc::new(RefCell::new(config::load_paddle_button("controller1")));
     let paddle2_button_binding = Rc::new(RefCell::new(config::load_paddle_button("controller2")));
     let powerpad1_bindings = Rc::new(RefCell::new(config::load_powerpad_bindings("controller1")));
     let powerpad2_bindings = Rc::new(RefCell::new(config::load_powerpad_bindings("controller2")));
@@ -1197,7 +1230,26 @@ fn main() {
     let allow_opposing_dpad_clone = allow_opposing_dpad.clone();
     let controller1_bindings_clone = controller1_bindings.clone();
     let controller2_bindings_clone = controller2_bindings.clone();
+    let controller_port1_clone = controller_port1.clone();
+    let controller_port2_clone = controller_port2.clone();
+    let controller_port3_clone = controller_port3.clone();
+    let controller_port4_clone = controller_port4.clone();
+    let zapper_x_clone = zapper_x.clone();
+    let zapper_y_clone = zapper_y.clone();
+    let zapper_trigger_clone = zapper_trigger.clone();
+    let zapper_bogo_clone = zapper_bogo.clone();
+    let paddle_x_clone = paddle_x.clone();
+    let paddle_button_clone = paddle_button.clone();
+    let powerpad_state_clone = powerpad_state.clone();
+    let snes_state_clone = snes_state.clone();
+    let snes_mouse_delta_x_clone = snes_mouse_delta_x.clone();
+    let snes_mouse_delta_y_clone = snes_mouse_delta_y.clone();
+    let snes_mouse_buttons_clone = snes_mouse_buttons.clone();
+    let subor_mouse_buttons_clone = subor_mouse_buttons.clone();
+    let subor_mouse_dx_clone = subor_mouse_dx.clone();
+    let subor_mouse_dy_clone = subor_mouse_dy.clone();
     let zapper_trigger_binding_clone = zapper_trigger_binding.clone();
+    let paddle1_button_binding_clone = paddle1_button_binding.clone();
     let paddle2_button_binding_clone = paddle2_button_binding.clone();
     let powerpad1_bindings_clone = powerpad1_bindings.clone();
     let powerpad2_bindings_clone = powerpad2_bindings.clone();
@@ -1333,6 +1385,9 @@ fn main() {
                         } else if c1t == config::ControllerType::SuborMouse {
                             subor_mouse1_bindings_clone.borrow_mut()[b] = btn_name.clone();
                             config::save_subor_mouse_binding(prefix, b, &btn_name);
+                        } else if c1t == config::ControllerType::Paddle {
+                            *paddle1_button_binding_clone.borrow_mut() = btn_name.clone();
+                            config::save_paddle_button("controller1", &btn_name);
                         } else {
                             controller1_bindings_clone.borrow_mut()[b] = btn_name.clone();
                             config::save_binding(prefix, b, &btn_name);
@@ -1376,12 +1431,11 @@ fn main() {
                 let b1 = controller1_bindings_clone.borrow();
                 for (i, s) in b1.iter().enumerate() {
                     if s == &btn_name {
-                        let mut emu = emu_clone.lock().unwrap();
                         let mask = BIT_MASKS[i];
-                        if pressed { emu.controller_port1 |= mask; } else { emu.controller_port1 &= !mask; }
+                        if pressed { controller_port1_clone.fetch_or(mask, Ordering::Relaxed); } else { controller_port1_clone.fetch_and(!mask, Ordering::Relaxed); }
                         if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
-                            if emu.controller_port1 & 0x03 == 0x03 { emu.controller_port1 &= !mask; }
-                            if emu.controller_port1 & 0x0C == 0x0C { emu.controller_port1 &= !mask; }
+                            if controller_port1_clone.load(Ordering::Relaxed) & 0x03 == 0x03 { controller_port1_clone.fetch_and(!mask, Ordering::Relaxed); }
+                            if controller_port1_clone.load(Ordering::Relaxed) & 0x0C == 0x0C { controller_port1_clone.fetch_and(!mask, Ordering::Relaxed); }
                         }
                         matched1 = true;
                         break;
@@ -1391,12 +1445,11 @@ fn main() {
             if !matched1 && *controller1_type_clone.borrow() != config::ControllerType::None {
                 for (i, &def) in GP_DEFAULTS.iter().enumerate() {
                     if def == btn_name {
-                        let mut emu = emu_clone.lock().unwrap();
                         let mask = BIT_MASKS[i];
-                        if pressed { emu.controller_port1 |= mask; } else { emu.controller_port1 &= !mask; }
+                        if pressed { controller_port1_clone.fetch_or(mask, Ordering::Relaxed); } else { controller_port1_clone.fetch_and(!mask, Ordering::Relaxed); }
                         if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
-                            if emu.controller_port1 & 0x03 == 0x03 { emu.controller_port1 &= !mask; }
-                            if emu.controller_port1 & 0x0C == 0x0C { emu.controller_port1 &= !mask; }
+                            if controller_port1_clone.load(Ordering::Relaxed) & 0x03 == 0x03 { controller_port1_clone.fetch_and(!mask, Ordering::Relaxed); }
+                            if controller_port1_clone.load(Ordering::Relaxed) & 0x0C == 0x0C { controller_port1_clone.fetch_and(!mask, Ordering::Relaxed); }
                         }
                         break;
                     }
@@ -1408,12 +1461,11 @@ fn main() {
                 let b2 = controller2_bindings_clone.borrow();
                 for (i, s) in b2.iter().enumerate() {
                     if s == &btn_name {
-                        let mut emu = emu_clone.lock().unwrap();
                         let mask = BIT_MASKS[i];
-                        if pressed { emu.controller_port2 |= mask; } else { emu.controller_port2 &= !mask; }
+                        if pressed { controller_port2_clone.fetch_or(mask, Ordering::Relaxed); } else { controller_port2_clone.fetch_and(!mask, Ordering::Relaxed); }
                         if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
-                            if emu.controller_port2 & 0x03 == 0x03 { emu.controller_port2 &= !mask; }
-                            if emu.controller_port2 & 0x0C == 0x0C { emu.controller_port2 &= !mask; }
+                            if controller_port2_clone.load(Ordering::Relaxed) & 0x03 == 0x03 { controller_port2_clone.fetch_and(!mask, Ordering::Relaxed); }
+                            if controller_port2_clone.load(Ordering::Relaxed) & 0x0C == 0x0C { controller_port2_clone.fetch_and(!mask, Ordering::Relaxed); }
                         }
                         matched2 = true;
                         break;
@@ -1423,12 +1475,11 @@ fn main() {
             if !matched2 && (*controller2_type_clone.borrow() == config::ControllerType::Gamepad || *controller1_type_clone.borrow() == config::ControllerType::FourScore) {
                 for (i, &def) in GP_DEFAULTS.iter().enumerate() {
                     if def == btn_name {
-                        let mut emu = emu_clone.lock().unwrap();
                         let mask = BIT_MASKS[i];
-                        if pressed { emu.controller_port2 |= mask; } else { emu.controller_port2 &= !mask; }
+                        if pressed { controller_port2_clone.fetch_or(mask, Ordering::Relaxed); } else { controller_port2_clone.fetch_and(!mask, Ordering::Relaxed); }
                         if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
-                            if emu.controller_port2 & 0x03 == 0x03 { emu.controller_port2 &= !mask; }
-                            if emu.controller_port2 & 0x0C == 0x0C { emu.controller_port2 &= !mask; }
+                            if controller_port2_clone.load(Ordering::Relaxed) & 0x03 == 0x03 { controller_port2_clone.fetch_and(!mask, Ordering::Relaxed); }
+                            if controller_port2_clone.load(Ordering::Relaxed) & 0x0C == 0x0C { controller_port2_clone.fetch_and(!mask, Ordering::Relaxed); }
                         }
                         break;
                     }
@@ -1439,24 +1490,22 @@ fn main() {
                 let b3 = controller3_bindings_clone.borrow();
                 for (i, s) in b3.iter().enumerate() {
                     if s == &btn_name {
-                        let mut emu = emu_clone.lock().unwrap();
                         let mask = BIT_MASKS[i];
-                        if pressed { emu.controller_port3 |= mask; } else { emu.controller_port3 &= !mask; }
+                        if pressed { controller_port3_clone.fetch_or(mask, Ordering::Relaxed); } else { controller_port3_clone.fetch_and(!mask, Ordering::Relaxed); }
                         if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
-                            if emu.controller_port3 & 0x03 == 0x03 { emu.controller_port3 &= !mask; }
-                            if emu.controller_port3 & 0x0C == 0x0C { emu.controller_port3 &= !mask; }
+                            if controller_port3_clone.load(Ordering::Relaxed) & 0x03 == 0x03 { controller_port3_clone.fetch_and(!mask, Ordering::Relaxed); }
+                            if controller_port3_clone.load(Ordering::Relaxed) & 0x0C == 0x0C { controller_port3_clone.fetch_and(!mask, Ordering::Relaxed); }
                         }
                         break;
                     }
                 }
                 for (i, &def) in GP_DEFAULTS.iter().enumerate() {
                     if def == btn_name {
-                        let mut emu = emu_clone.lock().unwrap();
                         let mask = BIT_MASKS[i];
-                        if pressed { emu.controller_port3 |= mask; } else { emu.controller_port3 &= !mask; }
+                        if pressed { controller_port3_clone.fetch_or(mask, Ordering::Relaxed); } else { controller_port3_clone.fetch_and(!mask, Ordering::Relaxed); }
                         if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
-                            if emu.controller_port3 & 0x03 == 0x03 { emu.controller_port3 &= !mask; }
-                            if emu.controller_port3 & 0x0C == 0x0C { emu.controller_port3 &= !mask; }
+                            if controller_port3_clone.load(Ordering::Relaxed) & 0x03 == 0x03 { controller_port3_clone.fetch_and(!mask, Ordering::Relaxed); }
+                            if controller_port3_clone.load(Ordering::Relaxed) & 0x0C == 0x0C { controller_port3_clone.fetch_and(!mask, Ordering::Relaxed); }
                         }
                         break;
                     }
@@ -1464,24 +1513,22 @@ fn main() {
                 let b4 = controller4_bindings_clone.borrow();
                 for (i, s) in b4.iter().enumerate() {
                     if s == &btn_name {
-                        let mut emu = emu_clone.lock().unwrap();
                         let mask = BIT_MASKS[i];
-                        if pressed { emu.controller_port4 |= mask; } else { emu.controller_port4 &= !mask; }
+                        if pressed { controller_port4_clone.fetch_or(mask, Ordering::Relaxed); } else { controller_port4_clone.fetch_and(!mask, Ordering::Relaxed); }
                         if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
-                            if emu.controller_port4 & 0x03 == 0x03 { emu.controller_port4 &= !mask; }
-                            if emu.controller_port4 & 0x0C == 0x0C { emu.controller_port4 &= !mask; }
+                            if controller_port4_clone.load(Ordering::Relaxed) & 0x03 == 0x03 { controller_port4_clone.fetch_and(!mask, Ordering::Relaxed); }
+                            if controller_port4_clone.load(Ordering::Relaxed) & 0x0C == 0x0C { controller_port4_clone.fetch_and(!mask, Ordering::Relaxed); }
                         }
                         break;
                     }
                 }
                 for (i, &def) in GP_DEFAULTS.iter().enumerate() {
                     if def == btn_name {
-                        let mut emu = emu_clone.lock().unwrap();
                         let mask = BIT_MASKS[i];
-                        if pressed { emu.controller_port4 |= mask; } else { emu.controller_port4 &= !mask; }
+                        if pressed { controller_port4_clone.fetch_or(mask, Ordering::Relaxed); } else { controller_port4_clone.fetch_and(!mask, Ordering::Relaxed); }
                         if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
-                            if emu.controller_port4 & 0x03 == 0x03 { emu.controller_port4 &= !mask; }
-                            if emu.controller_port4 & 0x0C == 0x0C { emu.controller_port4 &= !mask; }
+                            if controller_port4_clone.load(Ordering::Relaxed) & 0x03 == 0x03 { controller_port4_clone.fetch_and(!mask, Ordering::Relaxed); }
+                            if controller_port4_clone.load(Ordering::Relaxed) & 0x0C == 0x0C { controller_port4_clone.fetch_and(!mask, Ordering::Relaxed); }
                         }
                         break;
                     }
@@ -1491,20 +1538,25 @@ fn main() {
             {
                 let zt = zapper_trigger_binding_clone.borrow();
                 if *zt == btn_name {
-                    let mut emu = emu_clone.lock().unwrap();
                     if pressed {
-                        emu.zapper_trigger = true;
-                        emu.zapper_bogo = 3;
+                        zapper_trigger_clone.store(true, Ordering::Relaxed);
+                        zapper_bogo_clone.store(3, Ordering::Relaxed);
                     } else {
-                        emu.zapper_trigger = false;
+                        zapper_trigger_clone.store(false, Ordering::Relaxed);
                     }
                 }
             }
             // paddle buttons
             {
+                let pb = paddle1_button_binding_clone.borrow();
+                if *pb == btn_name {
+                    paddle_button_clone.lock().unwrap()[0] = pressed;
+                }
+            }
+            {
                 let pb = paddle2_button_binding_clone.borrow();
                 if *pb == btn_name {
-                    emu_clone.lock().unwrap().paddle_button[1] = pressed;
+                    paddle_button_clone.lock().unwrap()[1] = pressed;
                 }
             }
             // powerpad buttons
@@ -1512,11 +1564,8 @@ fn main() {
                 let pp1 = powerpad1_bindings_clone.borrow();
                 for (i, s) in pp1.iter().enumerate() {
                     if s == &btn_name {
-                        if pressed {
-                            emu_clone.lock().unwrap().powerpad_state[0] |= 1 << i;
-                        } else {
-                            emu_clone.lock().unwrap().powerpad_state[0] &= !(1 << i);
-                        }
+                        let mut pp = powerpad_state_clone.lock().unwrap();
+                        if pressed { pp[0] |= 1 << i; } else { pp[0] &= !(1 << i); }
                     }
                 }
             }
@@ -1524,11 +1573,8 @@ fn main() {
                 let pp2 = powerpad2_bindings_clone.borrow();
                 for (i, s) in pp2.iter().enumerate() {
                     if s == &btn_name {
-                        if pressed {
-                            emu_clone.lock().unwrap().powerpad_state[1] |= 1 << i;
-                        } else {
-                            emu_clone.lock().unwrap().powerpad_state[1] &= !(1 << i);
-                        }
+                        let mut pp = powerpad_state_clone.lock().unwrap();
+                        if pressed { pp[1] |= 1 << i; } else { pp[1] &= !(1 << i); }
                     }
                 }
             }
@@ -1537,11 +1583,8 @@ fn main() {
                 let s1 = snes1_bindings_clone.borrow();
                 for (i, s) in s1.iter().enumerate() {
                     if s == &btn_name {
-                        if pressed {
-                            emu_clone.lock().unwrap().snes_state[0] |= 1 << i;
-                        } else {
-                            emu_clone.lock().unwrap().snes_state[0] &= !(1 << i);
-                        }
+                        let mut ss = snes_state_clone.lock().unwrap();
+                        if pressed { ss[0] |= 1 << i; } else { ss[0] &= !(1 << i); }
                     }
                 }
             }
@@ -1549,11 +1592,8 @@ fn main() {
                 let s2 = snes2_bindings_clone.borrow();
                 for (i, s) in s2.iter().enumerate() {
                     if s == &btn_name {
-                        if pressed {
-                            emu_clone.lock().unwrap().snes_state[1] |= 1 << i;
-                        } else {
-                            emu_clone.lock().unwrap().snes_state[1] &= !(1 << i);
-                        }
+                        let mut ss = snes_state_clone.lock().unwrap();
+                        if pressed { ss[1] |= 1 << i; } else { ss[1] &= !(1 << i); }
                     }
                 }
             }
@@ -1562,8 +1602,8 @@ fn main() {
                 let m1 = snes_mouse1_bindings_clone.borrow();
                 for (i, s) in m1.iter().enumerate() {
                     if s == &btn_name {
-                        if pressed { emu_clone.lock().unwrap().snes_mouse_buttons[0] |= 1 << i; }
-                        else { emu_clone.lock().unwrap().snes_mouse_buttons[0] &= !(1 << i); }
+                        let mut mb = snes_mouse_buttons_clone.lock().unwrap();
+                        if pressed { mb[0] |= 1 << i; } else { mb[0] &= !(1 << i); }
                     }
                 }
             }
@@ -1571,8 +1611,8 @@ fn main() {
                 let m2 = snes_mouse2_bindings_clone.borrow();
                 for (i, s) in m2.iter().enumerate() {
                     if s == &btn_name {
-                        if pressed { emu_clone.lock().unwrap().snes_mouse_buttons[1] |= 1 << i; }
-                        else { emu_clone.lock().unwrap().snes_mouse_buttons[1] &= !(1 << i); }
+                        let mut mb = snes_mouse_buttons_clone.lock().unwrap();
+                        if pressed { mb[1] |= 1 << i; } else { mb[1] &= !(1 << i); }
                     }
                 }
             }
@@ -1581,8 +1621,8 @@ fn main() {
                 let m1 = subor_mouse1_bindings_clone.borrow();
                 for (i, s) in m1.iter().enumerate() {
                     if s == &btn_name {
-                        if pressed { emu_clone.lock().unwrap().subor_mouse_buttons[0] |= 1 << i; }
-                        else { emu_clone.lock().unwrap().subor_mouse_buttons[0] &= !(1 << i); }
+                        let mut sb = subor_mouse_buttons_clone.lock().unwrap();
+                        if pressed { sb[0] |= 1 << i; } else { sb[0] &= !(1 << i); }
                     }
                 }
             }
@@ -1590,8 +1630,8 @@ fn main() {
                 let m2 = subor_mouse2_bindings_clone.borrow();
                 for (i, s) in m2.iter().enumerate() {
                     if s == &btn_name {
-                        if pressed { emu_clone.lock().unwrap().subor_mouse_buttons[1] |= 1 << i; }
-                        else { emu_clone.lock().unwrap().subor_mouse_buttons[1] &= !(1 << i); }
+                        let mut sb = subor_mouse_buttons_clone.lock().unwrap();
+                        if pressed { sb[1] |= 1 << i; } else { sb[1] &= !(1 << i); }
                     }
                 }
             }
@@ -1664,6 +1704,9 @@ fn main() {
                             } else if c1t == config::ControllerType::SuborMouse {
                                 subor_mouse1_bindings_clone.borrow_mut()[btn] = key_str.clone();
                                 config::save_subor_mouse_binding(prefix, btn, &key_str);
+                            } else if c1t == config::ControllerType::Paddle {
+                                *paddle1_button_binding_clone.borrow_mut() = key_str.clone();
+                                config::save_paddle_button("controller1", &key_str);
                             } else {
                                 controller1_bindings_clone.borrow_mut()[btn] = key_str.clone();
                                 config::save_binding(prefix, btn, &key_str);
@@ -1710,20 +1753,11 @@ fn main() {
                     for (i, s) in b1.iter().enumerate() {
                         if s == &key_str {
                             any_match = true;
-                            let mut emu = emu_clone.lock().unwrap();
                             let mask = BIT_MASKS[i];
-                            if pressed {
-                                emu.controller_port1 |= mask;
-                            } else {
-                                emu.controller_port1 &= !mask;
-                            }
+                            if pressed { controller_port1_clone.fetch_or(mask, Ordering::Relaxed); } else { controller_port1_clone.fetch_and(!mask, Ordering::Relaxed); }
                             if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
-                                if emu.controller_port1 & 0x03 == 0x03 {
-                                    emu.controller_port1 &= !mask;
-                                }
-                                if emu.controller_port1 & 0x0C == 0x0C {
-                                    emu.controller_port1 &= !mask;
-                                }
+                                if controller_port1_clone.load(Ordering::Relaxed) & 0x03 == 0x03 { controller_port1_clone.fetch_and(!mask, Ordering::Relaxed); }
+                                if controller_port1_clone.load(Ordering::Relaxed) & 0x0C == 0x0C { controller_port1_clone.fetch_and(!mask, Ordering::Relaxed); }
                             }
                             break;
                         }
@@ -1735,20 +1769,11 @@ fn main() {
                     let b2 = controller2_bindings_clone.borrow();
                     for (i, s) in b2.iter().enumerate() {
                         if s == &key_str {
-                            let mut emu = emu_clone.lock().unwrap();
                             let mask = BIT_MASKS[i];
-                            if pressed {
-                                emu.controller_port2 |= mask;
-                            } else {
-                                emu.controller_port2 &= !mask;
-                            }
+                            if pressed { controller_port2_clone.fetch_or(mask, Ordering::Relaxed); } else { controller_port2_clone.fetch_and(!mask, Ordering::Relaxed); }
                             if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
-                                if emu.controller_port2 & 0x03 == 0x03 {
-                                    emu.controller_port2 &= !mask;
-                                }
-                                if emu.controller_port2 & 0x0C == 0x0C {
-                                    emu.controller_port2 &= !mask;
-                                }
+                                if controller_port2_clone.load(Ordering::Relaxed) & 0x03 == 0x03 { controller_port2_clone.fetch_and(!mask, Ordering::Relaxed); }
+                                if controller_port2_clone.load(Ordering::Relaxed) & 0x0C == 0x0C { controller_port2_clone.fetch_and(!mask, Ordering::Relaxed); }
                             }
                             break;
                         }
@@ -1759,12 +1784,11 @@ fn main() {
                     let b3 = controller3_bindings_clone.borrow();
                     for (i, s) in b3.iter().enumerate() {
                         if s == &key_str {
-                            let mut emu = emu_clone.lock().unwrap();
                             let mask = BIT_MASKS[i];
-                            if pressed { emu.controller_port3 |= mask; } else { emu.controller_port3 &= !mask; }
+                            if pressed { controller_port3_clone.fetch_or(mask, Ordering::Relaxed); } else { controller_port3_clone.fetch_and(!mask, Ordering::Relaxed); }
                             if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
-                                if emu.controller_port3 & 0x03 == 0x03 { emu.controller_port3 &= !mask; }
-                                if emu.controller_port3 & 0x0C == 0x0C { emu.controller_port3 &= !mask; }
+                                if controller_port3_clone.load(Ordering::Relaxed) & 0x03 == 0x03 { controller_port3_clone.fetch_and(!mask, Ordering::Relaxed); }
+                                if controller_port3_clone.load(Ordering::Relaxed) & 0x0C == 0x0C { controller_port3_clone.fetch_and(!mask, Ordering::Relaxed); }
                             }
                             break;
                         }
@@ -1772,12 +1796,11 @@ fn main() {
                     let b4 = controller4_bindings_clone.borrow();
                     for (i, s) in b4.iter().enumerate() {
                         if s == &key_str {
-                            let mut emu = emu_clone.lock().unwrap();
                             let mask = BIT_MASKS[i];
-                            if pressed { emu.controller_port4 |= mask; } else { emu.controller_port4 &= !mask; }
+                            if pressed { controller_port4_clone.fetch_or(mask, Ordering::Relaxed); } else { controller_port4_clone.fetch_and(!mask, Ordering::Relaxed); }
                             if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
-                                if emu.controller_port4 & 0x03 == 0x03 { emu.controller_port4 &= !mask; }
-                                if emu.controller_port4 & 0x0C == 0x0C { emu.controller_port4 &= !mask; }
+                                if controller_port4_clone.load(Ordering::Relaxed) & 0x03 == 0x03 { controller_port4_clone.fetch_and(!mask, Ordering::Relaxed); }
+                                if controller_port4_clone.load(Ordering::Relaxed) & 0x0C == 0x0C { controller_port4_clone.fetch_and(!mask, Ordering::Relaxed); }
                             }
                             break;
                         }
@@ -1787,20 +1810,25 @@ fn main() {
                 {
                     let zt = zapper_trigger_binding_clone.borrow();
                     if *zt == key_str {
-                        let mut emu = emu_clone.lock().unwrap();
                         if pressed {
-                            emu.zapper_trigger = true;
-                            emu.zapper_bogo = 3;
+                            zapper_trigger_clone.store(true, Ordering::Relaxed);
+                            zapper_bogo_clone.store(3, Ordering::Relaxed);
                         } else {
-                            emu.zapper_trigger = false;
+                            zapper_trigger_clone.store(false, Ordering::Relaxed);
                         }
                     }
                 }
                 // paddle button
                 {
+                    let pb = paddle1_button_binding_clone.borrow();
+                    if *pb == key_str {
+                        paddle_button_clone.lock().unwrap()[0] = pressed;
+                    }
+                }
+                {
                     let pb = paddle2_button_binding_clone.borrow();
                     if *pb == key_str {
-                        emu_clone.lock().unwrap().paddle_button[1] = pressed;
+                        paddle_button_clone.lock().unwrap()[1] = pressed;
                     }
                 }
                 // powerpad buttons
@@ -1808,11 +1836,8 @@ fn main() {
                     let pp1 = powerpad1_bindings_clone.borrow();
                     for (i, s) in pp1.iter().enumerate() {
                         if s == &key_str {
-                            if pressed {
-                                emu_clone.lock().unwrap().powerpad_state[0] |= 1 << i;
-                            } else {
-                                emu_clone.lock().unwrap().powerpad_state[0] &= !(1 << i);
-                            }
+                            let mut pp = powerpad_state_clone.lock().unwrap();
+                            if pressed { pp[0] |= 1 << i; } else { pp[0] &= !(1 << i); }
                         }
                     }
                 }
@@ -1820,11 +1845,8 @@ fn main() {
                     let pp2 = powerpad2_bindings_clone.borrow();
                     for (i, s) in pp2.iter().enumerate() {
                         if s == &key_str {
-                            if pressed {
-                                emu_clone.lock().unwrap().powerpad_state[1] |= 1 << i;
-                            } else {
-                                emu_clone.lock().unwrap().powerpad_state[1] &= !(1 << i);
-                            }
+                            let mut pp = powerpad_state_clone.lock().unwrap();
+                            if pressed { pp[1] |= 1 << i; } else { pp[1] &= !(1 << i); }
                         }
                     }
                 }
@@ -1833,11 +1855,8 @@ fn main() {
                     let s1 = snes1_bindings_clone.borrow();
                     for (i, s) in s1.iter().enumerate() {
                         if s == &key_str {
-                            if pressed {
-                                emu_clone.lock().unwrap().snes_state[0] |= 1 << i;
-                            } else {
-                                emu_clone.lock().unwrap().snes_state[0] &= !(1 << i);
-                            }
+                            let mut ss = snes_state_clone.lock().unwrap();
+                            if pressed { ss[0] |= 1 << i; } else { ss[0] &= !(1 << i); }
                         }
                     }
                 }
@@ -1845,11 +1864,8 @@ fn main() {
                     let s2 = snes2_bindings_clone.borrow();
                     for (i, s) in s2.iter().enumerate() {
                         if s == &key_str {
-                            if pressed {
-                                emu_clone.lock().unwrap().snes_state[1] |= 1 << i;
-                            } else {
-                                emu_clone.lock().unwrap().snes_state[1] &= !(1 << i);
-                            }
+                            let mut ss = snes_state_clone.lock().unwrap();
+                            if pressed { ss[1] |= 1 << i; } else { ss[1] &= !(1 << i); }
                         }
                     }
                 }
@@ -1858,8 +1874,8 @@ fn main() {
                     let m1 = snes_mouse1_bindings_clone.borrow();
                     for (i, s) in m1.iter().enumerate() {
                         if s == &key_str {
-                            if pressed { emu_clone.lock().unwrap().snes_mouse_buttons[0] |= 1 << i; }
-                            else { emu_clone.lock().unwrap().snes_mouse_buttons[0] &= !(1 << i); }
+                            let mut mb = snes_mouse_buttons_clone.lock().unwrap();
+                            if pressed { mb[0] |= 1 << i; } else { mb[0] &= !(1 << i); }
                         }
                     }
                 }
@@ -1867,8 +1883,8 @@ fn main() {
                     let m2 = snes_mouse2_bindings_clone.borrow();
                     for (i, s) in m2.iter().enumerate() {
                         if s == &key_str {
-                            if pressed { emu_clone.lock().unwrap().snes_mouse_buttons[1] |= 1 << i; }
-                            else { emu_clone.lock().unwrap().snes_mouse_buttons[1] &= !(1 << i); }
+                            let mut mb = snes_mouse_buttons_clone.lock().unwrap();
+                            if pressed { mb[1] |= 1 << i; } else { mb[1] &= !(1 << i); }
                         }
                     }
                 }
@@ -1877,8 +1893,8 @@ fn main() {
                     let m1 = subor_mouse1_bindings_clone.borrow();
                     for (i, s) in m1.iter().enumerate() {
                         if s == &key_str {
-                            if pressed { emu_clone.lock().unwrap().subor_mouse_buttons[0] |= 1 << i; }
-                            else { emu_clone.lock().unwrap().subor_mouse_buttons[0] &= !(1 << i); }
+                            let mut sb = subor_mouse_buttons_clone.lock().unwrap();
+                            if pressed { sb[0] |= 1 << i; } else { sb[0] &= !(1 << i); }
                         }
                     }
                 }
@@ -1886,8 +1902,8 @@ fn main() {
                     let m2 = subor_mouse2_bindings_clone.borrow();
                     for (i, s) in m2.iter().enumerate() {
                         if s == &key_str {
-                            if pressed { emu_clone.lock().unwrap().subor_mouse_buttons[1] |= 1 << i; }
-                            else { emu_clone.lock().unwrap().subor_mouse_buttons[1] &= !(1 << i); }
+                            let mut sb = subor_mouse_buttons_clone.lock().unwrap();
+                            if pressed { sb[1] |= 1 << i; } else { sb[1] &= !(1 << i); }
                         }
                     }
                 }
@@ -2135,13 +2151,16 @@ fn main() {
                     let rel_y = my - sd_y;
                     let nes_x = (rel_x * 256) / sd_w;
                     let nes_y = (rel_y * 240) / sd_h;
-                    let mut emu = emu_clone.lock().unwrap();
-                    emu.zapper_x = nes_x as f32 / 255.0;
-                    emu.zapper_y = nes_y as f32 / 239.0;
+                    *zapper_x_clone.lock().unwrap() = nes_x as f32 / 255.0;
+                    *zapper_y_clone.lock().unwrap() = nes_y as f32 / 239.0;
                     // paddle position from mouse x
                     let raw = 98u16 + (nes_x as u16 * 144 / 240);
                     let px = raw.min(242) as u8;
-                    emu.paddle_x[1] = !px;
+                    {
+                        let mut pxv = paddle_x_clone.lock().unwrap();
+                        pxv[0] = !px;
+                        pxv[1] = !px;
+                    }
                 }
                 // snes mouse delta tracking (track even outside NES screen)
                 let lx = *last_mouse_x_clone.borrow();
@@ -2150,18 +2169,25 @@ fn main() {
                     let dx = position.x - lx;
                     let dy = position.y - ly;
                     if dx.abs() < 500.0 && dy.abs() < 500.0 {
-                        let mut emu = emu_clone.lock().unwrap();
-                        emu.snes_mouse_delta_x[0] += (dx as f32) / 4.0;
-                        emu.snes_mouse_delta_y[0] += (dy as f32) / 4.0;
-                        emu.snes_mouse_delta_x[1] += (dx as f32) / 4.0;
-                        emu.snes_mouse_delta_y[1] += (dy as f32) / 4.0;
+                        {
+                            let mut sdx = snes_mouse_delta_x_clone.lock().unwrap();
+                            let mut sdy = snes_mouse_delta_y_clone.lock().unwrap();
+                            sdx[0] += (dx as f32) / 4.0;
+                            sdy[0] += (dy as f32) / 4.0;
+                            sdx[1] += (dx as f32) / 4.0;
+                            sdy[1] += (dy as f32) / 4.0;
+                        }
                         // subor mouse: raw deltas
                         let dxi = dx as i32;
                         let dyi = dy as i32;
-                        emu.subor_mouse_dx[0] = emu.subor_mouse_dx[0].saturating_add(dxi).clamp(-32, 32);
-                        emu.subor_mouse_dy[0] = emu.subor_mouse_dy[0].saturating_add(dyi).clamp(-32, 32);
-                        emu.subor_mouse_dx[1] = emu.subor_mouse_dx[1].saturating_add(dxi).clamp(-32, 32);
-                        emu.subor_mouse_dy[1] = emu.subor_mouse_dy[1].saturating_add(dyi).clamp(-32, 32);
+                        {
+                            let mut sdx = subor_mouse_dx_clone.lock().unwrap();
+                            let mut sdy = subor_mouse_dy_clone.lock().unwrap();
+                            sdx[0] = sdx[0].saturating_add(dxi).clamp(-32, 32);
+                            sdy[0] = sdy[0].saturating_add(dyi).clamp(-32, 32);
+                            sdx[1] = sdx[1].saturating_add(dxi).clamp(-32, 32);
+                            sdy[1] = sdy[1].saturating_add(dyi).clamp(-32, 32);
+                        }
                     }
                 }
                 *last_mouse_x_clone.borrow_mut() = position.x;
@@ -2217,6 +2243,9 @@ fn main() {
                             } else if c1t == config::ControllerType::SuborMouse {
                                 subor_mouse1_bindings_clone.borrow_mut()[b] = bs;
                                 config::save_subor_mouse_binding(prefix, b, &btn_str);
+                            } else if c1t == config::ControllerType::Paddle {
+                                *paddle1_button_binding_clone.borrow_mut() = bs;
+                                config::save_paddle_button("controller1", &btn_str);
                             } else {
                                 controller1_bindings_clone.borrow_mut()[b] = bs;
                                 config::save_binding(prefix, b, &btn_str);
@@ -2269,13 +2298,11 @@ fn main() {
                         let b1 = controller1_bindings_clone.borrow();
                         for (i, s) in b1.iter().enumerate() {
                             if s == &btn_str {
-                                let mut emu = emu_clone.lock().unwrap();
                                 let mask = BIT_MASKS[i];
-                                if pressed { emu.controller_port1 |= mask; }
-                                else { emu.controller_port1 &= !mask; }
+                                if pressed { controller_port1_clone.fetch_or(mask, Ordering::Relaxed); } else { controller_port1_clone.fetch_and(!mask, Ordering::Relaxed); }
                                 if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
-                                    if emu.controller_port1 & 0x03 == 0x03 { emu.controller_port1 &= !mask; }
-                                    if emu.controller_port1 & 0x0C == 0x0C { emu.controller_port1 &= !mask; }
+                                    if controller_port1_clone.load(Ordering::Relaxed) & 0x03 == 0x03 { controller_port1_clone.fetch_and(!mask, Ordering::Relaxed); }
+                                    if controller_port1_clone.load(Ordering::Relaxed) & 0x0C == 0x0C { controller_port1_clone.fetch_and(!mask, Ordering::Relaxed); }
                                 }
                                 break;
                             }
@@ -2286,12 +2313,11 @@ fn main() {
                     let b3 = controller3_bindings_clone.borrow();
                     for (i, s) in b3.iter().enumerate() {
                         if s == &btn_str {
-                            let mut emu = emu_clone.lock().unwrap();
                             let mask = BIT_MASKS[i];
-                            if pressed { emu.controller_port3 |= mask; } else { emu.controller_port3 &= !mask; }
+                            if pressed { controller_port3_clone.fetch_or(mask, Ordering::Relaxed); } else { controller_port3_clone.fetch_and(!mask, Ordering::Relaxed); }
                             if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
-                                if emu.controller_port3 & 0x03 == 0x03 { emu.controller_port3 &= !mask; }
-                                if emu.controller_port3 & 0x0C == 0x0C { emu.controller_port3 &= !mask; }
+                                if controller_port3_clone.load(Ordering::Relaxed) & 0x03 == 0x03 { controller_port3_clone.fetch_and(!mask, Ordering::Relaxed); }
+                                if controller_port3_clone.load(Ordering::Relaxed) & 0x0C == 0x0C { controller_port3_clone.fetch_and(!mask, Ordering::Relaxed); }
                             }
                             break;
                         }
@@ -2299,12 +2325,11 @@ fn main() {
                     let b4 = controller4_bindings_clone.borrow();
                     for (i, s) in b4.iter().enumerate() {
                         if s == &btn_str {
-                            let mut emu = emu_clone.lock().unwrap();
                             let mask = BIT_MASKS[i];
-                            if pressed { emu.controller_port4 |= mask; } else { emu.controller_port4 &= !mask; }
+                            if pressed { controller_port4_clone.fetch_or(mask, Ordering::Relaxed); } else { controller_port4_clone.fetch_and(!mask, Ordering::Relaxed); }
                             if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
-                                if emu.controller_port4 & 0x03 == 0x03 { emu.controller_port4 &= !mask; }
-                                if emu.controller_port4 & 0x0C == 0x0C { emu.controller_port4 &= !mask; }
+                                if controller_port4_clone.load(Ordering::Relaxed) & 0x03 == 0x03 { controller_port4_clone.fetch_and(!mask, Ordering::Relaxed); }
+                                if controller_port4_clone.load(Ordering::Relaxed) & 0x0C == 0x0C { controller_port4_clone.fetch_and(!mask, Ordering::Relaxed); }
                             }
                             break;
                         }
@@ -2314,20 +2339,25 @@ fn main() {
                     {
                         let zt = zapper_trigger_binding_clone.borrow();
                         if *zt == btn_str {
-                            let mut emu = emu_clone.lock().unwrap();
                             if pressed {
-                                emu.zapper_trigger = true;
-                                emu.zapper_bogo = 3;
+                                zapper_trigger_clone.store(true, Ordering::Relaxed);
+                                zapper_bogo_clone.store(3, Ordering::Relaxed);
                             } else {
-                                emu.zapper_trigger = false;
+                                zapper_trigger_clone.store(false, Ordering::Relaxed);
                             }
                         }
                     }
                     // paddle button
                     {
+                        let pb = paddle1_button_binding_clone.borrow();
+                        if *pb == btn_str {
+                            paddle_button_clone.lock().unwrap()[0] = pressed;
+                        }
+                    }
+                    {
                         let pb = paddle2_button_binding_clone.borrow();
                         if *pb == btn_str {
-                            emu_clone.lock().unwrap().paddle_button[1] = pressed;
+                            paddle_button_clone.lock().unwrap()[1] = pressed;
                         }
                     }
                     // powerpad buttons
@@ -2335,11 +2365,8 @@ fn main() {
                         let pp1 = powerpad1_bindings_clone.borrow();
                         for (i, s) in pp1.iter().enumerate() {
                             if s == &btn_str {
-                                if pressed {
-                                    emu_clone.lock().unwrap().powerpad_state[0] |= 1 << i;
-                                } else {
-                                    emu_clone.lock().unwrap().powerpad_state[0] &= !(1 << i);
-                                }
+                                let mut pp = powerpad_state_clone.lock().unwrap();
+                                if pressed { pp[0] |= 1 << i; } else { pp[0] &= !(1 << i); }
                             }
                         }
                     }
@@ -2347,11 +2374,8 @@ fn main() {
                         let pp2 = powerpad2_bindings_clone.borrow();
                         for (i, s) in pp2.iter().enumerate() {
                             if s == &btn_str {
-                                if pressed {
-                                    emu_clone.lock().unwrap().powerpad_state[1] |= 1 << i;
-                                } else {
-                                    emu_clone.lock().unwrap().powerpad_state[1] &= !(1 << i);
-                                }
+                                let mut pp = powerpad_state_clone.lock().unwrap();
+                                if pressed { pp[1] |= 1 << i; } else { pp[1] &= !(1 << i); }
                             }
                         }
                     }
@@ -2360,11 +2384,8 @@ fn main() {
                         let s1 = snes1_bindings_clone.borrow();
                         for (i, s) in s1.iter().enumerate() {
                             if s == &btn_str {
-                                if pressed {
-                                    emu_clone.lock().unwrap().snes_state[0] |= 1 << i;
-                                } else {
-                                    emu_clone.lock().unwrap().snes_state[0] &= !(1 << i);
-                                }
+                                let mut ss = snes_state_clone.lock().unwrap();
+                                if pressed { ss[0] |= 1 << i; } else { ss[0] &= !(1 << i); }
                             }
                         }
                     }
@@ -2372,11 +2393,8 @@ fn main() {
                         let s2 = snes2_bindings_clone.borrow();
                         for (i, s) in s2.iter().enumerate() {
                             if s == &btn_str {
-                                if pressed {
-                                    emu_clone.lock().unwrap().snes_state[1] |= 1 << i;
-                                } else {
-                                    emu_clone.lock().unwrap().snes_state[1] &= !(1 << i);
-                                }
+                                let mut ss = snes_state_clone.lock().unwrap();
+                                if pressed { ss[1] |= 1 << i; } else { ss[1] &= !(1 << i); }
                             }
                         }
                     }
@@ -2385,8 +2403,8 @@ fn main() {
                         let m1 = snes_mouse1_bindings_clone.borrow();
                         for (i, s) in m1.iter().enumerate() {
                             if s == &btn_str {
-                                if pressed { emu_clone.lock().unwrap().snes_mouse_buttons[0] |= 1 << i; }
-                                else { emu_clone.lock().unwrap().snes_mouse_buttons[0] &= !(1 << i); }
+                                let mut mb = snes_mouse_buttons_clone.lock().unwrap();
+                                if pressed { mb[0] |= 1 << i; } else { mb[0] &= !(1 << i); }
                             }
                         }
                     }
@@ -2394,8 +2412,8 @@ fn main() {
                         let m2 = snes_mouse2_bindings_clone.borrow();
                         for (i, s) in m2.iter().enumerate() {
                             if s == &btn_str {
-                                if pressed { emu_clone.lock().unwrap().snes_mouse_buttons[1] |= 1 << i; }
-                                else { emu_clone.lock().unwrap().snes_mouse_buttons[1] &= !(1 << i); }
+                                let mut mb = snes_mouse_buttons_clone.lock().unwrap();
+                                if pressed { mb[1] |= 1 << i; } else { mb[1] &= !(1 << i); }
                             }
                         }
                     }
@@ -2404,8 +2422,8 @@ fn main() {
                         let m1 = subor_mouse1_bindings_clone.borrow();
                         for (i, s) in m1.iter().enumerate() {
                             if s == &btn_str {
-                                if pressed { emu_clone.lock().unwrap().subor_mouse_buttons[0] |= 1 << i; }
-                                else { emu_clone.lock().unwrap().subor_mouse_buttons[0] &= !(1 << i); }
+                                let mut sb = subor_mouse_buttons_clone.lock().unwrap();
+                                if pressed { sb[0] |= 1 << i; } else { sb[0] &= !(1 << i); }
                             }
                         }
                     }
@@ -2413,8 +2431,8 @@ fn main() {
                         let m2 = subor_mouse2_bindings_clone.borrow();
                         for (i, s) in m2.iter().enumerate() {
                             if s == &btn_str {
-                                if pressed { emu_clone.lock().unwrap().subor_mouse_buttons[1] |= 1 << i; }
-                                else { emu_clone.lock().unwrap().subor_mouse_buttons[1] &= !(1 << i); }
+                                let mut sb = subor_mouse_buttons_clone.lock().unwrap();
+                                if pressed { sb[1] |= 1 << i; } else { sb[1] &= !(1 << i); }
                             }
                         }
                     }
@@ -2423,13 +2441,11 @@ fn main() {
                         let b2 = controller2_bindings_clone.borrow();
                         for (i, s) in b2.iter().enumerate() {
                             if s == &btn_str {
-                                let mut emu = emu_clone.lock().unwrap();
                                 let mask = BIT_MASKS[i];
-                                if pressed { emu.controller_port2 |= mask; }
-                                else { emu.controller_port2 &= !mask; }
+                                if pressed { controller_port2_clone.fetch_or(mask, Ordering::Relaxed); } else { controller_port2_clone.fetch_and(!mask, Ordering::Relaxed); }
                                 if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
-                                    if emu.controller_port2 & 0x03 == 0x03 { emu.controller_port2 &= !mask; }
-                                    if emu.controller_port2 & 0x0C == 0x0C { emu.controller_port2 &= !mask; }
+                                    if controller_port2_clone.load(Ordering::Relaxed) & 0x03 == 0x03 { controller_port2_clone.fetch_and(!mask, Ordering::Relaxed); }
+                                    if controller_port2_clone.load(Ordering::Relaxed) & 0x0C == 0x0C { controller_port2_clone.fetch_and(!mask, Ordering::Relaxed); }
                                 }
                                 break;
                             }
@@ -2820,7 +2836,7 @@ fn main() {
                             let grid_y0 = cy + tmp_g0;
                             let mut clicked_rebind = None;
                             let c1t = *controller1_type_clone.borrow();
-                            let is_single1 = c1t == config::ControllerType::Zapper;
+                            let is_single1 = c1t == config::ControllerType::Zapper || c1t == config::ControllerType::Paddle;
                             let is_snesmouse1 = c1t == config::ControllerType::SNESMouse || c1t == config::ControllerType::SuborMouse;
                             let is_pp1 = c1t == config::ControllerType::PowerPadA || c1t == config::ControllerType::PowerPadB;
                             let is_snes1 = c1t == config::ControllerType::SNESPad;
@@ -2920,6 +2936,9 @@ fn main() {
                                 if c1t == config::ControllerType::Zapper {
                                     config::save_zapper_trigger("");
                                     *zapper_trigger_binding_clone.borrow_mut() = String::new();
+                                } else if c1t == config::ControllerType::Paddle {
+                                    config::save_paddle_button("controller1", "");
+                                    *paddle1_button_binding_clone.borrow_mut() = String::new();
                                 } else if c1t == config::ControllerType::SNESMouse {
                                     config::clear_snes_mouse_bindings("controller1");
                                     *snes_mouse1_bindings_clone.borrow_mut() = config::load_snes_mouse_bindings("controller1");
@@ -2949,6 +2968,9 @@ fn main() {
                                 if c1t == config::ControllerType::Zapper {
                                     config::save_zapper_trigger("MouseLeft");
                                     *zapper_trigger_binding_clone.borrow_mut() = "MouseLeft".to_string();
+                                } else if c1t == config::ControllerType::Paddle {
+                                    config::save_paddle_button("controller1", "MouseLeft");
+                                    *paddle1_button_binding_clone.borrow_mut() = "MouseLeft".to_string();
                                 } else if c1t == config::ControllerType::SNESMouse {
                                     config::reset_snes_mouse_bindings("controller1");
                                     *snes_mouse1_bindings_clone.borrow_mut() = config::load_snes_mouse_bindings("controller1");
@@ -3271,7 +3293,7 @@ fn main() {
                             } else if point_in_rect(mx, my, t1_box_x, type_y, box_w, row_h) {
                                 let mut ct = controller1_type_clone.borrow_mut();
                                 let prev = *ct;
-                                *ct = ct.next(false);
+                                *ct = ct.next();
                                 if *ct == config::ControllerType::FourScore {
                                     *controller2_type_clone.borrow_mut() = config::ControllerType::FourScore;
                                     config::save_controller_type("controller2_type", config::ControllerType::FourScore);
@@ -3286,7 +3308,7 @@ fn main() {
                             } else if point_in_rect(mx, my, t2_box_x, type_y, box_w, row_h) {
                                 let mut ct = controller2_type_clone.borrow_mut();
                                 let prev = *ct;
-                                *ct = ct.next(true);
+                                *ct = ct.next();
                                 if *ct == config::ControllerType::FourScore {
                                     *controller1_type_clone.borrow_mut() = config::ControllerType::FourScore;
                                     config::save_controller_type("controller1_type", config::ControllerType::FourScore);
@@ -3374,9 +3396,11 @@ fn main() {
                                         if point_in_rect(mx, my, *x, *y, *w, *h) {
                                             let path_str = roms[i].clone();
                                             match cartridge::Cartridge::from_file(&path_str) {
-                                                Ok(cart) => {
-                                                    emu_clone.lock().unwrap().load_cartridge(cart);
-                                                    emu_clone.lock().unwrap().reset();
+                                                     Ok(cart) => {
+                                                             let mut emu = emu_clone.lock().unwrap();
+                                                             emu.load_cartridge(cart);
+                                                             emu.power_cycle(*initial_ram_clone.borrow());
+                                                             drop(emu);
                                                     *rom_loaded_clone.borrow_mut() = true;
                                                     rom_loaded_flag_clone.store(true, Ordering::Relaxed);
                                                     *current_rom_clone.borrow_mut() = Some(path_str.clone());
@@ -3490,6 +3514,7 @@ fn main() {
                                         match file_menu_items[i] {
                                             FileMenuItem::Open => {
                                                 if let Some(path) = rfd::FileDialog::new()
+                                                    .add_filter("All ROMs", &["nes", "unif", "unf", "fds"])
                                                     .add_filter("NES ROMs", &["nes", "unif", "unf"])
                                                     .add_filter("FDS ROMs", &["fds"])
                                                     .pick_file() {
@@ -3497,7 +3522,7 @@ fn main() {
                                                     match cartridge::Cartridge::from_file(&path_str) {
                                                         Ok(cart) => {
                                                             emu_clone.lock().unwrap().load_cartridge(cart);
-                                                    emu_clone.lock().unwrap().reset();
+                                                    emu_clone.lock().unwrap().power_cycle(*initial_ram_clone.borrow());
                                                     *rom_loaded_clone.borrow_mut() = true;
                                                     rom_loaded_flag_clone.store(true, Ordering::Relaxed);
                                                     *current_rom_clone.borrow_mut() = Some(path_str.clone());
@@ -4116,9 +4141,9 @@ fn main() {
                         } else if lower.ends_with(".fds") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.2.7: {}", filename)
+                        format!("AccuNES 1.2.8: {}", filename)
                     } else {
-                        "AccuNES 1.2.7".to_string()
+                        "AccuNES 1.2.8".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -4532,7 +4557,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.2.7",
+                        "Version: 1.2.8",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
@@ -5065,14 +5090,17 @@ fn main() {
                     draw_rect(&mut buffer, close_x, close_y, close_w, close_h, width, colors.close_bg);
                     draw_text(&mut buffer, close_x + (6.0 * scale).round() as usize, close_y + (6.0 * scale).round() as usize, width, "X", colors.menu_text, scale);
                     let labels = ["A", "B", "Turbo A", "Turbo B", "Select", "Start", "Up", "Down", "Left", "Right"];
-                    if c1t == config::ControllerType::Zapper {
+                    if c1t == config::ControllerType::Zapper || c1t == config::ControllerType::Paddle {
                         let total_w = 2 * btn_w + gap_x;
                         let trig_bx = cx + (cw - total_w) / 2;
                         let is_hovered = ms.hovered_ctrl_button == Some(0);
                         let is_rebinding = ms.rebind_controller == Some(1) && ms.rebind_button == Some(0);
-                        let zt = zapper_trigger_binding_clone.borrow();
-                        let txt = if is_rebinding { "?".to_string() } else { zt.clone() };
-                        let lbl = "Trigger";
+                        let (lbl, binding) = if c1t == config::ControllerType::Zapper {
+                            ("Trigger", zapper_trigger_binding_clone.borrow().clone())
+                        } else {
+                            ("Button", paddle1_button_binding_clone.borrow().clone())
+                        };
+                        let txt = if is_rebinding { "?".to_string() } else { binding };
                         let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
                         let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
                         draw_rect(&mut buffer, trig_bx, grid_y0, total_w, btn_h, width, border);

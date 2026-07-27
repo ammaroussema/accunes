@@ -11,12 +11,9 @@ pub struct Mapper393 {
 impl Mapper393 {
     pub fn new(header: &[u8], rom: &[u8], rom_name: &str) -> Self {
         let chr_size = if header.len() > 5 { header[5] } else { 0 };
-        let config = Mmc3Config {
-            ax5202p: true,
-            prg_ram_size: 0,
-            chr_ram_size: 0x2000,
-            ..Mmc3Config::for_ines(header, 0, chr_size, rom, rom_name)
-        };
+        let mut config = Mmc3Config::for_ines(header, 0, chr_size, rom, rom_name);
+        config.ax5202p = true;
+        config.prg_ram_size = 0;
         Self { mmc3: MapperMMC3::new(config), outer_bank: 0, latch: 0 }
     }
 
@@ -58,28 +55,25 @@ impl Mapper for Mapper393 {
                     let bank_hi = 7u16 | ((self.outer_bank as u16) << 3);
                     let bank = if address < 0xC000 { bank_lo } else { bank_hi };
                     let offset = (bank as usize) * 0x4000 + (address as usize & 0x3FFF);
-                    FetchResult {
-                        data: if offset < cart.prg_rom.len() { cart.prg_rom[offset] } else { 0 },
-                        driven: true,
-                    }
+                    let len = cart.prg_rom.len();
+                    let data = if len > 0 { cart.prg_rom[offset % len] } else { 0 };
+                    FetchResult { data, driven: true }
                 } else {
                     let raw_bank = self.prg_raw_bank(cart, 0) as u16;
                     let bank_32k = (raw_bank >> 2 & 3) | ((self.outer_bank as u16) << 2);
                     let offset = (bank_32k as usize) * 0x8000 + (address as usize & 0x7FFF);
-                    FetchResult {
-                        data: if offset < cart.prg_rom.len() { cart.prg_rom[offset] } else { 0 },
-                        driven: true,
-                    }
+                    let len = cart.prg_rom.len();
+                    let data = if len > 0 { cart.prg_rom[offset % len] } else { 0 };
+                    FetchResult { data, driven: true }
                 }
             } else {
                 let cpu_bank = ((address - 0x8000) / 0x2000) as u8;
                 let raw_bank = self.prg_raw_bank(cart, cpu_bank) as u16;
                 let bank = (raw_bank & 0x0F) | ((self.outer_bank as u16) << 4);
                 let offset = (bank as usize) * 0x2000 + (address as usize & 0x1FFF);
-                FetchResult {
-                    data: if offset < cart.prg_rom.len() { cart.prg_rom[offset] } else { 0 },
-                    driven: true,
-                }
+                let len = cart.prg_rom.len();
+                let data = if len > 0 { cart.prg_rom[offset % len] } else { 0 };
+                FetchResult { data, driven: true }
             }
         } else {
             self.mmc3.fetch_prg(cart, address)
@@ -88,7 +82,10 @@ impl Mapper for Mapper393 {
 
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x6000 && address < 0x8000 {
-            self.outer_bank = (address & 0xFF) as u8;
+            self.mmc3.store_prg(cart, address, data);
+            if (self.mmc3.prg_ram_protect & 0x40) == 0 {
+                self.outer_bank = (address & 0xFF) as u8;
+            }
         } else if address >= 0x8000 {
             self.latch = data;
             self.mmc3.store_prg(cart, address, data);
@@ -150,7 +147,7 @@ impl Mapper for Mapper393 {
         if address < 0x2000 && !cart.chr_ram.is_empty() {
             if (self.outer_bank & 0x08) != 0 {
                 cart.chr_ram[(address as usize) & 0x1FFF] = data;
-            } else if cart.using_chr_ram {
+            } else if !cart.chr_ram.is_empty() {
                 let raw_bank = mmc3_chr_bank(
                     self.mmc3.r8000, self.mmc3.chr_2k0, self.mmc3.chr_2k8,
                     self.mmc3.chr_1k0, self.mmc3.chr_1k4, self.mmc3.chr_1k8, self.mmc3.chr_1kc, address,

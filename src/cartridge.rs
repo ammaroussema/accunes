@@ -457,14 +457,22 @@ impl Cartridge {
         };
 
         let mut chr_size = rom[5];
-        let mut using_chr_ram = chr_size == 0;
         let has_trainer = (rom[6] & 4) != 0;
         let trainer_len = if has_trainer { 512 } else { 0 };
 
         let mut prg_size = rom[4];
+
+        // Compute actual CHR size with NES 2.0 extended byte (byte 9 bits 4-7)
+        let chr_size_val = if is_nes20 {
+            (rom[5] as usize) | ((rom[9] & 0xF0) as usize) << 4
+        } else {
+            rom[5] as usize
+        };
+        let mut using_chr_ram = chr_size_val == 0;
+
         let prg_rom_len = if prg_size == 0 {
             let after_header = 0x10 + trainer_len;
-            let chr_bytes = (chr_size as usize) * 0x2000;
+            let chr_bytes = chr_size_val * 0x2000;
             let remaining = rom.len().saturating_sub(after_header + chr_bytes);
             let detected_16kb = remaining / 0x4000;
             if detected_16kb > 0 {
@@ -482,7 +490,7 @@ impl Cartridge {
             prg_size as usize * 0x4000
         };
         let prg_size_minus_1 = prg_size.wrapping_sub(1);
-        let chr_rom_len = chr_size as usize * 0x2000;
+        let chr_rom_len = chr_size_val * 0x2000;
 
         if rom.len() < 0x10 + trainer_len + prg_rom_len + chr_rom_len {
             return Err(format!(
@@ -507,7 +515,7 @@ impl Cartridge {
 
         // DEBUG: print detected ROM sizes
         println!("ROM SIZES: prg_size={} prg_rom_len=${:X} chr_size={} chr_rom_len=${:X} prg_rom_file_len=${:X}",
-            prg_size, prg_rom_len, chr_size, chr_rom_len, prg_rom.len());
+            prg_size, prg_rom_len, chr_size_val, chr_rom_len, prg_rom.len());
 
         let game_data_end = 0x10 + trainer_len + prg_rom_len + chr_rom_len;
         let i_nes_game_crc32 = crate::crc::crc32(&rom[0x10 + trainer_len..game_data_end]);
@@ -598,7 +606,7 @@ impl Cartridge {
                 ram[..len].copy_from_slice(&chr_rom[..len]);
             }
             ram
-        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 372 | 375 | 381 | 382) {
+        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 372 | 375 | 381 | 382 | 393) {
             let chr_ram_size = if is_nes20 && memory_mapper == 268 {
                 let vram_shift = rom[11] & 0x0F;
                 let battery_shift = (rom[11] >> 4) & 0x0F;
@@ -621,7 +629,7 @@ impl Cartridge {
         if memory_mapper == 77 {
             using_chr_ram = true;
         }
-        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 372 | 375 | 381 | 382) {
+        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 372 | 375 | 381 | 382 | 393) {
             using_chr_ram = true;
         }
         if memory_mapper == 314 && chr_size == 0 {

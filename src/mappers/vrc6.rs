@@ -11,7 +11,7 @@ pub struct Vrc6 {
     variant: Vrc6Variant,
     prg: [u8; 2],
     chr: [u8; 8],
-    mirr: u8,
+    mirr_ctrl: u8,
     irq_latch: u8,
     irq_enabled: bool,
     irq_reload: bool,
@@ -31,7 +31,7 @@ impl Vrc6 {
             variant,
             prg: [0; 2],
             chr: [0; 8],
-            mirr: 0,
+            mirr_ctrl: 0,
             irq_latch: 0,
             irq_enabled: false,
             irq_reload: false,
@@ -50,15 +50,119 @@ impl Vrc6 {
             }
         }
     }
+
+    fn nt_offset(&self, address: u16) -> u16 {
+        let mode = self.mirr_ctrl & 3;
+        let mir = (self.mirr_ctrl >> 2) & 3;
+        let slot = ((address >> 10) & 3) as usize;
+
+        match mode {
+            0 => match mir {
+                0 => address & 0x37FF,
+                1 => (address & 0x33FF) | ((address & 0x0800) >> 1),
+                2 => address & 0x3FFF,
+                _ => (address & 0x3FFF) | 0x0400,
+            },
+            1 => {
+                let page = (self.chr[4 + slot] as u16) & 1;
+                (page * 0x400) | (address & 0x3FF)
+            }
+            2 => {
+                let vert = (mir & 1) == 0;
+                let page = match (slot, vert) {
+                    (0, true) | (2, true) | (0, false) | (1, false) => self.chr[6],
+                    _ => self.chr[7],
+                } as u16 & 1;
+                (page * 0x400) | (address & 0x3FF)
+            }
+            _ => {
+                let mode0 = match mir {
+                    0 => 1,
+                    1 => 0,
+                    2 => 3,
+                    _ => 2,
+                };
+                match mode0 {
+                    0 => address & 0x37FF,
+                    1 => (address & 0x33FF) | ((address & 0x0800) >> 1),
+                    2 => address & 0x3FFF,
+                    _ => (address & 0x3FFF) | 0x0400,
+                }
+            }
+        }
+    }
+
+    fn nt_chr_addr(&self, address: u16, rom_nametables: bool) -> Option<(usize, bool)> {
+        if !rom_nametables {
+            return None;
+        }
+        let mir = (self.mirr_ctrl >> 2) & 3;
+        let slot = ((address >> 10) & 3) as usize;
+        let off = (address & 0x3FF) as usize;
+        let nt7 = self.mirr_ctrl & 7;
+
+        let (reg, force_lsb) = match self.mirr_ctrl & 3 {
+            0 => match mir {
+                0 => match slot {
+                    0 => (6, 0),
+                    1 => (6, 1),
+                    2 => (7, 0),
+                    _ => (7, 1),
+                },
+                1 => match slot {
+                    0 => (6, 0),
+                    1 => (7, 0),
+                    2 => (6, 1),
+                    _ => (7, 1),
+                },
+                2 => match slot {
+                    0 | 1 => (6, 0),
+                    _ => (7, 0),
+                },
+                _ => match slot {
+                    0 | 2 => (6, 1),
+                    _ => (7, 1),
+                },
+            },
+            1 => (4 + slot, 0),
+            2 => {
+                let vert = (mir & 1) == 0;
+                let reg = match (slot, vert) {
+                    (0, true) | (2, true) | (0, false) | (1, false) => 6,
+                    _ => 7,
+                };
+                (reg, 0)
+            }
+            _ => {
+                let reg = match nt7 {
+                    1 | 5 => 4 + slot,
+                    _ => match slot {
+                        0 | 1 => 6,
+                        _ => 7,
+                    },
+                };
+                let lsb = match mir {
+                    0 => (slot == 2 || slot == 3) as u8,
+                    1 => (slot == 1 || slot == 3) as u8,
+                    2 => 1,
+                    _ => 0,
+                };
+                (reg, lsb)
+            }
+        };
+
+        let bank = ((self.chr[reg as usize] as usize) & 0xFE) | (force_lsb as usize);
+        Some((bank * 0x400 + off, false))
+    }
 }
 
 impl Mapper for Vrc6 {
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let (bank, bank_size) = match address {
-                0x8000..=0xBFFF => (self.prg[0] as usize, 0x4000), 
-                0xC000..=0xDFFF => (self.prg[1] as usize, 0x2000), 
-                0xE000..=0xFFFF => ((cart.prg_rom.len() / 0x2000 - 1) as usize, 0x2000), 
+                0x8000..=0xBFFF => (self.prg[0] as usize, 0x4000),
+                0xC000..=0xDFFF => (self.prg[1] as usize, 0x2000),
+                0xE000..=0xFFFF => ((cart.prg_rom.len() / 0x2000 - 1) as usize, 0x2000),
                 _ => (0, 0x2000),
             };
             let offset = (bank * bank_size) + (address as usize & (bank_size - 1));
@@ -83,7 +187,7 @@ impl Mapper for Vrc6 {
                     self.prg[0] = data;
                 }
                 0xB003 => {
-                    self.mirr = (data >> 2) & 3;
+                    self.mirr_ctrl = data;
                 }
                 0xC000 => {
                     self.prg[1] = data;
@@ -138,20 +242,11 @@ impl Mapper for Vrc6 {
     }
 
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
-        match self.mirr & 3 {
-            0 => {
-                address & 0x37FF
-            }
-            1 => {
-                (address & 0x33FF) | ((address & 0x0800) >> 1)
-            }
-            2 => {
-                address & 0x3FFF
-            }
-            3 => {
-                (address & 0x3FFF) | 0x0400
-            }
-            _ => address,
+        let rom_nt = (self.mirr_ctrl & 0x10) != 0;
+        if rom_nt {
+            (address & 0x3FFF) | 0x0400
+        } else {
+            self.nt_offset(address)
         }
     }
 
@@ -184,25 +279,45 @@ impl Mapper for Vrc6 {
                 new_addr_bus |= chr_rom[offset % chr_rom.len()] as u16;
             }
         } else {
-            let mirrored = match self.mirr & 3 {
-                0 => {
-                    address & 0x37FF
+            let rom_nt = (self.mirr_ctrl & 0x10) != 0;
+            if rom_nt {
+                if let Some((addr, _is_ciram)) = self.nt_chr_addr(address, true) {
+                    let byte = if using_chr_ram {
+                        chr_ram[addr & (chr_ram.len() - 1)]
+                    } else if chr_rom.is_empty() {
+                        chr_ram[addr & (chr_ram.len() - 1)]
+                    } else {
+                        chr_rom[addr % chr_rom.len()]
+                    };
+                    new_addr_bus |= byte as u16;
+                } else {
+                    let idx = (self.nt_offset(address) & 0x7FF) as usize;
+                    new_addr_bus |= vram[idx] as u16;
                 }
-                1 => {
-                    (address & 0x33FF) | ((address & 0x0800) >> 1)
-                }
-                2 => {
-                    address & 0x3FFF
-                }
-                3 => {
-                    (address & 0x3FFF) | 0x0400
-                }
-                _ => address,
-            };
-            let idx = (mirrored & 0x7FF) as usize;
-            new_addr_bus |= vram[idx] as u16;
+            } else {
+                let idx = (self.nt_offset(address) & 0x7FF) as usize;
+                new_addr_bus |= vram[idx] as u16;
+            }
         }
         (new_addr_bus as u8, new_addr_bus)
+    }
+
+    fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
+        let addr = address & 0x3FFF;
+        if addr < 0x2000 && cart.using_chr_ram {
+            cart.chr_ram[addr as usize & 0x1FFF] = data;
+        } else if addr >= 0x2000 && addr < 0x3F00 {
+            let rom_nt = (self.mirr_ctrl & 0x10) != 0;
+            if rom_nt && cart.using_chr_ram {
+                if let Some((dest, _is_ciram)) = self.nt_chr_addr(addr, true) {
+                    let len = cart.chr_ram.len();
+                    cart.chr_ram[dest & (len - 1)] = data;
+                    return;
+                }
+            }
+            let mirrored = self.mirror_nametable(cart, addr);
+            vram[(mirrored & 0x7FF) as usize] = data;
+        }
     }
 
     fn cpu_clock_rise(&mut self, _ppu_address_bus: u16) -> bool {
@@ -226,7 +341,7 @@ impl Mapper for Vrc6 {
                 self.irq_count += 1;
                 if self.irq_count == 0x100 {
                     self.irq_count = self.irq_latch as i32;
-                    return true; 
+                    return true;
                 }
             }
         }
@@ -241,7 +356,7 @@ impl Mapper for Vrc6 {
                 self.irq_count += 1;
                 if self.irq_count & 0x100 != 0 {
                     self.irq_count = self.irq_latch as i32;
-                    return true; 
+                    return true;
                 }
             }
         }
@@ -264,7 +379,7 @@ impl Mapper for Vrc6 {
         let mut state = Vec::new();
         state.extend_from_slice(&self.prg);
         state.extend_from_slice(&self.chr);
-        state.push(self.mirr);
+        state.push(self.mirr_ctrl);
         state.push(self.irq_enabled as u8);
         state.push(self.irq_reload as u8);
         state.push(self.irq_latch);
@@ -285,7 +400,7 @@ impl Mapper for Vrc6 {
                 self.chr[i] = state[start];
                 start += 1;
             }
-            self.mirr = state[start];
+            self.mirr_ctrl = state[start];
             start += 1;
             self.irq_enabled = state[start] != 0;
             start += 1;
@@ -312,7 +427,7 @@ impl Mapper for Vrc6 {
     fn reset(&mut self) {
         self.prg = [0; 2];
         self.chr = [0; 8];
-        self.mirr = 0;
+        self.mirr_ctrl = 0;
         self.irq_latch = 0;
         self.irq_enabled = false;
         self.irq_reload = false;
