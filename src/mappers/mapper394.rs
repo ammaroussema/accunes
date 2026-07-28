@@ -33,6 +33,7 @@ pub struct Mapper394 {
     jy_latch: [u8; 2],
     jy_irq_control: u8,
     jy_irq_enabled: bool,
+    jy_irq_pending: bool,
     jy_irq_prescaler: u8,
     jy_irq_counter: u8,
     jy_irq_xor: u8,
@@ -57,7 +58,7 @@ impl Mapper394 {
             jy_mode: 0, jy_ciram: 0, jy_vram: 0, jy_outer: 0,
             jy_prg: [0; 4], jy_chr: [0; 8], jy_nt: [0; 4],
             jy_latch: [0, 4],
-            jy_irq_control: 0, jy_irq_enabled: false,
+            jy_irq_control: 0, jy_irq_enabled: false, jy_irq_pending: false,
             jy_irq_prescaler: 0, jy_irq_counter: 0, jy_irq_xor: 0, jy_last_a12: false,
             jy_mul1: 0, jy_mul2: 0, jy_adder: 0, jy_test: 0,
         }
@@ -109,7 +110,6 @@ impl Mapper394 {
         (self.jy_mode & 0x04) != 0
     }
 
-    #[allow(dead_code)]
     fn jy_extended_mirroring(&self) -> bool {
         (self.jy_ciram & 0x08) != 0
     }
@@ -120,6 +120,22 @@ impl Mapper394 {
 
     fn jy_mirroring(&self) -> u8 {
         self.jy_ciram & 0x03
+    }
+
+    fn jy_vrom_enabled(&self) -> bool {
+        (self.jy_mode & 0x20) != 0
+    }
+
+    fn jy_vrom_everywhere(&self) -> bool {
+        (self.jy_mode & 0x40) != 0
+    }
+
+    fn jy_chr_writable(&self) -> bool {
+        (self.jy_vram & 0x40) != 0
+    }
+
+    fn jy_vrom_bit(&self) -> bool {
+        (self.jy_vram & 0x80) != 0
     }
 
     fn jy_irq_source(&self) -> u8 {
@@ -147,7 +163,7 @@ impl Mapper394 {
                 self.jy_irq_prescaler = prescaler;
                 if (prescaler & mask) == 0 {
                     if !self.jy_not_counting() { self.jy_irq_counter = self.jy_irq_counter.wrapping_add(1); }
-                    if self.jy_irq_counter == 0 { /* fire IRQ */ }
+                    if self.jy_irq_counter == 0 { self.jy_irq_pending = true; }
                 }
             }
             2 => {
@@ -155,7 +171,7 @@ impl Mapper394 {
                 self.jy_irq_prescaler = prescaler;
                 if (prescaler & mask) == mask {
                     if !self.jy_not_counting() { self.jy_irq_counter = self.jy_irq_counter.wrapping_sub(1); }
-                    if self.jy_irq_counter == 0xFF { /* fire IRQ */ }
+                    if self.jy_irq_counter == 0xFF { self.jy_irq_pending = true; }
                 }
             }
             _ => {}
@@ -177,18 +193,18 @@ impl Mapper394 {
         let or = self.chr_or();
         let (bank, sub_offset) = match (self.jy_mode >> 3) & 0x03 {
             0 => {
-                let b = (self.jy_chr[0] as usize) >> 3 & (and as usize >> 3) | (or as usize >> 3);
+                let b = (self.jy_chr[0] as usize) & (and as usize >> 3) | (or as usize >> 3);
                 (b, (address & 0x1FFF) as usize)
             }
             1 => {
                 let half = ((address >> 12) & 1) as usize;
                 let latch = self.jy_latch[half] as usize;
-                let b = (self.jy_chr[latch] as usize) >> 2 & (and as usize >> 2) | (or as usize >> 2);
+                let b = (self.jy_chr[latch] as usize) & (and as usize >> 2) | (or as usize >> 2);
                 (b, (address & 0x0FFF) as usize)
             }
             2 => {
                 let idx = ((address >> 11) & 3) as usize;
-                let b = (self.jy_chr[idx * 2] as usize) >> 1 & (and as usize >> 1) | (or as usize >> 1);
+                let b = (self.jy_chr[idx * 2] as usize) & (and as usize >> 1) | (or as usize >> 1);
                 (b, (address & 0x07FF) as usize)
             }
             3 => {
@@ -203,23 +219,23 @@ impl Mapper394 {
     }
 
     fn jy_store_chr(&self, cart: &mut Cartridge, address: u16, data: u8) {
-        if cart.chr_ram.is_empty() { return; }
+        if cart.chr_ram.is_empty() || !self.jy_chr_writable() { return; }
         let and = 0xFFu8;
         let or = self.chr_or();
         let (bank, sub_offset) = match (self.jy_mode >> 3) & 0x03 {
             0 => {
-                let b = (self.jy_chr[0] as usize) >> 3 & (and as usize >> 3) | (or as usize >> 3);
+                let b = (self.jy_chr[0] as usize) & (and as usize >> 3) | (or as usize >> 3);
                 (b, (address & 0x1FFF) as usize)
             }
             1 => {
                 let half = ((address >> 12) & 1) as usize;
                 let latch = self.jy_latch[half] as usize;
-                let b = (self.jy_chr[latch] as usize) >> 2 & (and as usize >> 2) | (or as usize >> 2);
+                let b = (self.jy_chr[latch] as usize) & (and as usize >> 2) | (or as usize >> 2);
                 (b, (address & 0x0FFF) as usize)
             }
             2 => {
                 let idx = ((address >> 11) & 3) as usize;
-                let b = (self.jy_chr[idx * 2] as usize) >> 1 & (and as usize >> 1) | (or as usize >> 1);
+                let b = (self.jy_chr[idx * 2] as usize) & (and as usize >> 1) | (or as usize >> 1);
                 (b, (address & 0x07FF) as usize)
             }
             3 => {
@@ -241,9 +257,34 @@ impl Mapper394 {
         let bank = match self.jy_mode & 0x03 {
             0 => (prg3 as usize) << 2 | 3,
             1 => (prg3 as usize) << 1 | 1,
+            2 => prg3 as usize,
+            3 => rev(prg3) as usize,
             _ => prg3 as usize,
         };
         bank & (and as usize) | (or as usize)
+    }
+
+    fn jy_nt_slot(&self, address: u16) -> usize {
+        ((address >> 10) & 3) as usize
+    }
+
+    fn jy_is_vrom_here(&self, slot: usize) -> bool {
+        ((self.jy_nt[slot] & 0x80) != 0) ^ self.jy_vrom_bit() || self.jy_vrom_everywhere()
+    }
+
+    fn jy_mirror_nametable(&self, address: u16) -> u16 {
+        let slot = self.jy_nt_slot(address);
+        if self.jy_extended_mirroring() || (self.jy_vrom_enabled() && !self.jy_is_vrom_here(slot)) {
+            (address & 0x37FF & !0x0400) | ((self.jy_nt[slot] & 1) as u16) << 10
+        } else {
+            match self.jy_mirroring() {
+                0 => address & 0x37FF,
+                1 => (address & 0x33FF) | ((address & 0x0800) >> 1),
+                2 => (address & 0x37FF) & !0x0400,
+                3 => (address & 0x37FF) | 0x0400,
+                _ => address & 0x37FF,
+            }
+        }
     }
 }
 
@@ -258,6 +299,7 @@ impl Mapper for Mapper394 {
         self.jy_vram = 0;
         self.jy_outer = 0;
         self.jy_irq_enabled = false;
+        self.jy_irq_pending = false;
         self.jy_irq_control = 0;
         self.jy_irq_prescaler = 0;
         self.jy_irq_counter = 0;
@@ -302,12 +344,12 @@ impl Mapper for Mapper394 {
                 let or = self.prg_or();
                 let prg3 = if self.jy_switchable_last() { self.jy_prg[3] } else { 0xFF };
                 let bank = match prg_mode {
-                    0 => (prg3 as usize) >> 2 & (and as usize >> 2) | (or as usize >> 2),
+                    0 => (prg3 as usize) & (and as usize >> 2) | (or as usize >> 2),
                     1 => {
                         if ((address - 0x8000) / 0x2000) < 2 {
-                            (self.jy_prg[1] as usize) >> 1 & (and as usize >> 1) | (or as usize >> 1)
+                            (self.jy_prg[1] as usize) & (and as usize >> 1) | (or as usize >> 1)
                         } else {
-                            (prg3 as usize) >> 1 & (and as usize >> 1) | (or as usize >> 1)
+                            (prg3 as usize) & (and as usize >> 1) | (or as usize >> 1)
                         }
                     }
                     _ => {
@@ -341,6 +383,9 @@ impl Mapper for Mapper394 {
     }
 
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
+        if (self.reg[1] & 0x10) != 0 && self.jy_irq_source() == 3 {
+            self.jy_clock_irq();
+        }
         if address >= 0x5000 && address < 0x6000 {
             self.reg[(address as usize) & 3] = data;
         } else if address >= 0x8000 {
@@ -374,10 +419,13 @@ impl Mapper for Mapper394 {
                         match page_addr & 7 {
                             0 => {
                                 self.jy_irq_enabled = (data & 1) != 0;
-                                if !self.jy_irq_enabled { self.jy_irq_prescaler = 0; }
+                                if !self.jy_irq_enabled {
+                                    self.jy_irq_prescaler = 0;
+                                    self.jy_irq_pending = false;
+                                }
                             }
                             1 => self.jy_irq_control = data,
-                            2 => { self.jy_irq_enabled = false; self.jy_irq_prescaler = 0; }
+                            2 => { self.jy_irq_enabled = false; self.jy_irq_prescaler = 0; self.jy_irq_pending = false; }
                             3 => self.jy_irq_enabled = true,
                             4 => self.jy_irq_prescaler = data ^ self.jy_irq_xor,
                             5 => self.jy_irq_counter = data ^ self.jy_irq_xor,
@@ -407,13 +455,7 @@ impl Mapper for Mapper394 {
 
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         if (self.reg[1] & 0x10) != 0 {
-            match self.jy_mirroring() {
-                0 => address & 0x37FF,
-                1 => (address & 0x33FF) | ((address & 0x0800) >> 1),
-                2 => (address & 0x37FF) & !0x0400,
-                3 => (address & 0x37FF) | 0x0400,
-                _ => address & 0x37FF,
-            }
+            self.jy_mirror_nametable(address)
         } else {
             self.mmc3.mirror_nametable(cart, address)
         }
@@ -434,25 +476,72 @@ impl Mapper for Mapper394 {
         vram: &[u8],
     ) -> (u8, u16) {
         let address = (ppu_address_bus & 0x3F00) | ppu_octal_latch as u16;
-        if address >= 0x2000 {
-            return self.mmc3.fetch_ppu(
+        let mut new_addr_bus = ppu_address_bus & 0xFF00;
+        if (self.reg[1] & 0x10) != 0 && self.jy_irq_source() == 2 {
+            self.jy_clock_irq();
+        }
+        let byte = if address >= 0x2000 && (self.reg[1] & 0x10) != 0 {
+            let slot = self.jy_nt_slot(address);
+            if self.jy_vrom_enabled() && self.jy_is_vrom_here(slot) {
+                let and = 0xFFu8;
+                let or = self.chr_or();
+                let bank = ((self.jy_nt[slot] as usize) & (and as usize)) | (or as usize);
+                let offset = bank * 0x400 + (address as usize & 0x3FF);
+                chr_read(chr_rom, chr_ram, offset)
+            } else {
+                let mirrored = self.jy_mirror_nametable(address);
+                if alternative_nametable_arrangement && (mirrored & 0x0800) != 0 {
+                    let idx = (mirrored & 0x7FF) as usize;
+                    if idx < prg_vram.len() { prg_vram[idx] } else { 0 }
+                } else {
+                    vram[(mirrored & 0x7FF) as usize]
+                }
+            }
+        } else if address >= 0x2000 {
+            let (b, a) = self.mmc3.fetch_ppu(
                 _prg_rom, chr_rom, _prg_ram, chr_ram, prg_vram,
                 using_chr_ram, _nametable_horizontal_mirroring,
                 alternative_nametable_arrangement, ppu_address_bus, ppu_octal_latch, vram,
             );
-        }
-        let mut new_addr_bus = ppu_address_bus & 0xFF00;
-        let byte = if (self.reg[1] & 0x10) != 0 {
-            self.jy_fetch_chr(address, chr_rom, chr_ram)
+            return (b, a);
         } else {
-            self.mmc3_fetch_chr(address, chr_rom, chr_ram)
+            if (self.reg[1] & 0x10) != 0 {
+                self.jy_fetch_chr(address, chr_rom, chr_ram)
+            } else {
+                self.mmc3_fetch_chr(address, chr_rom, chr_ram)
+            }
         };
+        if (self.reg[1] & 0x10) != 0 && (self.jy_outer & 0x80) != 0 && (ppu_address_bus & 0x3000) == 0x3000 {
+            let latch_idx = ((ppu_address_bus >> 14) & 1) as usize;
+            let bank4 = ((ppu_address_bus >> 12) as u8) & 0x04;
+            match ppu_address_bus & 0x3F8 {
+                0x3D8 => self.jy_latch[latch_idx] = bank4 | 0,
+                0x3E8 => self.jy_latch[latch_idx] = bank4 | 2,
+                _ => {}
+            }
+        }
         new_addr_bus |= byte as u16;
         (new_addr_bus as u8, new_addr_bus)
     }
 
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
-        if address >= 0x2000 || cart.chr_ram.is_empty() {
+        if address >= 0x2000 && (self.reg[1] & 0x10) != 0 {
+            let slot = self.jy_nt_slot(address);
+            if self.jy_vrom_enabled() && self.jy_is_vrom_here(slot) {
+                return;
+            }
+            let mirrored = self.jy_mirror_nametable(address);
+            if cart.alternative_nametable_arrangement && (mirrored & 0x0800) != 0 {
+                let idx = (mirrored & 0x7FF) as usize;
+                if idx < cart.prg_vram.len() {
+                    cart.prg_vram[idx] = data;
+                }
+            } else {
+                vram[(mirrored & 0x7FF) as usize] = data;
+            }
+        } else if address >= 0x2000 {
+            self.mmc3.store_ppu(cart, address, data, vram);
+        } else if cart.chr_ram.is_empty() {
             self.mmc3.store_ppu(cart, address, data, vram);
         } else if (self.reg[1] & 0x10) != 0 {
             self.jy_store_chr(cart, address, data);
@@ -483,7 +572,7 @@ impl Mapper for Mapper394 {
                 self.jy_clock_irq();
             }
             self.jy_last_a12 = a12;
-            false
+            self.jy_irq_pending
         } else {
             self.mmc3.ppu_clock(ppu_address_bus, ppu_a12_prev, scanline, dot, ppu_sprite_x16, rendering_on)
         }
@@ -492,14 +581,20 @@ impl Mapper for Mapper394 {
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         if (self.reg[1] & 0x10) != 0 {
             if self.jy_irq_source() == 0 { self.jy_clock_irq(); }
-            false
+            self.jy_irq_pending
         } else {
             self.mmc3.cpu_clock_rise(ppu_address_bus)
         }
     }
 
     fn take_irq_ack(&mut self) -> bool {
-        if (self.reg[1] & 0x10) != 0 { false } else { self.mmc3.take_irq_ack() }
+        if (self.reg[1] & 0x10) != 0 {
+            let pending = self.jy_irq_pending;
+            self.jy_irq_pending = false;
+            pending
+        } else {
+            self.mmc3.take_irq_ack()
+        }
     }
 
     fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8> {
@@ -519,6 +614,7 @@ impl Mapper for Mapper394 {
         state.push(self.jy_irq_counter);
         state.push(self.jy_irq_xor);
         state.push(if self.jy_irq_enabled { 1 } else { 0 });
+        state.push(if self.jy_irq_pending { 1 } else { 0 });
         state.push(if self.jy_last_a12 { 1 } else { 0 });
         state.push(self.jy_mul1);
         state.push(self.jy_mul2);
@@ -550,6 +646,7 @@ impl Mapper for Mapper394 {
         if p < state.len() { self.jy_irq_counter = state[p]; p += 1; }
         if p < state.len() { self.jy_irq_xor = state[p]; p += 1; }
         if p < state.len() { self.jy_irq_enabled = state[p] != 0; p += 1; }
+        if p < state.len() { self.jy_irq_pending = state[p] != 0; p += 1; }
         if p < state.len() { self.jy_last_a12 = state[p] != 0; p += 1; }
         if p < state.len() { self.jy_mul1 = state[p]; p += 1; }
         if p < state.len() { self.jy_mul2 = state[p]; p += 1; }

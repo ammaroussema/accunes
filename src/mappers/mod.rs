@@ -343,6 +343,8 @@ pub mod mapper392;
 pub mod mapper393;
 pub mod mapper394;
 pub mod mapper395;
+pub mod mapper396;
+pub mod mapper398;
 pub mod mapper409;
 pub mod mapper418;
 pub mod mapper437;

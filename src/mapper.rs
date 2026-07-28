@@ -281,6 +281,8 @@ pub use crate::mappers::mapper391::Mapper391;
 pub use crate::mappers::mapper392::Mapper392;
 pub use crate::mappers::mapper393::Mapper393;
 pub use crate::mappers::mapper394::Mapper394;
+pub use crate::mappers::mapper396::Mapper396;
+pub use crate::mappers::mapper398::Mapper398;
 pub use crate::mappers::mapper395::Mapper395;
 pub use crate::mappers::mapper409::Mapper409;
 pub use crate::mappers::mapper418::Mapper418;
@@ -1054,7 +1056,9 @@ pub fn create_mapper(
         393 => Box::new(Mapper393::new(header, rom, rom_name)),
         394 => Box::new(Mapper394::new(header, rom, rom_name)),
         395 => Box::new(Mapper395::new(header, rom, rom_name)),
+        396 => Box::new(Mapper396::new(submapper_id)),
         397 => Box::new(Mapper90::new(Mapper90Variant::Mapper397)),
+        398 => Box::new(Mapper398::new()),
         409 => Box::new(Mapper409::new()),
         418 => Box::new(Mapper418::new()),
         422 => Box::new(MapperAx5202p::new(Ax5202pVariant::Mapper422)),

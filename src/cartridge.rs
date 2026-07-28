@@ -92,7 +92,7 @@ impl Cartridge {
                 return Err("FDS file has no disk sides".to_string());
             }
 
-            let mut prg_ram = vec![0u8; 0x8000]; // FDS has 32KB of PRG RAM
+            let mut prg_ram = vec![0u8; 0x8000];
             let sav_path = crate::config::save_file_path(filepath);
             if let Ok(sav_data) = fs::read(&sav_path) {
                 if sav_data.len() <= prg_ram.len() {
@@ -462,7 +462,6 @@ impl Cartridge {
 
         let mut prg_size = rom[4];
 
-        // Compute actual CHR size with NES 2.0 extended byte (byte 9 bits 4-7)
         let chr_size_val = if is_nes20 {
             (rom[5] as usize) | ((rom[9] & 0xF0) as usize) << 4
         } else {
@@ -513,7 +512,6 @@ impl Cartridge {
             chr_rom.copy_from_slice(&rom[0x10 + trainer_len + prg_rom_len..0x10 + trainer_len + prg_rom_len + chr_rom_len]);
         }
 
-        // DEBUG: print detected ROM sizes
         println!("ROM SIZES: prg_size={} prg_rom_len=${:X} chr_size={} chr_rom_len=${:X} prg_rom_file_len=${:X}",
             prg_size, prg_rom_len, chr_size_val, chr_rom_len, prg_rom.len());
 
@@ -606,7 +604,7 @@ impl Cartridge {
                 ram[..len].copy_from_slice(&chr_rom[..len]);
             }
             ram
-        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 372 | 375 | 381 | 382 | 393) {
+        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 372 | 375 | 381 | 382 | 393 | 396) {
             let chr_ram_size = if is_nes20 && memory_mapper == 268 {
                 let vram_shift = rom[11] & 0x0F;
                 let battery_shift = (rom[11] >> 4) & 0x0F;
@@ -629,7 +627,7 @@ impl Cartridge {
         if memory_mapper == 77 {
             using_chr_ram = true;
         }
-        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 372 | 375 | 381 | 382 | 393) {
+        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 372 | 375 | 381 | 382 | 393 | 396) {
             using_chr_ram = true;
         }
         if memory_mapper == 314 && chr_size == 0 {
