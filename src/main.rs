@@ -14,6 +14,7 @@ mod apu;
 mod bus;
 mod config;
 mod region;
+mod vt03_palette;
 
 use region::Region;
 use emulator::Emulator;

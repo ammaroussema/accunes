@@ -2,9 +2,6 @@
 
 a cycle-accurate NES/Famicom emulator for windows, written in rust and focused on hardware-accurate behavior!
 
-HEAVILY based on pre-existing emulators like fceux, mesen, nestopia, nintendulatornrs and tricnes! make sure
-to check them out too!
-
 ## Features
 
 - **cycle accurate 6502 cpu** (all legal and illegal opcodes , addressing modes, interrupts, dma and open bus edge cases are handled!!!)
@@ -87,11 +84,14 @@ output folders/archives for both methods are usually inside the target folder.
 launch AccuNES and use the menu to open a valid nes rom file (`.nes`, `.fds`, `.unf`, etc.)!
 
 ## Future
+
 possible future additions:
+
 - more mappers!
 - famicom expansion port!
 - cheats!
 - tas record/playback!
+
 if you have more suggestions feel free to send them through github!
 
 ## Credits
@@ -100,8 +100,6 @@ if you have more suggestions feel free to send them through github!
 - [Mesen](https://www.mesen.ca/): very helpful for obscure mappers and video config!
 - [Nestopia](http://0ldsk00l.ca/nestopia/): very helpful for obscure mappers!
 - [NintendulatorNRS](https://www.qmtpro.com/~nes/nintendulator/): very useful for ALOT of obscure mappers and controller configs!
-- [TriCNES](https://github.com/100thCoin/TriCNES/tree/main): helped me discover a lot of odd hardware accurate behavior for all main    
-  components!!
-- [NesDev](https://www.nesdev.org/): can't forget the classics! if you're ever making a nes emulator, there's nothing more perfect than
-  this site!!!
+- [TriCNES](https://github.com/100thCoin/TriCNES/tree/main): helped me discover a lot of odd hardware accurate behavior for all main components!!
+- [NesDev](https://www.nesdev.org/): can't forget the classics! if you're ever making a nes emulator, there's nothing more perfect than this site!!!
 

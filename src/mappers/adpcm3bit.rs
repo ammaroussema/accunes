@@ -129,6 +129,10 @@ impl Adpcm3Bit {
         if self.clock && self.inhibit > 0 { true } else { !self.clock }
     }
 
+    pub fn get_ready(&self) -> bool {
+        self.ready
+    }
+
     pub fn get_audio(&mut self) -> i32 {
         let v = self.output as f64 * 256.0 + 1e-15;
         self.low_pass.process(v) as i32

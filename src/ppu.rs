@@ -189,6 +189,10 @@ impl Emulator {
         self.prev_prev_dot_color = self.prev_dot_color;
         self.prev_dot_color = self.dot_color;
 
+        self.prev_prev_prev_dot_color_rgb = self.prev_prev_dot_color_rgb;
+        self.prev_prev_dot_color_rgb = self.prev_dot_color_rgb;
+        self.prev_dot_color_rgb = self.dot_color_rgb;
+
         if self.ppu_scanline < 240 || self.ppu_scanline == self.pre_render_scanline() {
             if (self.ppu_dot >= 1 && self.ppu_dot <= 256) || (self.ppu_dot >= 321 && self.ppu_dot <= 336) {
                 if self.ppu_mask_show_background_delayed || self.ppu_mask_show_sprites_delayed {
@@ -816,7 +820,7 @@ impl Emulator {
             let pal1 = ((self.ppu_bg_attr_sr_h >> (7 - self.ppu_fine_x_scroll as u16)) & 1) as u8;
             palette = (pal1 << 1) | pal0;
 
-            if color == 0 && palette != 0 {
+            if (color & 3) == 0 && palette != 0 {
                 palette = 0;
             }
         }
@@ -847,7 +851,7 @@ impl Emulator {
                     continue;
                 }
 
-                if sprite_color != 0 {
+                if (sprite_color & 3) != 0 {
                     break;
                 }
             }
@@ -857,8 +861,8 @@ impl Emulator {
                 && self.ppu_current_scanline_contains_sprite_zero
                 && self.ppu_mask_show_background
                 && self.ppu_mask_show_sprites
-                && color != 0
-                && sprite_color != 0
+                && (color & 3) != 0
+                && (sprite_color & 3) != 0
                 && (self.ppu_mask_8px_show_sprites || self.ppu_dot > 8)
                 && self.ppu_dot < 256
             {
@@ -869,20 +873,30 @@ impl Emulator {
                 }
             }
 
-            if color == 0 && sprite_color != 0 {
+            if (color & 3) == 0 && (sprite_color & 3) != 0 {
                 color = sprite_color;
                 palette = sprite_palette;
-            } else if sprite_color != 0 && sprite_priority {
+            } else if (sprite_color & 3) != 0 && sprite_priority {
                 color = sprite_color;
                 palette = sprite_palette;
             }
         }
 
+        let is_vt03 = self.vt03_4bpp_bg_enabled() || self.vt03_4bpp_sp_enabled();
+        let reg2000_10 = self.cart.as_ref().map_or(0, |c| c.mapper_chip.vt03_reg2000_10());
+
         if (self.ppu_mask_show_background || self.ppu_mask_show_sprites)
             && self.ppu_scanline < 240
         {
-            if self.vt03_4bpp_bg_enabled() || self.vt03_4bpp_sp_enabled() {
-                self.palette_ram_address = (palette << 4) | (color & 0x0F);
+            if is_vt03 {
+                let bkexten = (reg2000_10 & 0x10) != 0;
+                let c0 = color & 1;
+                let c1 = (color >> 1) & 1;
+                let c2 = (color >> 2) & 1;
+                let c3 = (color >> 3) & 1;
+                let attr_bits = if bkexten { 0 } else { palette & 3 };
+                let tc = (c3 << 6) | (c2 << 5) | (attr_bits << 2) | (c1 << 1) | c0;
+                self.palette_ram_address = if (tc & 0x63) == 0 { 0 } else { tc };
             } else {
                 self.palette_ram_address = (palette << 2) | color;
             }
@@ -903,7 +917,24 @@ impl Emulator {
             self.corrupt_palettes(color, palette);
         }
 
-        self.dot_color = self.palette_ram[self.palette_ram_address as usize] & 0x3F;
+        self.dot_color = self.palette_ram[self.palette_ram_address as usize & 0x1F] & 0x3F;
+
+        if is_vt03 {
+            let tc = self.palette_ram_address as usize & 0x7F;
+            if (reg2000_10 & 0x80) != 0 {
+                let tc_masked = if (tc & 0x63) == 0 { 0 } else { tc };
+                let hi = self.palette_ram[tc_masked | 0x80] as usize;
+                let lo = self.palette_ram[tc_masked | 0x00] as usize;
+                let vt_color = ((hi << 6) + lo) & 0xFFF;
+                self.dot_color_rgb = crate::vt03_palette::get_vt03_palette()[vt_color];
+            } else {
+                let pal_idx = (self.palette_ram[tc] & 0x3F) as usize;
+                self.dot_color_rgb = NES_PALETTE[pal_idx];
+            }
+        } else {
+            let pal_idx = (self.palette_ram[self.palette_ram_address as usize & 0x1F] & 0x3F) as usize;
+            self.dot_color_rgb = NES_PALETTE[pal_idx];
+        }
     }
 
     fn draw_to_screen(&mut self) {
@@ -914,7 +945,7 @@ impl Emulator {
             }
             let mut emphasis: usize = 0;
             if self.ppu_mask_emphasize_red { emphasis |= 0x40; }
-            if self.ppu_mask_emphasize_green { emphasis |= 0x80; }
+            if self.ppu_mask_emphasize_green { emphasis |= 0x20; }
             if self.ppu_mask_emphasize_blue { emphasis |= 0x100; }
 
             let mut odd_offset: usize = 0;
@@ -929,19 +960,24 @@ impl Emulator {
                 let x = (self.ppu_dot as usize) - 4 - odd_offset;
                 let y = self.ppu_scanline as usize;
                 if x < 256 && y < 240 {
-                    let pal_idx = (chosen_color | emphasis) % NES_PALETTE.len();
-                    let is_vs = self.cart.as_ref().map(|c| c.is_vs_system).unwrap_or(false);
-                    self.screen[y * 256 + x] = if is_vs {
-                        match self.vs_ppu_variant {
-                            0 => VS_RP2C04_0001_PALETTE[pal_idx],
-                            1 => VS_RP2C04_0002_PALETTE[pal_idx],
-                            2 => VS_RP2C04_0003_PALETTE[pal_idx],
-                            4 => NES_PALETTE[pal_idx],
-                            _ => VS_RP2C04_0004_PALETTE[pal_idx],
-                        }
+                    let is_vt03 = self.vt03_4bpp_bg_enabled() || self.vt03_4bpp_sp_enabled();
+                    if is_vt03 {
+                        self.screen[y * 256 + x] = self.prev_prev_prev_dot_color_rgb;
                     } else {
-                        NES_PALETTE[pal_idx]
-                    };
+                        let pal_idx = (chosen_color | emphasis) % NES_PALETTE.len();
+                        let is_vs = self.cart.as_ref().map(|c| c.is_vs_system).unwrap_or(false);
+                        self.screen[y * 256 + x] = if is_vs {
+                            match self.vs_ppu_variant {
+                                0 => VS_RP2C04_0001_PALETTE[pal_idx],
+                                1 => VS_RP2C04_0002_PALETTE[pal_idx],
+                                2 => VS_RP2C04_0003_PALETTE[pal_idx],
+                                4 => NES_PALETTE[pal_idx],
+                                _ => VS_RP2C04_0004_PALETTE[pal_idx],
+                            }
+                        } else {
+                            NES_PALETTE[pal_idx]
+                        };
+                    }
                 }
             }
         }

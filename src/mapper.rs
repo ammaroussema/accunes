@@ -257,6 +257,16 @@ pub use crate::mappers::mapper297::Mapper297;
 pub use crate::mappers::mapper298::Mapper298;
 pub use crate::mappers::mapper299::Mapper299;
 pub use crate::mappers::mapper300::Mapper300;
+pub use crate::mappers::mapper407::Mapper407;
+pub use crate::mappers::mapper408::Mapper408;
+pub use crate::mappers::mapper419::Mapper419;
+pub use crate::mappers::mapper423::Mapper423;
+pub use crate::mappers::mapper424::Mapper424;
+pub use crate::mappers::mapper425::Mapper425;
+pub use crate::mappers::mapper426::Mapper426;
+pub use crate::mappers::mapper427::Mapper427;
+pub use crate::mappers::mapper436::Mapper436;
+pub use crate::mappers::mapper496::Mapper496;
 pub use crate::mappers::mapper302::Mapper302;
 pub use crate::mappers::mapper303::Mapper303;
 pub use crate::mappers::mapper304::Mapper304;
@@ -445,6 +455,7 @@ pub trait Mapper: Send {
     // VT03 4bpp extended mode detection
     fn vt03_4bpp_bg(&self) -> bool { false }
     fn vt03_4bpp_sp(&self) -> bool { false }
+    fn vt03_reg2000_10(&self) -> u8 { 0 }
     fn set_dip_switches(&mut self, _value: u8) {}
 
     // controller read adjustment for vs system mappers
@@ -913,6 +924,7 @@ pub fn create_mapper(
                  rom_name,
              ),
              submapper_id,
+             header,
          )),
         257 => {
             let is_small = if submapper_id == 1 { true } else if submapper_id == 2 { false } else { prg_size < 32 };
@@ -1059,15 +1071,25 @@ pub fn create_mapper(
         396 => Box::new(Mapper396::new(submapper_id)),
         397 => Box::new(Mapper90::new(Mapper90Variant::Mapper397)),
         398 => Box::new(Mapper398::new()),
+        407 => Box::new(Mapper407::new()),
+        408 => Box::new(Mapper408::new()),
         409 => Box::new(Mapper409::new()),
         418 => Box::new(Mapper418::new()),
+        419 => Box::new(Mapper419::new(submapper_id)),
         422 => Box::new(MapperAx5202p::new(Ax5202pVariant::Mapper422)),
+        423 => Box::new(Mapper423::new()),
+        424 => Box::new(Mapper424::new()),
+        425 => Box::new(Mapper425::new()),
+        426 => Box::new(Mapper426::new(rom)),
+        427 => Box::new(Mapper427::new(submapper_id)),
+        436 => Box::new(Mapper436::new(submapper_id)),
         437 => Box::new(Mapper437::new()),
         455 => Box::new(Mapper455::new(header, rom, rom_name)),
         471 => Box::new(Mapper471::new()),
         476 => Box::new(Mapper476::new()),
         486 => Box::new(Mapper486::new()),
         495 => Box::new(Mapper495::new()),
+        496 => Box::new(Mapper496::new()),
         497 => Box::new(Mapper497::new()),
         514 => Box::new(Mapper514::new()),
         521 => Box::new(Mapper521::new(prg_size)),

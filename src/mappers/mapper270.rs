@@ -1,5 +1,5 @@
 use crate::cartridge::Cartridge;
-use crate::mapper::{mirror_h_or_v, FetchResult, Mapper};
+use crate::mapper::{FetchResult, Mapper};
 use crate::mappers::one_bus::{OneBus, OneBusBanking, OneBusMangle};
 
 pub struct Mapper270 {
@@ -29,7 +29,7 @@ impl Mapper270 {
 }
 
 impl Mapper for Mapper270 {
-        fn reset(&mut self) {}
+    fn reset(&mut self) {}
 
     fn reset_power_cycle(&mut self) {
         self.reg4242 = 0;
@@ -110,7 +110,7 @@ impl Mapper for Mapper270 {
     }
 
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
-        mirror_h_or_v(self.core.hv() != 0, address)
+        self.core.mirror_nametable_address(address)
     }
 
     fn fetch_ppu(
@@ -127,26 +127,32 @@ impl Mapper for Mapper270 {
         ppu_octal_latch: u8,
         vram: &[u8],
     ) -> (u8, u16) {
-        let address = (ppu_address_bus & 0x3F00) | ppu_octal_latch as u16;
+        let raw_address = (ppu_address_bus & 0x3FFF) | (ppu_octal_latch as u16);
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
-        if address < 0x2000 {
-            let byte = self.core.fetch_chr_byte(
+        let is_chr_fetch = raw_address < 0x2000 || (raw_address >= 0x4000 && raw_address < 0x6000);
+        if is_chr_fetch {
+            let high_plane = raw_address >= 0x4000 && raw_address < 0x6000;
+            let chr_addr = raw_address & 0x1FFF;
+            let ext_address = if high_plane { 0x4000 | chr_addr } else { chr_addr };
+            let byte = self.core.fetch_chr_byte_ext(
                 prg_rom,
                 chr_rom,
                 chr_ram,
-                address,
+                ext_address,
                 self.chr_ram_flat(),
+                false,
+                false,
             );
             new_addr_bus |= byte as u16;
         } else {
-            let mirrored = mirror_h_or_v(self.core.hv() != 0, address);
+            let mirrored = self.core.mirror_nametable_address(raw_address);
             new_addr_bus |= vram[(mirrored & 0x7FF) as usize] as u16;
         }
         (new_addr_bus as u8, new_addr_bus)
     }
 
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
-        if address < 0x2000 {
+        if address < 0x2000 || (address >= 0x4000 && address < 0x6000) {
             if self.chr_ram_flat() && !cart.chr_ram.is_empty() {
                 cart.chr_ram[address as usize & 0x1FFF] = data;
             } else if cart.using_chr_ram && !cart.chr_ram.is_empty() {
@@ -179,6 +185,10 @@ impl Mapper for Mapper270 {
         self.core.cpu_cycle()
     }
 
+    fn take_irq_ack(&mut self) -> bool {
+        self.core.take_irq_ack()
+    }
+
     fn get_dip_switches(&self) -> u8 {
         self.dip_value
     }
@@ -186,8 +196,10 @@ impl Mapper for Mapper270 {
     fn set_dip_switches(&mut self, value: u8) {
         self.dip_value = value;
     }
+
     fn vt03_4bpp_bg(&self) -> bool { (self.core.reg2000[0x10] & 0x82) != 0 }
     fn vt03_4bpp_sp(&self) -> bool { (self.core.reg2000[0x10] & 0x84) != 0 }
+    fn vt03_reg2000_10(&self) -> u8 { self.core.reg2000[0x10] }
 
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
         let mut state = self.core.save_core();

@@ -1,46 +1,18 @@
 use crate::cartridge::Cartridge;
-use crate::mapper::{FetchResult, Mapper};
-use crate::mappers::one_bus::{
-    chr_or_from_296_regs, descramble_chr_byte, prg_or_from_296_regs, OneBus, OneBusBanking,
-};
+use crate::mapper::{mirror_h_or_v, FetchResult, Mapper};
+use crate::mappers::one_bus::{descramble_chr_byte, OneBus, OneBusBanking, OneBusMangle};
 
 const MODE_MMC3: u8 = 0;
 const MODE_MMC1: u8 = 1;
 const MODE_UNROM: u8 = 2;
 const MODE_CNROM: u8 = 3;
 
-fn prg_off(reg2c: u8, reg2e: u8) -> usize {
-    prg_or_from_296_regs(reg2c, reg2e) as usize
-}
-
-fn chr_off(reg2c: u8, reg2e: u8) -> usize {
-    chr_or_from_296_regs(reg2c, reg2e)
-}
-
 pub struct Mapper296 {
     core: OneBus,
     mode: u8,
-    chrram_mode: bool,
-    reg1e: u8,
-    reg2c: u8,
-    reg2e: u8,
-    latch: u8,
-
-    r8000: u8,
-    bank_8c: u8,
-    bank_a: u8,
-    chr_2k0: u8,
-    chr_2k8: u8,
-    chr_1k0: u8,
-    chr_1k4: u8,
-    chr_1k8: u8,
-    chr_1kc: u8,
-    irq_latch: u8,
-    irq_counter: u8,
-    enable_irq: bool,
-    reload_irq: bool,
-    mmc3_mirror: bool,
-
+    chrram: bool,
+    latch_data: u8,
+    dip_value: u8,
     mmc1_shift: u8,
     mmc1_shift_count: u8,
     mmc1_control: u8,
@@ -48,36 +20,22 @@ pub struct Mapper296 {
     mmc1_chr1: u8,
     mmc1_prg: u8,
     mmc1_last_write_cycle: i64,
+}
 
-    irq: bool,
+impl Default for Mapper296 {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Mapper296 {
     pub fn new() -> Self {
         Self {
             core: OneBus::new(&[], &[], OneBusBanking::MAPPER256),
-            mode: 0,
-            chrram_mode: false,
-            reg1e: 0,
-            reg2c: 0,
-            reg2e: 0,
-            latch: 0,
-
-            r8000: 0,
-            bank_8c: 0,
-            bank_a: 1,
-            chr_2k0: 0,
-            chr_2k8: 2,
-            chr_1k0: 4,
-            chr_1k4: 5,
-            chr_1k8: 6,
-            chr_1kc: 7,
-            irq_latch: 0,
-            irq_counter: 0,
-            enable_irq: false,
-            reload_irq: false,
-            mmc3_mirror: false,
-
+            mode: MODE_MMC3,
+            chrram: false,
+            latch_data: 0,
+            dip_value: 3,
             mmc1_shift: 0x10,
             mmc1_shift_count: 0,
             mmc1_control: 0x1F,
@@ -85,59 +43,89 @@ impl Mapper296 {
             mmc1_chr1: 0,
             mmc1_prg: 0,
             mmc1_last_write_cycle: -2,
-
-            irq: false,
         }
     }
 
-    fn refresh_banking(&mut self) {
-        let prg_or = prg_or_from_296_regs(self.reg2c, self.reg2e);
-        let chr_or = chr_or_from_296_regs(self.reg2c, self.reg2e);
+    fn prg_or(&self) -> u16 {
+        let reg2c = self.core.reg4100[0x2C] as u16;
+        let reg2e = self.core.reg4100[0x2E] as u16;
+        ((reg2c << 12) & 0x1000) | ((reg2c << 11) & 0x2000) | ((reg2e << 14) & 0x4000)
+    }
+
+    fn chr_or(&self) -> usize {
+        let reg2c = self.core.reg4100[0x2C] as usize;
+        let reg2e = self.core.reg4100[0x2E] as usize;
+        ((reg2c << 14) & 0x8000) | ((reg2c << 13) & 0x10000) | ((reg2e << 17) & 0x20000)
+    }
+
+    fn update_banking_and_mode(&mut self) {
+        let reg1d = self.core.reg4100[0x1D];
+        self.mode = reg1d & 3;
+        self.chrram = (reg1d & 4) != 0;
+
+        let prg_or = self.prg_or();
+        let chr_or = self.chr_or();
         self.core.banking = OneBusBanking {
             prg_and: 0x0FFF,
             prg_or,
             chr_and: 0x7FFF,
             chr_or,
         };
-    }
 
-    fn sync_mmc3_to_core(&mut self) {
-        self.core.reg4100[0x05] = self.r8000 & !0x20;
-        self.core.reg2000[0x16] = self.chr_2k0;
-        self.core.reg2000[0x17] = self.chr_2k8;
-        self.core.reg2000[0x12] = self.chr_1k0;
-        self.core.reg2000[0x13] = self.chr_1k4;
-        self.core.reg2000[0x14] = self.chr_1k8;
-        self.core.reg2000[0x15] = self.chr_1kc;
-        self.core.reg4100[0x07] = self.bank_8c;
-        self.core.reg4100[0x08] = self.bank_a;
-        self.core.reg4100[0x06] = if self.mmc3_mirror { 1 } else { 0 };
-        self.core.irq_reload = self.irq_latch;
-        self.core.irq_counter = self.irq_counter;
-        self.core.irq_enabled = self.enable_irq;
-    }
-
-    fn bank_offset(&self) -> usize {
-        prg_off(self.reg2c, self.reg2e)
-    }
-
-    fn chr_bank_offset(&self) -> usize {
-        chr_off(self.reg2c, self.reg2e)
-    }
-
-    fn descramble(&self) -> bool {
-        (self.reg1e & 0xC0) != 0
-    }
-
-    fn mmc1_write_register(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
-        if address < 0x8000 {
-            return;
+        match self.mode {
+            MODE_MMC1 => {
+                let chr0 = (self.mmc1_chr0 as usize) << 2;
+                let chr1 = (self.mmc1_chr1 as usize) << 2;
+                self.core.reg2000[0x16] = chr0 as u8;
+                self.core.reg2000[0x17] = (chr0 | 2) as u8;
+                self.core.reg2000[0x12] = chr1 as u8;
+                self.core.reg2000[0x13] = (chr1 | 1) as u8;
+                self.core.reg2000[0x14] = (chr1 | 2) as u8;
+                self.core.reg2000[0x15] = (chr1 | 3) as u8;
+            }
+            MODE_CNROM => {
+                let l = self.latch_data << 3;
+                self.core.reg2000[0x16] = l;
+                self.core.reg2000[0x17] = l | 2;
+                self.core.reg2000[0x12] = l | 4;
+                self.core.reg2000[0x13] = l | 5;
+                self.core.reg2000[0x14] = l | 6;
+                self.core.reg2000[0x15] = l | 7;
+            }
+            _ => {}
         }
+    }
+
+    fn mmc1_prg_bank(&self, slot: usize) -> usize {
+        let mode = (self.mmc1_control >> 2) & 3;
+        let prg = (self.mmc1_prg & 0x0F) as usize;
+        match mode {
+            0 | 1 => (prg & 0x0E) | (slot & 1),
+            2 => {
+                if slot == 0 {
+                    0
+                } else {
+                    prg
+                }
+            }
+            3 => {
+                if slot == 0 {
+                    prg
+                } else {
+                    0x0F
+                }
+            }
+            _ => 0,
+        }
+    }
+
+    fn write_mmc1(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if (data & 0x80) != 0 {
             self.mmc1_control |= 0x0C;
             self.mmc1_shift = 0x10;
             self.mmc1_shift_count = 0;
             self.mmc1_last_write_cycle = cart.mapper_cpu_cycle;
+            self.update_banking_and_mode();
             return;
         }
         if cart.mapper_cpu_cycle >= 0
@@ -148,143 +136,34 @@ impl Mapper296 {
         }
         self.mmc1_shift_count += 1;
         let done = self.mmc1_shift_count >= 5;
-        self.mmc1_shift >>= 1;
-        if (data & 1) != 0 {
-            self.mmc1_shift |= 0x10;
-        }
+        self.mmc1_shift = (self.mmc1_shift >> 1) | ((data & 1) << 4);
         self.mmc1_last_write_cycle = cart.mapper_cpu_cycle;
         if done {
-            let reg = ((address >> 13) as u8).wrapping_sub(4);
-            match reg {
-                0 => self.mmc1_control = self.mmc1_shift,
-                1 => self.mmc1_chr0 = self.mmc1_shift,
-                2 => self.mmc1_chr1 = self.mmc1_shift,
-                3 => self.mmc1_prg = self.mmc1_shift,
-                _ => {}
-            }
+            let val = self.mmc1_shift;
             self.mmc1_shift = 0x10;
             self.mmc1_shift_count = 0;
+            match (address >> 13) & 3 {
+                0 => self.mmc1_control = val,
+                1 => self.mmc1_chr0 = val,
+                2 => self.mmc1_chr1 = val,
+                3 => self.mmc1_prg = val,
+                _ => {}
+            }
+            self.update_banking_and_mode();
         }
-    }
-
-    fn prg_offset_mmc3(&self, cart: &Cartridge, address: u16) -> usize {
-        let po = self.bank_offset();
-        let prg_len = cart.prg_rom.len();
-        let (bank, addr_lo) = if address >= 0xE000 {
-            ((prg_len / 0x2000).saturating_sub(1), address as usize & 0x1FFF)
-        } else if address >= 0xC000 {
-            if (self.r8000 & 0x40) != 0 {
-                (self.bank_8c as usize, address as usize & 0x1FFF)
-            } else {
-                ((prg_len / 0x2000).saturating_sub(2), address as usize & 0x1FFF)
-            }
-        } else if address >= 0xA000 {
-            (self.bank_a as usize, address as usize & 0x1FFF)
-        } else {
-            if (self.r8000 & 0x40) == 0 {
-                (self.bank_8c as usize, address as usize & 0x1FFF)
-            } else {
-                ((prg_len / 0x2000).saturating_sub(2), address as usize & 0x1FFF)
-            }
-        };
-        let actual = ((bank & 0x0FFF) | po) * 0x2000 + addr_lo;
-        actual % prg_len.max(1)
-    }
-
-    fn chr_offset_mmc3(&self, chr_len: usize, address: u16) -> usize {
-        let co = self.chr_bank_offset();
-        let bank = crate::mappers::mmc3::mmc3_chr_bank(
-            self.r8000,
-            self.chr_2k0,
-            self.chr_2k8,
-            self.chr_1k0,
-            self.chr_1k4,
-            self.chr_1k8,
-            self.chr_1kc,
-            address,
-        ) as usize;
-        let actual = ((bank & 0x7FFF) | co) * 0x400 + (address as usize & 0x3FF);
-        actual % chr_len.max(1)
-    }
-
-    fn prg_offset_mmc1(&self, cart: &Cartridge, address: u16) -> usize {
-        let po = self.bank_offset();
-        let prg_len = cart.prg_rom.len();
-        let prg_reg = (self.mmc1_prg & 0x0F) as usize;
-        let num_banks = (prg_len / 0x4000).max(1);
-        let off = if (self.mmc1_chr0 & 0x10) != 0 { 16 } else { 0 };
-        let mode = (self.mmc1_control >> 2) & 0x03;
-        let bank = match mode {
-            0 | 1 => {
-                let bank32 = ((prg_reg & 0x0E) + off).min(num_banks.saturating_sub(2));
-                (bank32 & 0x0FFF) | po
-            }
-            2 => {
-                if address >= 0xC000 {
-                    ((prg_reg + off) & 0x0FFF) | po
-                } else {
-                    (off & 0x0FFF) | po
-                }
-            }
-            3 => {
-                if address >= 0xC000 {
-                    ((0x0F + off) & 0x0FFF) | po
-                } else {
-                    ((prg_reg + off) & 0x0FFF) | po
-                }
-            }
-            _ => 0,
-        };
-        (bank * 0x4000 + (address as usize & 0x3FFF)) % prg_len.max(1)
-    }
-
-    fn chr_offset_mmc1(&self, chr_len: usize, address: u16) -> usize {
-        let co = self.chr_bank_offset();
-        let mode = (self.mmc1_control >> 4) & 1;
-        if mode != 0 {
-            let bank = if address < 0x1000 {
-                self.mmc1_chr0 as usize
-            } else {
-                self.mmc1_chr1 as usize
-            };
-            let actual = ((bank & 0x7FFF) | co) * 0x1000 + (address as usize & 0xFFF);
-            actual % chr_len.max(1)
-        } else {
-            let bank = (self.mmc1_chr0 & 0x1E) as usize;
-            let actual = ((bank & 0x7FFF) | co) * 0x1000 + (address as usize & 0x1FFF);
-            actual % chr_len.max(1)
-        }
-    }
-
-    fn mirror_mmc1(&self) -> bool {
-        (self.mmc1_control & 0x03) != 0
     }
 }
 
 impl Mapper for Mapper296 {
     fn reset(&mut self) {
-        self.mode = 0;
-        self.chrram_mode = false;
-        self.reg1e = 0;
-        self.reg2c = 0;
-        self.reg2e = 0;
-        self.latch = 0;
-
-        self.r8000 = 0;
-        self.bank_8c = 0;
-        self.bank_a = 1;
-        self.chr_2k0 = 0;
-        self.chr_2k8 = 2;
-        self.chr_1k0 = 4;
-        self.chr_1k4 = 5;
-        self.chr_1k8 = 6;
-        self.chr_1kc = 7;
-        self.irq_latch = 0;
-        self.irq_counter = 0;
-        self.enable_irq = false;
-        self.reload_irq = false;
-        self.mmc3_mirror = false;
-
+        self.core.reset();
+        self.core.reg4100[0x1D] = 0;
+        self.core.reg4100[0x2C] = 0;
+        self.core.reg4100[0x2E] = 0;
+        self.mode = MODE_MMC3;
+        self.chrram = false;
+        self.latch_data = 0;
+        self.dip_value = 3;
         self.mmc1_shift = 0x10;
         self.mmc1_shift_count = 0;
         self.mmc1_control = 0x1F;
@@ -292,282 +171,141 @@ impl Mapper for Mapper296 {
         self.mmc1_chr1 = 0;
         self.mmc1_prg = 0;
         self.mmc1_last_write_cycle = -2;
-
-        self.irq = false;
-        self.core.reset();
-        self.refresh_banking();
     }
 
-    fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
-        if address >= 0x8000 {
-            let offset = match self.mode {
-                MODE_MMC3 => self.prg_offset_mmc3(cart, address),
-                MODE_MMC1 => self.prg_offset_mmc1(cart, address),
-                MODE_UNROM => {
-                    let po = self.bank_offset();
-                    let prg_len = cart.prg_rom.len();
-                    if address >= 0xC000 {
-                        let bank = (0xFF | po) & 0x4FFF;
-                        (bank * 0x4000 + (address as usize & 0x3FFF)) % prg_len.max(1)
-                    } else {
-                        let bank = ((self.latch as usize) | po) & 0x4FFF;
-                        (bank * 0x4000 + (address as usize & 0x3FFF)) % prg_len.max(1)
-                    }
-                }
-                MODE_CNROM => {
-                    let po = self.bank_offset();
-                    let prg_len = cart.prg_rom.len();
-                    let bank32 = po & 0x4FFF;
-                    (bank32 * 0x8000 + (address as usize & 0x7FFF)) % prg_len.max(1)
-                }
-                _ => 0,
-            };
-            let data = if offset < cart.prg_rom.len() {
-                cart.prg_rom[offset]
-            } else {
-                0
-            };
-            FetchResult { data, driven: true }
-        } else if address >= 0x6000 {
-            let idx = (address - 0x6000) as usize;
-            if idx < cart.prg_ram.len() {
-                FetchResult { data: cart.prg_ram[idx], driven: true }
-            } else {
-                FetchResult { data: 0, driven: false }
+    fn handle_cpu_write(&mut self, address: u16, data: u8) {
+        let mangle = OneBusMangle::IDENTITY;
+        if (0x2000..0x2100).contains(&address) {
+            self.core.write_ppu(address, data, &mangle);
+        } else if (0x4100..0x4200).contains(&address) {
+            self.core.write_apu(address, data, &mangle);
+            if address == 0x411D || address == 0x412C || address == 0x412E {
+                self.update_banking_and_mode();
             }
-        } else if address >= 0x4020 && ((address & 0xFF) == 0x12D) {
-            FetchResult { data: 3, driven: true }
-        } else {
-            FetchResult { data: 0, driven: false }
         }
     }
 
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
-        let lo = address & 0xFF;
-        if (0x4020..0x5000).contains(&address) {
-            match lo {
-                0x1D => {
-                    self.mode = data & 3;
-                    self.chrram_mode = (data & 4) != 0;
-                    self.core.reg4100[0x1D] = data;
-                }
-                0x1E => {
-                    self.reg1e = data;
-                    self.core.reg4100[0x1E] = data;
-                }
-                0x2C => {
-                    self.reg2c = data;
-                    self.core.reg4100[0x2C] = data;
-                    self.refresh_banking();
-                }
-                0x2E => {
-                    self.reg2e = data;
-                    self.core.reg4100[0x2E] = data;
-                    self.refresh_banking();
-                }
-                _ => {}
-            }
-            return;
-        }
-        if address < 0x6000 {
-            return;
-        }
         if address < 0x8000 {
-            let idx = (address - 0x6000) as usize;
-            if idx < cart.prg_ram.len() {
-                cart.prg_ram[idx] = data;
-            }
             return;
         }
         match self.mode {
             MODE_MMC3 => {
-                let mmc3_idx = address & 0xE001;
-                match mmc3_idx {
-                    0x8000 => {
-                        self.r8000 = data;
-                        self.sync_mmc3_to_core();
-                    }
-                    0x8001 => {
-                        let mask = ((cart.prg_rom.len() / 0x2000).max(1) - 1) as u8;
-                        let idx = self.r8000 & 0x07;
-                        match idx {
-                            0 => self.chr_2k0 = data & 0xFE,
-                            1 => self.chr_2k8 = data & 0xFE,
-                            2 => self.chr_1k0 = data,
-                            3 => self.chr_1k4 = data,
-                            4 => self.chr_1k8 = data,
-                            5 => self.chr_1kc = data,
-                            6 => self.bank_8c = data & mask,
-                            7 => self.bank_a = data & mask,
-                            _ => {}
-                        }
-                        self.sync_mmc3_to_core();
-                    }
-                    0xA000 => {
-                        self.mmc3_mirror = (data & 1) != 0;
-                        self.sync_mmc3_to_core();
-                    }
-                    0xA001 => {}
-                    0xC000 => {
-                        self.irq_latch = data;
-                        self.core.irq_reload = data;
-                    }
-                    0xC001 => {
-                        self.reload_irq = true;
-                        self.core.irq_counter = 0;
-                    }
-                    0xE000 => {
-                        self.enable_irq = false;
-                        self.core.irq_enabled = false;
-                        self.irq = false;
-                    }
-                    0xE001 => {
-                        self.enable_irq = true;
-                        self.core.irq_enabled = true;
-                    }
-                    _ => {}
-                }
+                self.core.store_prg_mmc3(address, data, &OneBusMangle::IDENTITY);
             }
             MODE_MMC1 => {
-                self.mmc1_write_register(cart, address, data);
+                self.write_mmc1(cart, address, data);
             }
             MODE_UNROM | MODE_CNROM => {
-                self.latch = data;
+                self.latch_data = data;
+                self.update_banking_and_mode();
             }
             _ => {}
         }
     }
 
-    fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
-        if cart.alternative_nametable_arrangement {
-            return address;
+    fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
+        if address == 0x412D {
+            return FetchResult {
+                data: self.dip_value,
+                driven: true,
+            };
         }
-        let h = match self.mode {
-            MODE_MMC3 => self.mmc3_mirror,
-            MODE_MMC1 => self.mirror_mmc1(),
-            MODE_UNROM => {
-                let po = self.bank_offset();
-                (po & 1) != 0
+        if address >= 0x4100 && address < 0x4200 {
+            if let Some(data) = self.core.read_apu(address) {
+                return FetchResult { data, driven: true };
             }
-            MODE_CNROM => {
-                let po = self.bank_offset();
-                (po & 1) != 0
+        }
+        if address >= 0x8000 {
+            let prg_or = self.prg_or();
+            let bank = match self.mode {
+                MODE_MMC3 => self.core.get_prg_bank(((address - 0x8000) >> 13) as usize),
+                MODE_MMC1 => {
+                    let slot = ((address - 0x8000) >> 14) as usize;
+                    let bank16 = self.mmc1_prg_bank(slot);
+                    self.core.get_prg16_bank(bank16, ((address - 0x8000) >> 13) as usize & 1)
+                }
+                MODE_UNROM => {
+                    let slot = ((address - 0x8000) >> 14) as usize;
+                    let bank16 = if slot == 0 { self.latch_data as usize } else { 0xFF };
+                    self.core.get_prg16_bank(bank16, ((address - 0x8000) >> 13) as usize & 1)
+                }
+                MODE_CNROM => self.core.get_prg_bank(((address - 0x8000) >> 13) as usize),
+                _ => 0,
+            };
+            let offset = ((bank & 0x0FFF) | (prg_or as usize)) * 0x2000 + (address as usize & 0x1FFF);
+            let data = if !cart.prg_rom.is_empty() {
+                cart.prg_rom[offset % cart.prg_rom.len()]
+            } else {
+                0
+            };
+            return FetchResult { data, driven: true };
+        }
+        FetchResult { data: 0, driven: false }
+    }
+
+    fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
+        if self.mode == MODE_MMC1 {
+            match self.mmc1_control & 3 {
+                0 => 0x2000 + (address & 0x3FF),
+                1 => 0x2400 + (address & 0x3FF),
+                2 => mirror_h_or_v(false, address),
+                3 => mirror_h_or_v(true, address),
+                _ => mirror_h_or_v(false, address),
             }
-            _ => cart.nametable_horizontal_mirroring,
-        };
-        if h {
-            (address & 0x33FF) | ((address & 0x0800) >> 1)
         } else {
-            address & 0x37FF
+            mirror_h_or_v(self.core.hv() != 0, address)
         }
     }
 
     fn fetch_ppu(
         &mut self,
-        _prg_rom: &[u8],
+        prg_rom: &[u8],
         chr_rom: &[u8],
         _prg_ram: &[u8],
         chr_ram: &[u8],
         _prg_vram: &[u8],
         _using_chr_ram: bool,
         _nametable_horizontal_mirroring: bool,
-        alternative_nametable_arrangement: bool,
+        _alternative_nametable_arrangement: bool,
         ppu_address_bus: u16,
         ppu_octal_latch: u8,
         vram: &[u8],
     ) -> (u8, u16) {
-        let address = (ppu_address_bus & 0x3F00) | ppu_octal_latch as u16;
-        let ciram = address >= 0x2000;
+        let raw_address = (ppu_address_bus & 0x3FFF) | (ppu_octal_latch as u16);
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
-        if ciram {
-            let mirrored = if alternative_nametable_arrangement {
-                address
-            } else {
-                let h = match self.mode {
-                    MODE_MMC3 => self.mmc3_mirror,
-                    MODE_MMC1 => self.mirror_mmc1(),
-                    MODE_UNROM | MODE_CNROM => (self.bank_offset() & 1) != 0,
-                    _ => false,
-                };
-                if h {
-                    (address & 0x33FF) | ((address & 0x0800) >> 1)
-                } else {
-                    address & 0x37FF
-                }
-            };
+        let is_chr_fetch = raw_address < 0x2000 || (raw_address >= 0x4000 && raw_address < 0x6000);
+        if is_chr_fetch {
+            let high_plane = raw_address >= 0x4000 && raw_address < 0x6000;
+            let chr_addr = raw_address & 0x1FFF;
+            let ext_address = if high_plane { 0x4000 | chr_addr } else { chr_addr };
+            let descramble = (self.core.reg4100[0x1E] & 0xC0) != 0;
+            let mut byte = self.core.fetch_chr_byte_ext(
+                prg_rom,
+                chr_rom,
+                chr_ram,
+                ext_address,
+                self.chrram,
+                false,
+                false,
+            );
+            if descramble {
+                byte = descramble_chr_byte(byte);
+            }
+            new_addr_bus |= byte as u16;
+        } else {
+            let mirrored = mirror_h_or_v(self.core.hv() != 0, raw_address);
             let byte = vram[(mirrored & 0x7FF) as usize];
             new_addr_bus |= byte as u16;
-            return (new_addr_bus as u8, new_addr_bus);
         }
-        let using_chr_ram = self.chrram_mode && !chr_ram.is_empty();
-        let byte = if self.mode == MODE_MMC3 {
-            let offset = self.chr_offset_mmc3(
-                if using_chr_ram { chr_ram.len() } else { chr_rom.len() },
-                address,
-            );
-            if using_chr_ram {
-                chr_ram[offset % chr_ram.len().max(1)]
-            } else if !chr_rom.is_empty() {
-                chr_rom[offset % chr_rom.len()]
-            } else {
-                0
-            }
-        } else if self.mode == MODE_MMC1 {
-            let offset = self.chr_offset_mmc1(
-                if using_chr_ram { chr_ram.len() } else { chr_rom.len() },
-                address,
-            );
-            if using_chr_ram {
-                chr_ram[offset % chr_ram.len().max(1)]
-            } else if !chr_rom.is_empty() {
-                chr_rom[offset % chr_rom.len()]
-            } else {
-                0
-            }
-        } else {
-            if using_chr_ram {
-                let bank = self.latch as usize;
-                let offset = (bank * 0x2000 + (address as usize & 0x1FFF)) % chr_ram.len().max(1);
-                chr_ram[offset]
-            } else if !chr_rom.is_empty() {
-                let co = self.chr_bank_offset();
-                if self.mode == MODE_CNROM {
-                    let bank = (((self.latch as usize) & 0x7FFF) | co) & 0x3FFFF;
-                    let offset = (bank * 0x2000 + (address as usize & 0x1FFF)) % chr_rom.len();
-                    chr_rom[offset]
-                } else {
-                    let bank = (0usize & 0x7FFF) | co;
-                    let offset = (bank * 0x2000 + (address as usize & 0x1FFF)) % chr_rom.len();
-                    chr_rom[offset]
-                }
-            } else {
-                0
-            }
-        };
-        let byte = if self.descramble() {
-            descramble_chr_byte(byte)
-        } else {
-            byte
-        };
-        new_addr_bus |= byte as u16;
         (new_addr_bus as u8, new_addr_bus)
     }
 
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
-        if address < 0x2000 && cart.using_chr_ram {
-            let offset = if self.mode == MODE_MMC3 {
-                self.chr_offset_mmc3(cart.chr_ram.len(), address)
-            } else if self.mode == MODE_MMC1 {
-                self.chr_offset_mmc1(cart.chr_ram.len(), address)
-            } else if self.chrram_mode {
-                let bank = self.latch as usize;
-                let len = cart.chr_ram.len().max(1);
-                (bank * 0x2000 + (address as usize & 0x1FFF)) % len
-            } else {
-                address as usize
-            };
-            if offset < cart.chr_ram.len() {
-                cart.chr_ram[offset] = data;
+        if address < 0x2000 || (address >= 0x4000 && address < 0x6000) {
+            if self.chrram && !cart.chr_ram.is_empty() {
+                let len = cart.chr_ram.len();
+                cart.chr_ram[(address as usize & 0x1FFF) % len] = data;
             }
         } else if (0x2000..0x3F00).contains(&address) {
             let mirrored = self.mirror_nametable(cart, address);
@@ -584,102 +322,66 @@ impl Mapper for Mapper296 {
         _ppu_sprite_x16: bool,
         rendering_on: bool,
     ) -> bool {
-        if self.mode != MODE_MMC3 {
-            return false;
+        if self.mode == MODE_MMC3 {
+            self.core.ppu_cycle(ppu_address_bus, scanline, dot, rendering_on)
+        } else {
+            false
         }
-        if self.core.ppu_cycle(ppu_address_bus, scanline, dot, rendering_on) {
-            self.irq = true;
-        }
-        false
     }
 
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
-        if self.mode == MODE_MMC3 && self.core.cpu_cycle() {
-            self.irq = true;
+        if self.mode == MODE_MMC3 {
+            self.core.cpu_cycle()
+        } else {
+            false
         }
-        let prev_irq = self.irq;
-        self.irq = false;
-        prev_irq
+    }
+
+    fn get_dip_switches(&self) -> u8 {
+        self.dip_value
+    }
+
+    fn set_dip_switches(&mut self, value: u8) {
+        self.dip_value = value;
     }
 
     fn take_irq_ack(&mut self) -> bool {
-        let irq = self.irq;
-        self.irq = false;
-        irq
+        self.core.take_irq_ack()
     }
 
-    fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8> {
+    fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
         let mut state = Vec::new();
+        state.extend_from_slice(&self.core.save_core());
         state.push(self.mode);
-        state.push(if self.chrram_mode { 1 } else { 0 });
-        state.push(self.reg1e);
-        state.push(self.reg2c);
-        state.push(self.reg2e);
-        state.push(self.latch);
-        state.push(self.r8000);
-        state.push(self.bank_8c);
-        state.push(self.bank_a);
-        state.push(self.chr_2k0);
-        state.push(self.chr_2k8);
-        state.push(self.chr_1k0);
-        state.push(self.chr_1k4);
-        state.push(self.chr_1k8);
-        state.push(self.chr_1kc);
-        state.push(self.irq_latch);
-        state.push(self.irq_counter);
-        state.push(if self.enable_irq { 1 } else { 0 });
-        state.push(if self.reload_irq { 1 } else { 0 });
-        state.push(if self.mmc3_mirror { 1 } else { 0 });
+        state.push(if self.chrram { 1 } else { 0 });
+        state.push(self.latch_data);
+        state.push(self.dip_value);
         state.push(self.mmc1_shift);
         state.push(self.mmc1_shift_count);
         state.push(self.mmc1_control);
         state.push(self.mmc1_chr0);
         state.push(self.mmc1_chr1);
         state.push(self.mmc1_prg);
-        state.extend_from_slice(&self.mmc1_last_write_cycle.to_le_bytes());
-        state.extend_from_slice(&cart.prg_ram);
         state
     }
 
-    fn load_mapper_registers(&mut self, cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
-        let mut p = start;
-        if p >= state.len() { return p; }
-        self.mode = state[p]; p += 1;
-        self.chrram_mode = state.get(p).copied().unwrap_or(0) != 0; p += 1;
-        self.reg1e = state.get(p).copied().unwrap_or(0); p += 1;
-        self.reg2c = state.get(p).copied().unwrap_or(0); p += 1;
-        self.reg2e = state.get(p).copied().unwrap_or(0); p += 1;
-        self.latch = state.get(p).copied().unwrap_or(0); p += 1;
-        self.r8000 = state.get(p).copied().unwrap_or(0); p += 1;
-        self.bank_8c = state.get(p).copied().unwrap_or(0); p += 1;
-        self.bank_a = state.get(p).copied().unwrap_or(1); p += 1;
-        self.chr_2k0 = state.get(p).copied().unwrap_or(0); p += 1;
-        self.chr_2k8 = state.get(p).copied().unwrap_or(2); p += 1;
-        self.chr_1k0 = state.get(p).copied().unwrap_or(4); p += 1;
-        self.chr_1k4 = state.get(p).copied().unwrap_or(5); p += 1;
-        self.chr_1k8 = state.get(p).copied().unwrap_or(6); p += 1;
-        self.chr_1kc = state.get(p).copied().unwrap_or(7); p += 1;
-        self.irq_latch = state.get(p).copied().unwrap_or(0); p += 1;
-        self.irq_counter = state.get(p).copied().unwrap_or(0); p += 1;
-        self.enable_irq = state.get(p).copied().unwrap_or(0) != 0; p += 1;
-        self.reload_irq = state.get(p).copied().unwrap_or(0) != 0; p += 1;
-        self.mmc3_mirror = state.get(p).copied().unwrap_or(0) != 0; p += 1;
-        self.mmc1_shift = state.get(p).copied().unwrap_or(0x10); p += 1;
-        self.mmc1_shift_count = state.get(p).copied().unwrap_or(0); p += 1;
-        self.mmc1_control = state.get(p).copied().unwrap_or(0x1F); p += 1;
-        self.mmc1_chr0 = state.get(p).copied().unwrap_or(0); p += 1;
-        self.mmc1_chr1 = state.get(p).copied().unwrap_or(0); p += 1;
-        self.mmc1_prg = state.get(p).copied().unwrap_or(0); p += 1;
-        if p + 8 <= state.len() {
-            self.mmc1_last_write_cycle = i64::from_le_bytes(state[p..p+8].try_into().unwrap());
-            p += 8;
-        }
-        for i in 0..cart.prg_ram.len() {
-            if p < state.len() {
-                cart.prg_ram[i] = state[p];
-                p += 1;
-            }
-        }
+    fn load_mapper_registers(&mut self, _cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
+        let mut p = self.core.load_core(state, start);
+        if p < state.len() { self.mode = state[p]; p += 1; }
+        if p < state.len() { self.chrram = state[p] != 0; p += 1; }
+        if p < state.len() { self.latch_data = state[p]; p += 1; }
+        if p < state.len() { self.dip_value = state[p]; p += 1; }
+        if p < state.len() { self.mmc1_shift = state[p]; p += 1; }
+        if p < state.len() { self.mmc1_shift_count = state[p]; p += 1; }
+        if p < state.len() { self.mmc1_control = state[p]; p += 1; }
+        if p < state.len() { self.mmc1_chr0 = state[p]; p += 1; }
+        if p < state.len() { self.mmc1_chr1 = state[p]; p += 1; }
+        if p < state.len() { self.mmc1_prg = state[p]; p += 1; }
+        self.update_banking_and_mode();
         p
     }
+
+    fn vt03_4bpp_bg(&self) -> bool { (self.core.reg2000[0x10] & 0x82) != 0 }
+    fn vt03_4bpp_sp(&self) -> bool { (self.core.reg2000[0x10] & 0x84) != 0 }
+    fn vt03_reg2000_10(&self) -> u8 { self.core.reg2000[0x10] }
 }

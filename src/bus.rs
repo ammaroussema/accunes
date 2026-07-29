@@ -654,7 +654,10 @@ impl Emulator {
             }
         } else {
             // palette RAM
-            let is_onebus = self.cart.as_ref().map_or(false, |c| c.memory_mapper == 256);
+            let is_onebus = self
+                .cart
+                .as_ref()
+                .map_or(false, |c| crate::mappers::one_bus::is_onebus_mapper(c.memory_mapper));
             let pal_addr = if is_onebus {
                 (address & 0xFF) as usize
             } else {

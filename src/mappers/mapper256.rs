@@ -1,5 +1,5 @@
 use crate::cartridge::Cartridge;
-use crate::mapper::{mirror_h_or_v, FetchResult, Mapper};
+use crate::mapper::{FetchResult, Mapper};
 use crate::mappers::mmc3::Mmc3Config;
 use crate::mappers::one_bus::{OneBus, OneBusBanking, OneBusMangle};
 
@@ -63,13 +63,21 @@ const MMC3_MANGLE: [[u8; 8]; 16] = [
 pub struct Mapper256 {
     core: OneBus,
     submapper: u8,
+    vt369_vram: [u8; 0x800],
 }
 
 impl Mapper256 {
-    pub fn new(_config: Mmc3Config, submapper: u8) -> Self {
+    pub fn new(_config: Mmc3Config, submapper: u8, header: &[u8]) -> Self {
+        let is_nes20 = header.len() >= 16 && (header[7] & 0x0C) == 0x08;
+        let is_vt369 = is_nes20 && (header[7] & 0x03) == 3 && (header[13] & 0x0F) == 0x0A;
+        let mut core = OneBus::new(&[], &[], OneBusBanking::MAPPER256);
+        if is_vt369 {
+            core.console_type_vt369 = true;
+        }
         Self {
-            core: OneBus::new(&[], &[], OneBusBanking::MAPPER256),
+            core,
             submapper,
+            vt369_vram: [0u8; 0x800],
         }
     }
 
@@ -89,7 +97,9 @@ impl Mapper256 {
 
 impl Mapper for Mapper256 {
     fn reset(&mut self) {
+        let is_vt369 = self.core.console_type_vt369;
         self.core.reset();
+        self.core.console_type_vt369 = is_vt369;
     }
 
     fn handle_cpu_write(&mut self, address: u16, data: u8) {
@@ -98,6 +108,11 @@ impl Mapper for Mapper256 {
             self.core.write_ppu(address, data, &mangle);
         } else if (0x4100..0x4200).contains(&address) {
             self.core.write_apu(address, data, &mangle);
+        } else if self.core.console_type_vt369 && (0x3000..0x4000).contains(&address) {
+            let ppu_addr = (address & 0xFFF) | 0x2000;
+            let mirrored = self.core.mirror_nametable_address(ppu_addr);
+            let idx = (mirrored & 0x7FF) as usize;
+            self.vt369_vram[idx] = data;
         }
     }
 
@@ -108,7 +123,13 @@ impl Mapper for Mapper256 {
             }
             return;
         }
-        self.core.store_prg_mmc3(address, data, &self.mangle());
+        let mangle = self.mangle();
+        let val = if (0x8000..=0x9FFF).contains(&address) && (address & 1) == 0 {
+            data & 0xF8 | mangle.mmc3[(data & 0x07) as usize]
+        } else {
+            data
+        };
+        self.core.write_mmc3(address, val, &mangle);
     }
 
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
@@ -123,6 +144,21 @@ impl Mapper for Mapper256 {
                 data: self.core.reg2000[idx],
                 driven: true,
             };
+        }
+        if self.core.console_type_vt369 && (0x3000..0x4000).contains(&address) {
+            let ppu_addr = (address & 0xFFF) | 0x2000;
+            let mirrored = if cart.alternative_nametable_arrangement {
+                ppu_addr
+            } else {
+                self.core.mirror_nametable_address(ppu_addr)
+            };
+            let data = if cart.alternative_nametable_arrangement && (mirrored & 0x0800) != 0 {
+                let idx = (mirrored & 0x7FF) as usize;
+                if idx < cart.prg_vram.len() { cart.prg_vram[idx] } else { 0 }
+            } else {
+                self.vt369_vram[(mirrored & 0x7FF) as usize]
+            };
+            return FetchResult { data, driven: true };
         }
         if address >= 0x6000 && address < 0x8000 {
             if !cart.prg_ram.is_empty() {
@@ -150,7 +186,7 @@ impl Mapper for Mapper256 {
         if cart.alternative_nametable_arrangement {
             address
         } else {
-            mirror_h_or_v(self.core.hv() != 0, address)
+            self.core.mirror_nametable_address(address)
         }
     }
 
@@ -168,24 +204,37 @@ impl Mapper for Mapper256 {
         ppu_octal_latch: u8,
         vram: &[u8],
     ) -> (u8, u16) {
-        let address = (ppu_address_bus & 0x7F00) | ppu_octal_latch as u16;
+        let raw_address = (ppu_address_bus & 0x3FFF) | (ppu_octal_latch as u16);
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
-        if address < 0x2000 {
-            let byte = self.core.fetch_chr_byte(prg_rom, chr_rom, chr_ram, address, false);
+
+        let is_chr_fetch = raw_address < 0x2000 || (raw_address >= 0x4000 && raw_address < 0x6000);
+
+        if is_chr_fetch {
+            let high_plane = raw_address >= 0x4000 && raw_address < 0x6000;
+            let chr_addr = raw_address & 0x1FFF;
+            let ext_address = if high_plane { 0x4000 | chr_addr } else { chr_addr };
+
+            let byte = self.core.fetch_chr_byte_ext(
+                prg_rom,
+                chr_rom,
+                chr_ram,
+                ext_address,
+                false,
+                false,
+                false,
+            );
             new_addr_bus |= byte as u16;
         } else {
             let mirrored = if alternative_nametable_arrangement {
-                address
+                raw_address
             } else {
-                mirror_h_or_v(self.core.hv() != 0, address)
+                self.core.mirror_nametable_address(raw_address)
             };
             let byte = if alternative_nametable_arrangement && (mirrored & 0x0800) != 0 {
                 let idx = (mirrored & 0x7FF) as usize;
-                if idx < prg_vram.len() {
-                    prg_vram[idx]
-                } else {
-                    0
-                }
+                if idx < prg_vram.len() { prg_vram[idx] } else { 0 }
+            } else if self.core.console_type_vt369 {
+                self.vt369_vram[(mirrored & 0x7FF) as usize]
             } else {
                 vram[(mirrored & 0x7FF) as usize]
             };
@@ -195,7 +244,7 @@ impl Mapper for Mapper256 {
     }
 
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
-        if address < 0x2000 {
+        if address < 0x2000 || (address >= 0x4000 && address < 0x6000) {
             if cart.using_chr_ram && !cart.chr_ram.is_empty() {
                 let slot = ((address >> 10) as usize & 7) ^ if self.core.comr7() { 4 } else { 0 };
                 let bank = self.core.chr_bank_1k(slot);
@@ -205,13 +254,16 @@ impl Mapper for Mapper256 {
             }
         } else if (0x2000..0x3F00).contains(&address) {
             let mirrored = self.mirror_nametable(cart, address);
+            let idx = (mirrored & 0x7FF) as usize;
+            if self.core.console_type_vt369 {
+                self.vt369_vram[idx] = data;
+            }
             if cart.alternative_nametable_arrangement && (mirrored & 0x0800) != 0 {
-                let idx = (mirrored & 0x7FF) as usize;
                 if idx < cart.prg_vram.len() {
                     cart.prg_vram[idx] = data;
                 }
             } else {
-                vram[(mirrored & 0x7FF) as usize] = data;
+                vram[idx] = data;
             }
         }
     }
@@ -234,7 +286,7 @@ impl Mapper for Mapper256 {
     }
 
     fn take_irq_ack(&mut self) -> bool {
-        false
+        self.core.take_irq_ack()
     }
 
     fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8> {
@@ -276,6 +328,7 @@ impl Mapper for Mapper256 {
     fn set_dip_switches(&mut self, _value: u8) {}
     fn vt03_4bpp_bg(&self) -> bool { (self.core.reg2000[0x10] & 0x82) != 0 }
     fn vt03_4bpp_sp(&self) -> bool { (self.core.reg2000[0x10] & 0x84) != 0 }
+    fn vt03_reg2000_10(&self) -> u8 { self.core.reg2000[0x10] }
     fn battery_save_data(&self, _cart: &Cartridge) -> Option<Vec<u8>> {
         None
     }
