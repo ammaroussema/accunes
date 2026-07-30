@@ -660,7 +660,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.2.9";
+const APP_VERSION: &str = "1.3.1";
 
 fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     let a = a.trim_start_matches('v');
