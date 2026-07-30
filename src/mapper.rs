@@ -295,10 +295,20 @@ pub use crate::mappers::mapper396::Mapper396;
 pub use crate::mappers::mapper398::Mapper398;
 pub use crate::mappers::mapper395::Mapper395;
 pub use crate::mappers::mapper409::Mapper409;
+pub use crate::mappers::mapper415::Mapper415;
 pub use crate::mappers::mapper418::Mapper418;
 pub use crate::mappers::mapper437::Mapper437;
 pub use crate::mappers::mapper455::Mapper455;
+pub use crate::mappers::mapper469::Mapper469;
 pub use crate::mappers::mapper471::Mapper471;
+pub use crate::mappers::mapper522::Mapper522;
+pub use crate::mappers::mapper535::Mapper535;
+pub use crate::mappers::mapper538::Mapper538;
+pub use crate::mappers::mapper539::Mapper539;
+pub use crate::mappers::mapper548::Mapper548;
+pub use crate::mappers::mapper549::Mapper549;
+pub use crate::mappers::mapper554::Mapper554;
+pub use crate::mappers::mapper557::Mapper557;
 pub use crate::mappers::mapper476::Mapper476;
 pub use crate::mappers::mapper486::Mapper486;
 pub use crate::mappers::mapper495::Mapper495;
@@ -1074,6 +1084,7 @@ pub fn create_mapper(
         407 => Box::new(Mapper407::new()),
         408 => Box::new(Mapper408::new()),
         409 => Box::new(Mapper409::new()),
+        415 => Box::new(Mapper415::new()),
         418 => Box::new(Mapper418::new()),
         419 => Box::new(Mapper419::new(submapper_id)),
         422 => Box::new(MapperAx5202p::new(Ax5202pVariant::Mapper422)),
@@ -1085,6 +1096,12 @@ pub fn create_mapper(
         436 => Box::new(Mapper436::new(submapper_id)),
         437 => Box::new(Mapper437::new()),
         455 => Box::new(Mapper455::new(header, rom, rom_name)),
+        469 => {
+             let has_trainer = (header[6] & 4) != 0;
+             let trainer_len = if has_trainer { 512 } else { 0 };
+             let prg_start = 0x10 + trainer_len;
+             Box::new(Mapper469::new(rom.to_vec(), prg_start))
+        }
         471 => Box::new(Mapper471::new()),
         476 => Box::new(Mapper476::new()),
         486 => Box::new(Mapper486::new()),
@@ -1093,7 +1110,15 @@ pub fn create_mapper(
         497 => Box::new(Mapper497::new()),
         514 => Box::new(Mapper514::new()),
         521 => Box::new(Mapper521::new(prg_size)),
+        522 => Box::new(Mapper522::new()),
         525 => Box::new(Mapper525::new()),
+        535 => Box::new(Mapper535::new()),
+        538 => Box::new(Mapper538::new()),
+        539 => Box::new(Mapper539::new()),
+        548 => Box::new(Mapper548::new()),
+        549 => Box::new(Mapper549::new()),
+        554 => Box::new(Mapper554::new()),
+        557 => Box::new(Mapper557::new()),
         531 => Box::new(Mapper531::new(header, rom, rom_name)),
         532 => Box::new(Mapper19::new()),
         533 => Box::new(Mapper533::new()),

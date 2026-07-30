@@ -91,7 +91,7 @@ impl Mapper for Mapper280 {
 
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x8000 {
-            self.addr = (address & !0x100) | (0x00 & 0x100);
+            self.addr = address & !0x100;
             self.data = data;
             self.sync(cart.prg_rom.len() / 0x4000);
         }

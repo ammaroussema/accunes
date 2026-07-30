@@ -122,6 +122,9 @@ impl Emulator {
             if matches!(cart.memory_mapper, 303 | 304) && address == 0x4030 {
                 self.irq_level_detector = false;
             }
+            if matches!(cart.memory_mapper, 469) && address == 0x5030 {
+                self.irq_level_detector = false;
+            }
         }
 
         // apu register reads ($4015, $4016, $4017)
