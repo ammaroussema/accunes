@@ -260,6 +260,7 @@ pub use crate::mappers::mapper300::Mapper300;
 pub use crate::mappers::mapper407::Mapper407;
 pub use crate::mappers::mapper408::Mapper408;
 pub use crate::mappers::mapper419::Mapper419;
+pub use crate::mappers::mapper421::Mapper421;
 pub use crate::mappers::mapper423::Mapper423;
 pub use crate::mappers::mapper424::Mapper424;
 pub use crate::mappers::mapper425::Mapper425;
@@ -307,6 +308,7 @@ pub use crate::mappers::mapper538::Mapper538;
 pub use crate::mappers::mapper539::Mapper539;
 pub use crate::mappers::mapper548::Mapper548;
 pub use crate::mappers::mapper549::Mapper549;
+pub use crate::mappers::mapper550::Mapper550;
 pub use crate::mappers::mapper554::Mapper554;
 pub use crate::mappers::mapper557::Mapper557;
 pub use crate::mappers::mapper476::Mapper476;
@@ -1087,6 +1089,7 @@ pub fn create_mapper(
         415 => Box::new(Mapper415::new()),
         418 => Box::new(Mapper418::new()),
         419 => Box::new(Mapper419::new(submapper_id)),
+        421 => Box::new(Mapper421::new()),
         422 => Box::new(MapperAx5202p::new(Ax5202pVariant::Mapper422)),
         423 => Box::new(Mapper423::new()),
         424 => Box::new(Mapper424::new()),
@@ -1112,17 +1115,18 @@ pub fn create_mapper(
         521 => Box::new(Mapper521::new(prg_size)),
         522 => Box::new(Mapper522::new()),
         525 => Box::new(Mapper525::new()),
+        531 => Box::new(Mapper531::new(header, rom, rom_name)),
+        532 => Box::new(Mapper19::new()),
+        533 => Box::new(Mapper533::new()),
+        534 => Box::new(MapperAx5202p::new(Ax5202pVariant::Mapper534)),
         535 => Box::new(Mapper535::new()),
         538 => Box::new(Mapper538::new()),
         539 => Box::new(Mapper539::new()),
         548 => Box::new(Mapper548::new()),
         549 => Box::new(Mapper549::new()),
+        550 => Box::new(Mapper550::new()),
         554 => Box::new(Mapper554::new()),
         557 => Box::new(Mapper557::new()),
-        531 => Box::new(Mapper531::new(header, rom, rom_name)),
-        532 => Box::new(Mapper19::new()),
-        533 => Box::new(Mapper533::new()),
-        534 => Box::new(MapperAx5202p::new(Ax5202pVariant::Mapper534)),
         552 => Box::new(Mapper552::new()),
         553 => Box::new(Mapper553::new()),
         582 => Box::new(Mapper582::new()),
