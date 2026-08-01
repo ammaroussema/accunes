@@ -8,6 +8,7 @@ pub struct Mapper20 {
     disk_number: usize,
     disk_state: FdsDiskState,
     disk_clock: i32,
+    data_clock: u32,
     disk_address: usize,
     disk_address_fine: u8,
     shift_register: u8,
@@ -86,6 +87,7 @@ impl Mapper20 {
             disk_number: if has_disk { 0 } else { usize::MAX },
             disk_state: if has_disk { FdsDiskState::Inserting } else { FdsDiskState::Idle },
             disk_clock: 0,
+            data_clock: 0,
             disk_address: 0,
             disk_address_fine: 0,
             shift_register: 0,
@@ -137,18 +139,19 @@ impl Mapper20 {
             watchdog_irq_enable: true,
         }
     }
-
-    fn disk_inserted(&self) -> bool {
-        self.disk_number != usize::MAX && self.disk_number < self.fds_disks.len()
-    }
 }
 
 impl Mapper for Mapper20 {
+    fn disk_inserted(&self) -> bool {
+        self.disk_number != usize::MAX && self.disk_number < self.fds_disks.len()
+    }
+
     fn reset(&mut self) {
         let has_disk = !self.fds_disks.is_empty();
         self.disk_number = if has_disk { 0 } else { usize::MAX };
         self.disk_state = if has_disk { FdsDiskState::Inserting } else { FdsDiskState::Idle };
         self.disk_clock = 0;
+        self.data_clock = 0;
         self.disk_address = 0;
         self.disk_address_fine = 0;
         self.shift_register = 0;
@@ -251,18 +254,11 @@ impl Mapper for Mapper20 {
                     v
                 }
                 0x4033 => {
-                    let battery = if (self.fds_control & 0x02) == 0
-                        && (self.disk_state == FdsDiskState::SpinUp || self.disk_state == FdsDiskState::Running)
-                    {
-                        0x80
-                    } else {
-                        0x00
-                    };
+                    let motor = if (self.fds_control & 0x02) == 0 { 0x80 } else { 0x00 };
                     if self.disk_reg_enabled {
-                        battery | (self.ext_port & 0x7F)
+                        motor | (self.ext_port & 0x7F)
                     } else {
-                        // Output disabled: external pull-ups make bits 0-6 read as 1
-                        battery | 0x7F
+                        motor | 0x7F
                     }
                 }
                 _ => 0x80,
@@ -313,7 +309,7 @@ impl Mapper for Mapper20 {
             return;
         }
         if address >= 0x4040 && address <= 0x407F {
-            if self.sound_enable && self.wave_write_enabled {
+            if self.wave_write_enabled {
                 self.wave_table[(address - 0x4040) as usize] = data & 0x3F;
             }
             return;
@@ -359,38 +355,22 @@ impl Mapper for Mapper20 {
                     self.refresh_counter = 0;
                     self.cycle_timer = 4095;
                 }
-                if (data & 0x02) == 0 {
-                    self.wave_table = [0; 64];
-                    self.wave_freq = 0;
-                    self.wave_phase = 0;
-                    self.vol_gain = 0;
-                    self.vol_env_speed = 0;
-                    self.vol_env_dir = false;
-                    self.vol_env_dis = true;
-                    self.vol_env_timer = 0;
-                    self.mod_gain = 0;
-                    self.mod_env_speed = 0;
-                    self.mod_env_dir = false;
-                    self.mod_env_dis = true;
-                    self.mod_env_timer = 0;
-                    self.master_env_speed = 0xFF;
-                    self.mod_wave = [0; 64];
-                    self.mod_freq = 0;
-                    self.mod_phase = 0;
-                    self.mod_pos = 0;
-                    self.mod_halt = true;
-                    self.mod_write_pos = 0;
-                    self.wav_halt = true;
-                    self.env_halt = true;
-                    self.master_vol = 0;
-                    self.wave_write_enabled = false;
-                }
             }
             0x4024 => {
                 if self.disk_reg_enabled {
                     self.disk_write_latch = data;
                     self.byte_transfer_flag = false;
                     self.byte_xfer_irq_pending = false;
+                    if self.disk_inserted()
+                        && self.disk_state == FdsDiskState::Running
+                        && (self.fds_control & 0x04) == 0
+                    {
+                        let pos = self.disk_address / 8;
+                        if pos < self.fds_disks[self.disk_number].len() {
+                            self.fds_disks[self.disk_number][pos] = data;
+                        }
+                        self.disk_address += 8;
+                    }
                 }
             }
             0x4025 => {
@@ -399,8 +379,8 @@ impl Mapper for Mapper20 {
                         self.looking_for_end_of_gap = true;
                     }
                     self.fds_control = data;
-                    if (data & 1) != 0 {
-                        if self.disk_state == FdsDiskState::Idle {
+                    if (data & 0x02) == 0 {
+                        if self.disk_state != FdsDiskState::Running {
                             self.disk_state = FdsDiskState::SpinUp;
                             self.disk_clock = 0;
                         }
@@ -413,65 +393,51 @@ impl Mapper for Mapper20 {
                 }
             }
             0x4080 => {
-                if self.sound_enable {
-                    self.vol_env_dis = (data & 0x80) != 0;
-                    self.vol_env_dir = (data & 0x40) != 0;
-                    self.vol_env_speed = data & 0x3F;
-                    self.vol_env_timer = 0;
-                    if self.vol_env_dis {
-                        self.vol_gain = self.vol_env_speed;
-                    }
+                self.vol_env_dis = (data & 0x80) != 0;
+                self.vol_env_dir = (data & 0x40) != 0;
+                self.vol_env_speed = data & 0x3F;
+                self.vol_env_timer = 0;
+                if self.vol_env_dis {
+                    self.vol_gain = self.vol_env_speed;
                 }
             }
             0x4082 => {
-                if self.sound_enable {
-                    self.wave_freq = (self.wave_freq & 0x0F00) | (data as u16);
-                }
+                self.wave_freq = (self.wave_freq & 0x0F00) | (data as u16);
             }
             0x4083 => {
-                if self.sound_enable {
-                    self.wave_freq = (self.wave_freq & 0x00FF) | (((data & 0x0F) as u16) << 8);
-                    self.env_halt = (data & 0x40) != 0;
-                    self.wav_halt = (data & 0x80) != 0;
-                    if self.wav_halt {
-                        self.wave_phase = 0;
-                    }
-                    if self.env_halt {
-                        self.vol_env_timer = 0;
-                        self.mod_env_timer = 0;
-                    }
+                self.wave_freq = (self.wave_freq & 0x00FF) | (((data & 0x0F) as u16) << 8);
+                self.env_halt = (data & 0x40) != 0;
+                self.wav_halt = (data & 0x80) != 0;
+                if self.wav_halt {
+                    self.wave_phase = 0;
+                }
+                if self.env_halt {
+                    self.vol_env_timer = 0;
+                    self.mod_env_timer = 0;
                 }
             }
             0x4084 => {
-                if self.sound_enable {
-                    self.mod_env_dis = (data & 0x80) != 0;
-                    self.mod_env_dir = (data & 0x40) != 0;
-                    self.mod_env_speed = data & 0x3F;
-                    self.mod_env_timer = 0;
-                    if self.mod_env_dis {
-                        self.mod_gain = self.mod_env_speed;
-                    }
+                self.mod_env_dis = (data & 0x80) != 0;
+                self.mod_env_dir = (data & 0x40) != 0;
+                self.mod_env_speed = data & 0x3F;
+                self.mod_env_timer = 0;
+                if self.mod_env_dis {
+                    self.mod_gain = self.mod_env_speed;
                 }
             }
             0x4085 => {
-                if self.sound_enable {
-                    let val = (data & 0x7F) as i32;
-                    self.mod_pos = if val >= 64 { val - 128 } else { val };
-                    self.mod_phase = (self.mod_write_pos as u32) << 16;
-                }
+                let val = (data & 0x7F) as i32;
+                self.mod_pos = if val >= 64 { val - 128 } else { val };
+                self.mod_phase = (self.mod_write_pos as u32) << 16;
             }
             0x4086 => {
-                if self.sound_enable {
-                    self.mod_freq = (self.mod_freq & 0x0F00) | (data as u16);
-                }
+                self.mod_freq = (self.mod_freq & 0x0F00) | (data as u16);
             }
             0x4087 => {
-                if self.sound_enable {
-                    self.mod_freq = (self.mod_freq & 0x00FF) | (((data & 0x0F) as u16) << 8);
-                    self.mod_halt = (data & 0x80) != 0;
-                    if self.mod_halt {
-                        self.mod_phase = 0;
-                    }
+                self.mod_freq = (self.mod_freq & 0x00FF) | (((data & 0x0F) as u16) << 8);
+                self.mod_halt = (data & 0x80) != 0;
+                if self.mod_halt {
+                    self.mod_phase = 0;
                 }
             }
             0x4088 => {
@@ -488,17 +454,13 @@ impl Mapper for Mapper20 {
                 }
             }
             0x4089 => {
-                if self.sound_enable {
-                    self.wave_write_enabled = (data & 0x80) != 0;
-                    self.master_vol = data & 0x03;
-                }
+                self.wave_write_enabled = (data & 0x80) != 0;
+                self.master_vol = data & 0x03;
             }
             0x408A => {
-                if self.sound_enable {
-                    self.master_env_speed = data;
-                    self.vol_env_timer = 0;
-                    self.mod_env_timer = 0;
-                }
+                self.master_env_speed = data;
+                self.vol_env_timer = 0;
+                self.mod_env_timer = 0;
             }
             _ => {}
         }
@@ -572,15 +534,12 @@ impl Mapper for Mapper20 {
             let prg = self.prg_ram_cycles as u32;
             self.prg_ram_cycles = 0;
             let non_prg = c - prg.min(c);
-            // Non-PRG-RAM cycles: increment the 7-bit refresh counter
             for _ in 0..non_prg {
                 let old = self.refresh_counter;
                 self.refresh_counter = (self.refresh_counter + 1) & 0x7F;
                 if self.refresh_counter < old {
-                    // overflow 127→0: reload cycle timer to 3245
                     self.cycle_timer = 3245;
                 } else {
-                    // no overflow: decrement cycle timer
                     if self.cycle_timer == 0 {
                         self.cycle_timer = 4095;
                         if self.watchdog_irq_enable {
@@ -591,7 +550,6 @@ impl Mapper for Mapper20 {
                     }
                 }
             }
-            // PRG-RAM cycles: only decrement cycle timer, no refresh counter increment
             for _ in 0..(c - non_prg) {
                 if self.cycle_timer == 0 {
                     self.cycle_timer = 4095;
@@ -603,7 +561,6 @@ impl Mapper for Mapper20 {
                 }
             }
         } else {
-            // Disk disabled: pause both counters at reset values
             self.prg_ram_cycles = 0;
             self.refresh_counter = 0;
             self.cycle_timer = 4095;
@@ -619,9 +576,12 @@ impl Mapper for Mapper20 {
             }
         }
 
-        // --- FDS Audio ---
+        if !self.sound_enable {
+            self.vol_gain = 0;
+            self.wave_phase = 0;
+            self.mod_pos = 0;
+        }
         if !self.wav_halt || !self.mod_halt || !self.env_halt {
-            // 1. Clock envelopes
             if !self.env_halt && !self.wav_halt && self.master_env_speed != 0 {
                 let master = self.master_env_speed as u32 + 1;
                 if !self.vol_env_dis && self.vol_env_speed <= 63 {
@@ -650,7 +610,6 @@ impl Mapper for Mapper20 {
                 }
             }
 
-            // 2. Clock modulation table
             if !self.mod_halt && self.mod_freq > 0 {
                 let prev = self.mod_phase >> 16;
                 self.mod_phase = (self.mod_phase.wrapping_add(c * self.mod_freq as u32)) & 0x3FFFFF;
@@ -673,7 +632,6 @@ impl Mapper for Mapper20 {
                 }
             }
 
-            // 3. Compute modulation output
             let mut mod_out = 0i32;
             let mod_gain = self.mod_gain as i32;
             if !self.mod_halt && mod_gain != 0 && self.mod_freq > 0 {
@@ -693,7 +651,6 @@ impl Mapper for Mapper20 {
                 mod_out = mt;
             }
 
-            // 4. Advance wave phase
             if !self.wav_halt {
                 let f = (self.wave_freq as i32) + mod_out;
                 if f > 0 {
@@ -701,7 +658,6 @@ impl Mapper for Mapper20 {
                 }
             }
 
-            // 5. Compute output sample — when write_enabled, output holds last value
             if !self.wave_write_enabled {
                 let idx = ((self.wave_phase >> 16) & 0x3F) as usize;
                 let sample = self.wave_table[idx] as i32;
@@ -713,10 +669,25 @@ impl Mapper for Mapper20 {
                 };
                 self.current_audio_sample = (fout as f32) / (32.0 * 32.0) * master_scale;
             }
-            // else: hold previous sample value
         }
 
-        // --- Disk state machine ---
+        if self.disk_reg_enabled
+            && (self.fds_control & 0x04) == 0
+            && (self.fds_control & 0x40) != 0
+            && (self.fds_control & 0x20) != 0
+        {
+            self.data_clock += 1;
+            if self.data_clock >= 150 {
+                self.data_clock = 0;
+                self.byte_transfer_flag = true;
+                if (self.fds_control & 0x80) != 0 {
+                    self.byte_xfer_irq_pending = true;
+                }
+            }
+        } else {
+            self.data_clock = 0;
+        }
+
         for _ in 0..12 {
             self.disk_clock += 1;
             match self.disk_state {
@@ -772,7 +743,18 @@ impl Mapper for Mapper20 {
                         }
                     }
                 }
-                FdsDiskState::Reset | FdsDiskState::Inserting => {
+                FdsDiskState::Reset => {
+                    if self.disk_clock >= 2_140_000 {
+                        self.disk_clock = 0;
+                        self.disk_address = 0;
+                        if self.disk_inserted() && (self.fds_control & 0x02) == 0 {
+                            self.disk_state = FdsDiskState::Running;
+                        } else {
+                            self.disk_state = FdsDiskState::Idle;
+                        }
+                    }
+                }
+                FdsDiskState::Inserting => {
                     if self.disk_clock >= 2_140_000 {
                         self.disk_clock = 0;
                         self.disk_address = 0;
@@ -812,6 +794,41 @@ impl Mapper for Mapper20 {
         self.next_disk     = next;
         self.eject_counter = 900_000;
         eprintln!("FDS: Ejected disk, inserting side {} in ~0.5s", next);
+    }
+
+    fn eject_disk(&mut self) {
+        if self.fds_disks.is_empty() { return; }
+        if self.disk_inserted() {
+            self.next_disk = self.disk_number;
+        }
+        self.disk_number        = usize::MAX;
+        self.disk_state         = FdsDiskState::Idle;
+        self.disk_clock         = 0;
+        self.disk_address       = 0;
+        self.disk_address_fine  = 0;
+        self.byte_transfer_flag = false;
+        self.byte_xfer_irq_pending = false;
+        self.disk_irq_pending   = false;
+        self.looking_for_end_of_gap = false;
+        self.eject_counter = 0;
+        eprintln!("FDS: Disk ejected");
+    }
+
+    fn insert_disk(&mut self) {
+        if self.fds_disks.is_empty() { return; }
+        if self.disk_inserted() { return; }
+        let side = self.next_disk.min(self.fds_disks.len() - 1);
+        self.disk_number        = side;
+        self.disk_state         = FdsDiskState::Inserting;
+        self.disk_clock         = 0;
+        self.disk_address       = 0;
+        self.disk_address_fine  = 0;
+        self.byte_transfer_flag = false;
+        self.byte_xfer_irq_pending = false;
+        self.disk_irq_pending   = false;
+        self.looking_for_end_of_gap = false;
+        self.eject_counter = 0;
+        eprintln!("FDS: Inserting side {}", side);
     }
 
     fn audio_sample(&self) -> f32 {

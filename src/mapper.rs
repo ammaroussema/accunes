@@ -456,6 +456,9 @@ pub trait Mapper: Send {
 
     // fds disk swapping
     fn change_disk(&mut self) {}
+    fn disk_inserted(&self) -> bool { false }
+    fn eject_disk(&mut self) {}
+    fn insert_disk(&mut self) {}
 
     // coin insertion for vs system and dip switch mappers
     fn insert_coin(&mut self, _coin: u8) {}
@@ -497,8 +500,7 @@ pub trait Mapper: Send {
     // and finally mapper reset handling
     fn reset(&mut self) {}
 
-    /// Called on power cycle (hard reset). Defaults to reset().
-    /// Override in multicart mappers to preserve game selection on soft reset.
+    // power cycle reset handling (for mappers that need to differentiate between a reset and a power cycle)
     fn reset_power_cycle(&mut self) {
         self.reset();
     }

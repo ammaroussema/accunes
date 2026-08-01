@@ -74,6 +74,7 @@ enum NesMenuItem {
     InsertCoin1,
     InsertCoin2,
     ServiceButton,
+    InsertEjectDisk,
     SwapDisk,
     Reset,
     PowerCycle,
@@ -660,7 +661,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.3.1";
+const APP_VERSION: &str = "1.3.2";
 
 fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     let a = a.trim_start_matches('v');
@@ -1008,13 +1009,11 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.3.1")
+        .with_title("AccuNES 1.3.2")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
         .expect("Failed to create window");
-
-    let mut gilrs = Gilrs::new().expect("Failed to initialize gamepad support");
 
     let context = unsafe { Context::new(&window) }.expect("Failed to create softbuffer context");
     let surface = Rc::new(RefCell::new(unsafe { Surface::new(&context, &window) }.expect("Failed to create softbuffer surface")));
@@ -1149,6 +1148,17 @@ fn main() {
         ms.about_icon_data = Some(icon_rgba.to_vec());
         ms.about_icon_size = (icon_w, icon_h);
     }
+    
+    let mut gilrs = match Gilrs::new() {
+        Ok(gilrs) => Some(gilrs),
+        Err(e) => {
+            eprintln!("Failed to initialize gamepad support: {}", e);
+            menu_state.borrow_mut().show_error = true;
+            menu_state.borrow_mut().error_message =
+                format!("Failed to initialize gamepad support: {}", e);
+            None
+        }
+    };
     
     let recent_roms = Rc::new(RefCell::new(Vec::<String>::new()));
     let quick_save_slot = Rc::new(RefCell::new(Option::<Vec<u8>>::None));
@@ -1355,7 +1365,7 @@ fn main() {
         *control_flow = ControlFlow::Poll;
 
         const GP_DEFAULTS: [&str; 10] = ["South", "East", "West", "North", "Select", "Start", "DPadUp", "DPadDown", "DPadLeft", "DPadRight"];
-        while let Some(gilrs_event) = gilrs.next_event() {
+        while let Some(gilrs_event) = gilrs.as_mut().and_then(|g| g.next_event()) {
             let (pressed, btn_name) = match &gilrs_event.event {
                 gilrs::EventType::ButtonPressed(b, _) | gilrs::EventType::ButtonRepeated(b, _) => (true, format!("{:?}", b)),
                 gilrs::EventType::ButtonReleased(b, _) => (false, format!("{:?}", b)),
@@ -3629,9 +3639,9 @@ fn main() {
                                 let dropdown_w = item_w;
                                 let dropdown_y = ms_mut.menu_height;
                                 let sc = ms_mut.scale;
-                                let nes_items = ["Pause", "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", "Swap Disk", "Reset", "Power Cycle"];
+                                let nes_items = ["Pause", "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", "Insert/Eject Disk", "Swap Disk", "Reset", "Power Cycle"];
                                 let nes_positions = calculate_item_positions(&nes_items, dropdown_x, dropdown_y, dropdown_w, sc);
-                                let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::SwapDisk, NesMenuItem::Reset, NesMenuItem::PowerCycle];
+                                let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::Reset, NesMenuItem::PowerCycle];
                                 
                                 for (i, (x, y, w, h)) in nes_positions.iter().enumerate() {
                                     if point_in_rect(mx, my, *x, *y, *w, *h) {
@@ -3667,6 +3677,15 @@ fn main() {
                                             NesMenuItem::ServiceButton => {
                                                 if *rom_loaded_clone.borrow() {
                                                     emu_clone.lock().unwrap().service_button();
+                                                }
+                                            }
+                                            NesMenuItem::InsertEjectDisk => {
+                                                if *rom_loaded_clone.borrow() {
+                                                    if emu_clone.lock().unwrap().disk_inserted() {
+                                                        emu_clone.lock().unwrap().eject_disk();
+                                                    } else {
+                                                        emu_clone.lock().unwrap().insert_disk();
+                                                    }
                                                 }
                                             }
                                             NesMenuItem::SwapDisk => {
@@ -4046,9 +4065,9 @@ fn main() {
                         Menu::Nes => {
                             let sc = ms_mut.scale;
                             let dropdown_w = item_w;
-                            let nes_items = ["Pause", "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", "Swap Disk", "Reset", "Power Cycle"];
+                            let nes_items = ["Pause", "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", "Insert/Eject Disk", "Swap Disk", "Reset", "Power Cycle"];
                             let nes_positions = calculate_item_positions(&nes_items, dropdown_x, dropdown_y, dropdown_w, sc);
-                            let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::SwapDisk, NesMenuItem::Reset, NesMenuItem::PowerCycle];
+                            let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::Reset, NesMenuItem::PowerCycle];
                             
                             ms_mut.hovered_nes_item = None;
                             for (i, (x, y, w, h)) in nes_positions.iter().enumerate() {
@@ -4142,9 +4161,9 @@ fn main() {
                         } else if lower.ends_with(".fds") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.3.1: {}", filename)
+                        format!("AccuNES 1.3.2: {}", filename)
                     } else {
-                        "AccuNES 1.3.1".to_string()
+                        "AccuNES 1.3.2".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -4412,12 +4431,18 @@ fn main() {
                         }
                         Menu::Nes => {
                             let pause_text = if paused_clone.load(Ordering::Relaxed) { "Resume" } else { "Pause" };
+                            let disk_label = if emu_clone.lock().unwrap().disk_inserted() {
+                                "Eject Disk"
+                            } else {
+                                "Insert Disk"
+                            };
                             let items: &[(&str, NesMenuItem)] = &[
                                 (pause_text, NesMenuItem::Pause),
                                 ("DIP Switches", NesMenuItem::DipSwitches),
                                 ("Insert Coin 1", NesMenuItem::InsertCoin1),
                                 ("Insert Coin 2", NesMenuItem::InsertCoin2),
                                 ("Service Button", NesMenuItem::ServiceButton),
+                                (disk_label, NesMenuItem::InsertEjectDisk),
                                 ("Swap Disk", NesMenuItem::SwapDisk),
                                 ("Reset", NesMenuItem::Reset),
                                 ("Power Cycle", NesMenuItem::PowerCycle),
@@ -4437,7 +4462,7 @@ fn main() {
                                     draw_rect(&mut buffer, dropdown_x, item_y, dropdown_w, ih, width, menu_highlight);
                                 }
                                 let enabled = match item {
-                                    NesMenuItem::SwapDisk => {
+                                    NesMenuItem::SwapDisk | NesMenuItem::InsertEjectDisk => {
                                         if let Some(ref rom_path) = *current_rom_clone.borrow() {
                                             rom_path.to_lowercase().ends_with(".fds")
                                         } else {
@@ -4558,7 +4583,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.3.1",
+                        "Version: 1.3.2",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };

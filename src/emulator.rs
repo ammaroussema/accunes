@@ -873,6 +873,26 @@ impl Emulator {
         }
     }
 
+    pub fn disk_inserted(&self) -> bool {
+        if let Some(ref cart) = self.cart {
+            cart.mapper_chip.disk_inserted()
+        } else {
+            false
+        }
+    }
+
+    pub fn eject_disk(&mut self) {
+        if let Some(ref mut cart) = self.cart {
+            cart.mapper_chip.eject_disk();
+        }
+    }
+
+    pub fn insert_disk(&mut self) {
+        if let Some(ref mut cart) = self.cart {
+            cart.mapper_chip.insert_disk();
+        }
+    }
+
     pub fn insert_coin(&mut self, coin: u8) {
         if let Some(ref mut cart) = self.cart {
             cart.mapper_chip.insert_coin(coin);
