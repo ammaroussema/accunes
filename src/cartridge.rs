@@ -52,7 +52,7 @@ pub struct Cartridge {
 
 impl Cartridge {
     pub fn from_file(filepath: &str) -> Result<Cartridge, String> {
-        let rom = fs::read(filepath).map_err(|e| format!("Failed to read file: {}", e))?;
+        let mut rom = fs::read(filepath).map_err(|e| format!("Failed to read file: {}", e))?;
 
         if rom.len() < 16 {
             return Err("File too small to contain iNES header".to_string());
@@ -61,6 +61,7 @@ impl Cartridge {
         let is_fds = filepath.to_lowercase().ends_with(".fds") || &rom[0..4] == b"FDS\x1a";
 
         if is_fds {
+            patch_kosodate_gokko(&mut rom);
             let bios_path = crate::config::load_fds_bios_path();
             let disksys = fs::read(&bios_path).map_err(|_| format!("Failed to find FDS BIOS file at: {}", bios_path))?;
             if disksys.len() != 0x2000 {
@@ -95,7 +96,47 @@ impl Cartridge {
             let mut prg_ram = vec![0u8; 0x8000];
             let sav_path = crate::config::save_file_path(filepath);
             if let Ok(sav_data) = fs::read(&sav_path) {
-                if sav_data.len() <= prg_ram.len() {
+                if sav_data.len() >= 4 && &sav_data[0..4] == b"ACFD" {
+                    let mut pos = 4;
+                    if pos + 4 <= sav_data.len() {
+                        let prg_len = u32::from_le_bytes([sav_data[pos], sav_data[pos + 1], sav_data[pos + 2], sav_data[pos + 3]]) as usize;
+                        pos += 4;
+                        let copy_len = prg_len.min(prg_ram.len());
+                        if pos + copy_len <= sav_data.len() {
+                            prg_ram[..copy_len].copy_from_slice(&sav_data[pos..pos + copy_len]);
+                        }
+                        pos += prg_len.max(copy_len);
+                    }
+                    let mut loaded = Vec::new();
+                    if pos + 4 <= sav_data.len() {
+                        let count = u32::from_le_bytes([sav_data[pos], sav_data[pos + 1], sav_data[pos + 2], sav_data[pos + 3]]) as usize;
+                        pos += 4;
+                        for _ in 0..count {
+                            if pos + 4 > sav_data.len() {
+                                break;
+                            }
+                            let len = u32::from_le_bytes([sav_data[pos], sav_data[pos + 1], sav_data[pos + 2], sav_data[pos + 3]]) as usize;
+                            pos += 4;
+                            if pos + len > sav_data.len() {
+                                break;
+                            }
+                            loaded.push(sav_data[pos..pos + len].to_vec());
+                            pos += len;
+                        }
+                    }
+                    if loaded.len() == fds_disks.len() {
+                        let is_stale_sav = loaded.get(0).map(|side| {
+                            side.len() > 0x0039 && side[0x0039] != fds_disks[0][0x0039]
+                        }).unwrap_or(false);
+                        if !is_stale_sav {
+                            fds_disks = loaded;
+                            println!("Loaded FDS disk save from {:?}", sav_path);
+                        } else {
+                            println!("Skipped stale FDS disk save from {:?}", sav_path);
+                            let _ = fs::remove_file(&sav_path);
+                        }
+                    }
+                } else if sav_data.len() <= prg_ram.len() {
                     prg_ram[..sav_data.len()].copy_from_slice(&sav_data);
                     println!("Loaded FDS save RAM from {:?}", sav_path);
                 }
@@ -823,7 +864,7 @@ fn ccitt(mut crc: u16, bit: i32) -> u16 {
     crc
 }
 
-fn ccitt_8(mut crc: u16, b: u8) -> u16 {
+pub(crate) fn ccitt_8(mut crc: u16, b: u8) -> u16 {
     for i in 0..8 {
         let bit = ((b >> i) & 1) as i32;
         crc = ccitt(crc, bit);
@@ -889,3 +930,66 @@ fn fix_fds_disk_side(disk: &[u8], _side_index: usize) -> Result<Vec<u8>, String>
     
     Ok(ret)
 }
+
+fn patch_kosodate_gokko(rom: &mut Vec<u8>) {
+    let header_len = if rom.len() >= 16 && &rom[0..4] == b"FDS\x1a" { 16 } else { 0 };
+    if rom.len() < header_len + 0x687D {
+        return;
+    }
+
+    let unheadered = &rom[header_len..];
+    let crc = crate::crc::crc32(unheadered);
+    if crc != 0x2AEF8CC2 {
+        return;
+    }
+
+    println!("FDS: Applied emulator-side soft-patch for Kosodate Gokko (Unl)");
+
+    let payload = rom[header_len + 0x647D..header_len + 0x687D].to_vec();
+    if payload.len() != 1024 || payload[0] != 0x20 || payload[1023] != 0x23 {
+        return;
+    }
+
+    if header_len + 0x003A <= rom.len() && rom[header_len + 0x0038] == 0x02 {
+        rom[header_len + 0x0039] = 5;
+    }
+
+    let mut file2_block = Vec::with_capacity(17 + 1024);
+    file2_block.push(0x03);
+    file2_block.extend_from_slice(&[0x00, 0x00]);
+    file2_block.extend_from_slice(b"MAIN-PRG");
+    file2_block.extend_from_slice(&[0x00, 0x02]);
+    file2_block.extend_from_slice(&[0x00, 0x04]);
+    file2_block.push(0x00);
+    file2_block.push(0x04);
+    file2_block.extend_from_slice(&payload);
+
+    let insert_pos = header_len + 0x014B;
+    let shift = file2_block.len();
+    rom.splice(insert_pos..insert_pos, file2_block);
+
+    let db8a = header_len + 0x3CF7 + shift;
+    let db98 = header_len + 0x3D05 + shift;
+
+    if db8a + 1 < rom.len() && rom[db8a] == 0xA2 && rom[db8a + 1] == 0x07 {
+        rom[db8a + 1] = 0x01;
+    }
+
+    if db98 + 3 < rom.len() {
+        rom[db98..db98 + 4].copy_from_slice(&[0x78, 0x4C, 0xCF, 0xDB]);
+    }
+
+    let trail_start = header_len + 0x647D + shift;
+    let trail_end = header_len + 0x687D + shift;
+    for k in trail_start..trail_end {
+        if k < rom.len() {
+            rom[k] = 0x00;
+        }
+    }
+
+    let target_len = header_len + 65500;
+    if rom.len() > target_len {
+        rom.truncate(target_len);
+    }
+}
+

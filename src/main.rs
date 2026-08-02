@@ -661,7 +661,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.3.2";
+const APP_VERSION: &str = "1.3.3";
 
 fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     let a = a.trim_start_matches('v');
@@ -1009,7 +1009,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.3.2")
+        .with_title("AccuNES 1.3.3")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -3639,7 +3639,13 @@ fn main() {
                                 let dropdown_w = item_w;
                                 let dropdown_y = ms_mut.menu_height;
                                 let sc = ms_mut.scale;
-                                let nes_items = ["Pause", "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", "Insert/Eject Disk", "Swap Disk", "Reset", "Power Cycle"];
+                                let pause_text = if paused_clone.load(Ordering::Relaxed) { "Resume" } else { "Pause" };
+                                let disk_label = if *rom_loaded_clone.borrow() && emu_clone.lock().unwrap().disk_inserted() {
+                                    "Eject Disk"
+                                } else {
+                                    "Insert Disk"
+                                };
+                                let nes_items = [pause_text, "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", disk_label, "Swap Disk", "Reset", "Power Cycle"];
                                 let nes_positions = calculate_item_positions(&nes_items, dropdown_x, dropdown_y, dropdown_w, sc);
                                 let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::Reset, NesMenuItem::PowerCycle];
                                 
@@ -4065,7 +4071,13 @@ fn main() {
                         Menu::Nes => {
                             let sc = ms_mut.scale;
                             let dropdown_w = item_w;
-                            let nes_items = ["Pause", "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", "Insert/Eject Disk", "Swap Disk", "Reset", "Power Cycle"];
+                            let pause_text = if paused_clone.load(Ordering::Relaxed) { "Resume" } else { "Pause" };
+                            let disk_label = if *rom_loaded_clone.borrow() && emu_clone.lock().unwrap().disk_inserted() {
+                                "Eject Disk"
+                            } else {
+                                "Insert Disk"
+                            };
+                            let nes_items = [pause_text, "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", disk_label, "Swap Disk", "Reset", "Power Cycle"];
                             let nes_positions = calculate_item_positions(&nes_items, dropdown_x, dropdown_y, dropdown_w, sc);
                             let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::Reset, NesMenuItem::PowerCycle];
                             
@@ -4161,9 +4173,9 @@ fn main() {
                         } else if lower.ends_with(".fds") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.3.2: {}", filename)
+                        format!("AccuNES 1.3.3: {}", filename)
                     } else {
-                        "AccuNES 1.3.2".to_string()
+                        "AccuNES 1.3.3".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -4583,7 +4595,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.3.2",
+                        "Version: 1.3.3",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };

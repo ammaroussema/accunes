@@ -3,12 +3,27 @@ use crate::mapper::{FetchResult, Mapper};
 
 const MOD_BIAS: [i32; 8] = [0, 1, 2, 4, 0, -4, -2, -1];
 
+fn fds_trace(tag: &str, addr: usize, control: u8, byte: u8, extra: &str) {
+    use std::io::Write;
+    if std::env::var("ACCUNES_FDS_TRACE").map(|v| v == "1").unwrap_or(false) {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("fds_trace.txt")
+        {
+            let _ = writeln!(
+                f,
+                "{tag} addr={addr} ctrl={control:#04x} byte={byte:#04x} {extra}"
+            );
+        }
+    }
+}
+
 pub struct Mapper20 {
     fds_disks: Vec<Vec<u8>>,
     disk_number: usize,
     disk_state: FdsDiskState,
     disk_clock: i32,
-    data_clock: u32,
     disk_address: usize,
     disk_address_fine: u8,
     shift_register: u8,
@@ -63,6 +78,7 @@ pub struct Mapper20 {
 
     byte_xfer_irq_pending: bool,
     disk_write_latch: u8,
+    crc_accumulator: u16,
 
     prg_ram_cycles: u8,
     refresh_counter: u8,
@@ -87,7 +103,6 @@ impl Mapper20 {
             disk_number: if has_disk { 0 } else { usize::MAX },
             disk_state: if has_disk { FdsDiskState::Inserting } else { FdsDiskState::Idle },
             disk_clock: 0,
-            data_clock: 0,
             disk_address: 0,
             disk_address_fine: 0,
             shift_register: 0,
@@ -133,6 +148,7 @@ impl Mapper20 {
             current_audio_sample: 0.0,
             byte_xfer_irq_pending: false,
             disk_write_latch: 0,
+            crc_accumulator: 0,
             prg_ram_cycles: 0,
             refresh_counter: 0,
             cycle_timer: 4095,
@@ -151,7 +167,6 @@ impl Mapper for Mapper20 {
         self.disk_number = if has_disk { 0 } else { usize::MAX };
         self.disk_state = if has_disk { FdsDiskState::Inserting } else { FdsDiskState::Idle };
         self.disk_clock = 0;
-        self.data_clock = 0;
         self.disk_address = 0;
         self.disk_address_fine = 0;
         self.shift_register = 0;
@@ -197,6 +212,7 @@ impl Mapper for Mapper20 {
         self.current_audio_sample = 0.0;
         self.byte_xfer_irq_pending = false;
         self.disk_write_latch = 0;
+        self.crc_accumulator = 0;
         self.prg_ram_cycles = 0;
         self.refresh_counter = 0;
         self.cycle_timer = 4095;
@@ -224,9 +240,11 @@ impl Mapper for Mapper20 {
                     v |= self.fds_control & 0x08;
                     v |= if self.timer_irq_pending { 0x01 } else { 0 };
                     v |= if self.disk_irq_pending { 0x02 } else { 0 };
+                    v |= if self.crc_accumulator != 0 { 0x10 } else { 0 };
                     v |= if self.byte_transfer_flag { 0x80 } else { 0 };
                     self.timer_irq_pending = false;
                     self.disk_irq_pending  = false;
+                    self.byte_xfer_irq_pending = false;
                     let disk_len = if self.disk_inserted() {
                         self.fds_disks[self.disk_number].len()
                     } else {
@@ -237,13 +255,26 @@ impl Mapper for Mapper20 {
                 }
                 0x4031 => {
                     let v = self.shift_register_latch;
+                    fds_trace(
+                        "R4031",
+                        self.disk_address,
+                        self.fds_control,
+                        v,
+                        &format!(
+                            "fine={} looking={} btf={}",
+                            self.disk_address_fine, self.looking_for_end_of_gap, self.byte_transfer_flag
+                        ),
+                    );
                     self.byte_transfer_flag = false;
                     self.byte_xfer_irq_pending = false;
                     v
                 }
                 0x4032 => {
                     let mut v = 0u8;
-                    if self.disk_state == FdsDiskState::Inserting {
+                    if !self.disk_inserted() {
+                        v |= 1;
+                        v |= 4;
+                    } else if self.disk_state == FdsDiskState::Inserting {
                         v |= 1;
                     }
                     if !((self.fds_control & 2) == 0
@@ -358,27 +389,17 @@ impl Mapper for Mapper20 {
             }
             0x4024 => {
                 if self.disk_reg_enabled {
+                    fds_trace("W4024", self.disk_address, self.fds_control, data, "");
                     self.disk_write_latch = data;
                     self.byte_transfer_flag = false;
                     self.byte_xfer_irq_pending = false;
-                    if self.disk_inserted()
-                        && self.disk_state == FdsDiskState::Running
-                        && (self.fds_control & 0x04) == 0
-                    {
-                        let pos = self.disk_address / 8;
-                        if pos < self.fds_disks[self.disk_number].len() {
-                            self.fds_disks[self.disk_number][pos] = data;
-                        }
-                        self.disk_address += 8;
-                    }
                 }
             }
             0x4025 => {
                 if self.disk_reg_enabled {
-                    if (self.fds_control & 0x40) == 0 && (data & 0x40) != 0 {
-                        self.looking_for_end_of_gap = true;
-                    }
+                    fds_trace("W4025", self.disk_address, data, 0, "");
                     self.fds_control = data;
+                    self.byte_xfer_irq_pending = false;
                     if (data & 0x02) == 0 {
                         if self.disk_state != FdsDiskState::Running {
                             self.disk_state = FdsDiskState::SpinUp;
@@ -514,6 +535,65 @@ impl Mapper for Mapper20 {
 
     fn load_mapper_registers(&mut self, _cart: &mut Cartridge, _state: &[u8], start: usize) -> usize {
         start
+    }
+
+    fn battery_save_data(&self, cart: &Cartridge) -> Option<Vec<u8>> {
+        if self.fds_disks.is_empty() {
+            return None;
+        }
+        let mut out = Vec::new();
+        out.extend_from_slice(b"ACFD");
+        out.extend_from_slice(&(cart.prg_ram.len() as u32).to_le_bytes());
+        out.extend_from_slice(&cart.prg_ram);
+        out.extend_from_slice(&(self.fds_disks.len() as u32).to_le_bytes());
+        for side in &self.fds_disks {
+            out.extend_from_slice(&(side.len() as u32).to_le_bytes());
+            out.extend_from_slice(side);
+        }
+        Some(out)
+    }
+
+    fn load_battery_save(&mut self, cart: &mut Cartridge, data: &[u8]) {
+        if data.len() < 4 || &data[0..4] != b"ACFD" {
+            return;
+        }
+        let mut pos = 4;
+        if pos + 4 > data.len() {
+            return;
+        }
+        let prg_len = u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
+        pos += 4;
+        if pos + prg_len > data.len() {
+            return;
+        }
+        let copy_len = prg_len.min(cart.prg_ram.len());
+        cart.prg_ram[..copy_len].copy_from_slice(&data[pos..pos + copy_len]);
+        pos += prg_len;
+        if pos + 4 > data.len() {
+            return;
+        }
+        let count = u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
+        pos += 4;
+        let mut disks = Vec::new();
+        for _ in 0..count {
+            if pos + 4 > data.len() {
+                return;
+            }
+            let len = u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
+            pos += 4;
+            if pos + len > data.len() {
+                return;
+            }
+            disks.push(data[pos..pos + len].to_vec());
+            pos += len;
+        }
+        if disks.len() == self.fds_disks.len() {
+            self.fds_disks = disks;
+            if !self.fds_disks.is_empty() && self.disk_number >= self.fds_disks.len() {
+                self.disk_number = 0;
+            }
+            println!("Loaded FDS disk save ({} sides)", self.fds_disks.len());
+        }
     }
 
     fn cpu_clock(&mut self, cycles: u8) -> bool {
@@ -671,29 +751,12 @@ impl Mapper for Mapper20 {
             }
         }
 
-        if self.disk_reg_enabled
-            && (self.fds_control & 0x04) == 0
-            && (self.fds_control & 0x40) != 0
-            && (self.fds_control & 0x20) != 0
-        {
-            self.data_clock += 1;
-            if self.data_clock >= 150 {
-                self.data_clock = 0;
-                self.byte_transfer_flag = true;
-                if (self.fds_control & 0x80) != 0 {
-                    self.byte_xfer_irq_pending = true;
-                }
-            }
-        } else {
-            self.data_clock = 0;
-        }
-
         for _ in 0..12 {
             self.disk_clock += 1;
             match self.disk_state {
                 FdsDiskState::Running => {
-                    if self.disk_clock == 244 {
-                        self.disk_clock = 0;
+                    if self.disk_clock >= 224 {
+                        self.disk_clock -= 224;
                         if !self.disk_inserted() {
                             self.disk_state = FdsDiskState::Reset;
                             self.disk_clock = 0;
@@ -703,24 +766,28 @@ impl Mapper for Mapper20 {
                         if (self.fds_control & 0x2) == 0x2 {
                             self.disk_address += 625;
                         } else if (self.fds_control & 0x4) == 0x4 {
-                            let shift_bit = if self.disk_address < disk_len {
-                                (self.fds_disks[self.disk_number][self.disk_address] >> self.disk_address_fine) & 1
+                            let byte = if self.disk_address < disk_len {
+                                self.fds_disks[self.disk_number][self.disk_address]
                             } else {
                                 0
                             };
-                            if self.looking_for_end_of_gap && (self.fds_control & 0x10) == 0 {
-                                if shift_bit == 1 {
-                                    self.looking_for_end_of_gap = false;
+                            if (self.fds_control & 0x40) == 0 {
+                                self.looking_for_end_of_gap = true;
+                            }
+                            if self.looking_for_end_of_gap {
+                                self.disk_address_fine += 1;
+                                if self.disk_address_fine == 8 {
                                     self.disk_address_fine = 0;
-                                    self.disk_address += 1;
-                                } else {
-                                    self.disk_address_fine += 1;
-                                    if self.disk_address_fine == 8 {
-                                        self.disk_address_fine = 0;
-                                        self.disk_address += 1;
+                                    if byte & 0x80 != 0 {
+                                        self.looking_for_end_of_gap = false;
+                                        self.crc_accumulator = 0;
+                                        self.crc_accumulator =
+                                            crate::cartridge::ccitt_8(self.crc_accumulator, 0x80);
                                     }
+                                    self.disk_address += 1;
                                 }
                             } else {
+                                let shift_bit = (byte >> self.disk_address_fine) & 1;
                                 self.shift_register >>= 1;
                                 self.shift_register |= shift_bit * 0x80;
                                 self.disk_address_fine += 1;
@@ -728,6 +795,17 @@ impl Mapper for Mapper20 {
                                     self.disk_address_fine = 0;
                                     self.disk_address += 1;
                                     self.shift_register_latch = self.shift_register;
+                                    fds_trace(
+                                        "DELIVER",
+                                        self.disk_address,
+                                        self.fds_control,
+                                        self.shift_register,
+                                        &format!("fine={} looking={}", self.disk_address_fine, self.looking_for_end_of_gap),
+                                    );
+                                    self.crc_accumulator = crate::cartridge::ccitt_8(
+                                        self.crc_accumulator,
+                                        self.shift_register,
+                                    );
                                     self.byte_transfer_flag = true;
                                     if (self.fds_control & 0x80) != 0 {
                                         self.byte_xfer_irq_pending = true;
@@ -735,7 +813,32 @@ impl Mapper for Mapper20 {
                                 }
                             }
                         } else {
-                            self.disk_address_fine = 0;
+                            self.disk_address_fine += 1;
+                            if self.disk_address_fine == 8 {
+                                self.disk_address_fine = 0;
+                                if self.disk_address < disk_len {
+                                    let value;
+                                    if (self.fds_control & 0x40) == 0 {
+                                        self.crc_accumulator = 0;
+                                        value = 0x00;
+                                    } else if (self.fds_control & 0x10) != 0 {
+                                        value = (self.crc_accumulator & 0xFF) as u8;
+                                        self.crc_accumulator >>= 8;
+                                    } else {
+                                        value = self.disk_write_latch;
+                                        self.crc_accumulator = crate::cartridge::ccitt_8(
+                                            self.crc_accumulator,
+                                            value,
+                                        );
+                                    }
+                                    self.fds_disks[self.disk_number][self.disk_address] = value;
+                                    self.byte_transfer_flag = true;
+                                    if (self.fds_control & 0x80) != 0 {
+                                        self.byte_xfer_irq_pending = true;
+                                    }
+                                }
+                                self.disk_address += 1;
+                            }
                         }
                         if self.disk_address >= disk_len {
                             self.disk_state = FdsDiskState::Reset;
