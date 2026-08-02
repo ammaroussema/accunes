@@ -52,7 +52,7 @@ pub struct Cartridge {
 
 impl Cartridge {
     pub fn from_file(filepath: &str) -> Result<Cartridge, String> {
-        let mut rom = fs::read(filepath).map_err(|e| format!("Failed to read file: {}", e))?;
+        let rom = fs::read(filepath).map_err(|e| format!("Failed to read file: {}", e))?;
 
         if rom.len() < 16 {
             return Err("File too small to contain iNES header".to_string());
@@ -61,7 +61,6 @@ impl Cartridge {
         let is_fds = filepath.to_lowercase().ends_with(".fds") || &rom[0..4] == b"FDS\x1a";
 
         if is_fds {
-            patch_kosodate_gokko(&mut rom);
             let bios_path = crate::config::load_fds_bios_path();
             let disksys = fs::read(&bios_path).map_err(|_| format!("Failed to find FDS BIOS file at: {}", bios_path))?;
             if disksys.len() != 0x2000 {
@@ -81,7 +80,8 @@ impl Cartridge {
                 if offset + 65500 <= rom.len() {
                     let mut side = vec![0u8; 65500];
                     side.copy_from_slice(&rom[offset..offset + 65500]);
-                    let fixed_side = fix_fds_disk_side(&side, i)?;
+                    let side_crc = crc32(&side);
+                    let fixed_side = fix_fds_disk_side(&side, i, side_crc)?;
                     fds_disks.push(fixed_side);
                     offset += 65500;
                 } else {
@@ -125,16 +125,8 @@ impl Cartridge {
                         }
                     }
                     if loaded.len() == fds_disks.len() {
-                        let is_stale_sav = loaded.get(0).map(|side| {
-                            side.len() > 0x0039 && side[0x0039] != fds_disks[0][0x0039]
-                        }).unwrap_or(false);
-                        if !is_stale_sav {
-                            fds_disks = loaded;
-                            println!("Loaded FDS disk save from {:?}", sav_path);
-                        } else {
-                            println!("Skipped stale FDS disk save from {:?}", sav_path);
-                            let _ = fs::remove_file(&sav_path);
-                        }
+                        fds_disks = loaded;
+                        println!("Loaded FDS disk save from {:?}", sav_path);
                     }
                 } else if sav_data.len() <= prg_ram.len() {
                     prg_ram[..sav_data.len()].copy_from_slice(&sav_data);
@@ -738,6 +730,8 @@ impl Cartridge {
             vec![0u8; crate::mappers::bandai::prg_ram_size(153)]
         } else if memory_mapper == 16 || memory_mapper == 159 || memory_mapper == 157 {
             Vec::new()
+        } else if memory_mapper == 543 {
+            vec![0u8; 0x10000]
         } else if memory_mapper == 1
             || memory_mapper == 105
             || memory_mapper == 155
@@ -887,14 +881,19 @@ fn write_block(dest: &mut Vec<u8>, data: &[u8], pregap: usize) {
     dest.push((crc >> 8) as u8);
 }
 
-fn fix_fds_disk_side(disk: &[u8], _side_index: usize) -> Result<Vec<u8>, String> {
+fn fix_fds_disk_side(disk: &[u8], _side_index: usize, disk_crc32: u32) -> Result<Vec<u8>, String> {
     let mut offset = 0;
     let mut ret = Vec::new();
     let mut current_file_size = 0;
+    let mut current_file_name = [0u8; 8];
+    let mut pending_block3: Option<[u8; 16]> = None;
+
+    let is_hokusai = disk_crc32 == 0x1D234703;
+    let is_jingorou = disk_crc32 == 0x72A0BD81;
 
     while offset < disk.len() {
         let block_type = disk[offset];
-        if block_type == 0 {
+        if block_type == 0 && ret.is_empty() {
             break;
         }
 
@@ -912,15 +911,67 @@ fn fix_fds_disk_side(disk: &[u8], _side_index: usize) -> Result<Vec<u8>, String>
             0x03 => {
                 if offset + 16 > disk.len() { break; }
                 current_file_size = (disk[offset + 13] as usize) | ((disk[offset + 14] as usize) << 8);
-                write_block(&mut ret, &disk[offset..offset + 16], 120);
+                current_file_name.copy_from_slice(&disk[offset + 3..offset + 11]);
+                if is_hokusai {
+                    let mut hdr = [0u8; 16];
+                    hdr.copy_from_slice(&disk[offset..offset + 16]);
+                    pending_block3 = Some(hdr);
+                } else {
+                    write_block(&mut ret, &disk[offset..offset + 16], 120);
+                }
                 offset += 16;
             }
             0x04 => {
+                if is_hokusai && offset >= 0x470 && current_file_size == 1
+                    && &current_file_name == b"KYODAKLL"
+                    && offset + 0xC001 <= disk.len()
+                {
+                    if let Some(mut hdr) = pending_block3.take() {
+                        hdr[13] = 0x00;
+                        hdr[14] = 0xC0; 
+                        write_block(&mut ret, &hdr, 120);
+                    }
+                    write_block(&mut ret, &disk[offset..offset + 0xC001], 120);
+                    break;
+                }
+                if is_jingorou && offset >= 0x570 && current_file_size == 1
+                    && &current_file_name == b"KYODAKLL"
+                    && offset + 0xE001 <= disk.len()
+                {
+                    if let Some(mut hdr) = pending_block3.take() {
+                        hdr[13] = 0x00;
+                        hdr[14] = 0xE0;
+                        write_block(&mut ret, &hdr, 120);
+                    }
+                    write_block(&mut ret, &disk[offset..offset + 0xE001], 120);
+                    break;
+                }
+                if let Some(hdr) = pending_block3.take() {
+                    write_block(&mut ret, &hdr, 120);
+                }
                 if offset + current_file_size + 1 > disk.len() { break; }
                 write_block(&mut ret, &disk[offset..offset + current_file_size + 1], 120);
                 offset += current_file_size + 1;
             }
-            _ => break,
+            _ => {
+                if let Some(hdr) = pending_block3.take() {
+                    write_block(&mut ret, &hdr, 120);
+                }
+                let mut remaining = Vec::new();
+                if offset == 0x5F91 && block_type == 0x34 {
+                    remaining.push(0x00);
+                    remaining.extend_from_slice(&disk[offset..]);
+                } else {
+                    remaining.extend_from_slice(&disk[offset..]);
+                }
+                let end_pos = remaining.iter().rposition(|&b| b != 0).map(|i| i + 1).unwrap_or(0);
+                if end_pos > 0 {
+                    write_block(&mut ret, &remaining[..end_pos], 120);
+                    offset += if offset == 0x5F91 && block_type == 0x34 { end_pos.saturating_sub(1) } else { end_pos };
+                } else {
+                    break;
+                }
+            }
         }
     }
 
@@ -929,67 +980,5 @@ fn fix_fds_disk_side(disk: &[u8], _side_index: usize) -> Result<Vec<u8>, String>
     }
     
     Ok(ret)
-}
-
-fn patch_kosodate_gokko(rom: &mut Vec<u8>) {
-    let header_len = if rom.len() >= 16 && &rom[0..4] == b"FDS\x1a" { 16 } else { 0 };
-    if rom.len() < header_len + 0x687D {
-        return;
-    }
-
-    let unheadered = &rom[header_len..];
-    let crc = crate::crc::crc32(unheadered);
-    if crc != 0x2AEF8CC2 {
-        return;
-    }
-
-    println!("FDS: Applied emulator-side soft-patch for Kosodate Gokko (Unl)");
-
-    let payload = rom[header_len + 0x647D..header_len + 0x687D].to_vec();
-    if payload.len() != 1024 || payload[0] != 0x20 || payload[1023] != 0x23 {
-        return;
-    }
-
-    if header_len + 0x003A <= rom.len() && rom[header_len + 0x0038] == 0x02 {
-        rom[header_len + 0x0039] = 5;
-    }
-
-    let mut file2_block = Vec::with_capacity(17 + 1024);
-    file2_block.push(0x03);
-    file2_block.extend_from_slice(&[0x00, 0x00]);
-    file2_block.extend_from_slice(b"MAIN-PRG");
-    file2_block.extend_from_slice(&[0x00, 0x02]);
-    file2_block.extend_from_slice(&[0x00, 0x04]);
-    file2_block.push(0x00);
-    file2_block.push(0x04);
-    file2_block.extend_from_slice(&payload);
-
-    let insert_pos = header_len + 0x014B;
-    let shift = file2_block.len();
-    rom.splice(insert_pos..insert_pos, file2_block);
-
-    let db8a = header_len + 0x3CF7 + shift;
-    let db98 = header_len + 0x3D05 + shift;
-
-    if db8a + 1 < rom.len() && rom[db8a] == 0xA2 && rom[db8a + 1] == 0x07 {
-        rom[db8a + 1] = 0x01;
-    }
-
-    if db98 + 3 < rom.len() {
-        rom[db98..db98 + 4].copy_from_slice(&[0x78, 0x4C, 0xCF, 0xDB]);
-    }
-
-    let trail_start = header_len + 0x647D + shift;
-    let trail_end = header_len + 0x687D + shift;
-    for k in trail_start..trail_end {
-        if k < rom.len() {
-            rom[k] = 0x00;
-        }
-    }
-
-    let target_len = header_len + 65500;
-    if rom.len() > target_len {
-        rom.truncate(target_len);
-    }
 }
 
