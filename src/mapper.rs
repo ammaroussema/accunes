@@ -294,7 +294,13 @@ pub use crate::mappers::mapper393::Mapper393;
 pub use crate::mappers::mapper394::Mapper394;
 pub use crate::mappers::mapper396::Mapper396;
 pub use crate::mappers::mapper398::Mapper398;
+pub use crate::mappers::mapper399::Mapper399;
+pub use crate::mappers::mapper400::Mapper400;
+pub use crate::mappers::mapper401::Mapper401;
+pub use crate::mappers::mapper402::Mapper402;
+pub use crate::mappers::mapper403::Mapper403;
 pub use crate::mappers::mapper404::Mapper404;
+pub use crate::mappers::mapper406::Mapper406;
 pub use crate::mappers::mapper395::Mapper395;
 pub use crate::mappers::mapper409::Mapper409;
 pub use crate::mappers::mapper415::Mapper415;
@@ -1092,7 +1098,14 @@ pub fn create_mapper(
         396 => Box::new(Mapper396::new(submapper_id)),
         397 => Box::new(Mapper90::new(Mapper90Variant::Mapper397)),
         398 => Box::new(Mapper398::new()),
+        399 => Box::new(Mapper399::new(submapper_id, header, rom, rom_name)),
+        400 => Box::new(Mapper400::new()),
+        401 => Box::new(Mapper401::new(header, rom, rom_name)),
+        402 => Box::new(Mapper402::new()),
+        403 => Box::new(Mapper403::new()),
         404 => Box::new(Mapper404::new(header, rom, rom_name, using_chr_ram, has_battery)),
+    //  405 => Box::new(Mapper405::new()), (to be implemented in the future)
+        406 => Box::new(Mapper406::new(submapper_id, header, rom, rom_name)),
         407 => Box::new(Mapper407::new()),
         408 => Box::new(Mapper408::new()),
         409 => Box::new(Mapper409::new()),

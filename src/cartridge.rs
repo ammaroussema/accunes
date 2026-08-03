@@ -637,6 +637,8 @@ impl Cartridge {
                 ram[..len].copy_from_slice(&chr_rom[..len]);
             }
             ram
+        } else if memory_mapper == 403 {
+            vec![0u8; 32 * 1024]
         } else if is_nes20 && rom.len() > 11 && (rom[11] & 0xFF) != 0 {
             let vram_shift = rom[11] & 0x0F;
             let battery_shift = (rom[11] >> 4) & 0x0F;
@@ -644,7 +646,7 @@ impl Cartridge {
             let battery_bytes = if battery_shift == 0 { 0 } else { 64usize << battery_shift };
             let total_ram = vram_bytes + battery_bytes;
             vec![0u8; total_ram]
-        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 372 | 375 | 381 | 382 | 393 | 396 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             vec![0u8; 0x2000]
         } else if using_chr_ram {
             vec![0u8; 0x2000]
@@ -658,7 +660,7 @@ impl Cartridge {
         if memory_mapper == 77 {
             using_chr_ram = true;
         }
-        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 372 | 375 | 381 | 382 | 393 | 396 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             using_chr_ram = true;
         }
         if memory_mapper == 314 && chr_size == 0 {
