@@ -1,85 +1,97 @@
+
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
 use crate::mappers::mmc3::{MapperMMC3, Mmc3Config};
-pub struct Mapper401 {
+
+pub struct Mapper430 {
     mmc3: MapperMMC3,
-    index: u8,
-    reg: [u8; 4],
-    dip_switches: u8,
+    reg: u8,
     irq_clear_pending: bool,
 }
-impl Mapper401 {
+
+impl Mapper430 {
     pub fn new(header: &[u8], rom: &[u8], rom_name: &str) -> Self {
         let chr_size = if header.len() > 5 { header[5] } else { 0 };
         let mut config = Mmc3Config::for_ines(header, 0, chr_size, rom, rom_name);
         config.ax5202p = true;
         Self {
             mmc3: MapperMMC3::new(config),
-            index: 0,
-            reg: [0x00, 0x00, 0x0F, 0x00],
-            dip_switches: 0,
+            reg: 0,
             irq_clear_pending: false,
         }
     }
-    fn prg_and(&self) -> usize {
-        (!self.reg[3] & 0x1F) as usize
-    }
-    fn prg_or(&self) -> u8 {
-        let mut or = (self.reg[1] & 0x1F) | (self.reg[2] & 0x80);
-        if (self.dip_switches & 2) != 0 {
-            or |= self.reg[2] & 0x20;
+
+    fn prg_raw_bank(&self, bank: usize) -> usize {
+        let mode = (self.mmc3.r8000 & 0x40) != 0;
+        if (self.reg & 0x08) != 0 {
+            let base = if bank & 1 == 0 {
+                if mode {
+                    0xFE
+                } else {
+                    self.mmc3.bank_8c as usize
+                }
+            } else {
+                self.mmc3.bank_a as usize
+            };
+            (base & !0x03) | (bank & 3)
         } else {
-            or |= (self.reg[1] >> 1) & 0x20;
+            match bank {
+                0 => {
+                    if mode {
+                        0xFE
+                    } else {
+                        self.mmc3.bank_8c as usize
+                    }
+                }
+                1 => self.mmc3.bank_a as usize,
+                2 => {
+                    if mode {
+                        self.mmc3.bank_8c as usize
+                    } else {
+                        0xFE
+                    }
+                }
+                _ => 0xFF,
+            }
         }
-        if (self.dip_switches & 4) != 0 {
-            or |= self.reg[2] & 0x40;
+    }
+
+    fn chr_bank(&self, address: u16) -> usize {
+        let raw = self.mmc3.chr_bank(address) as usize;
+        let and = if (self.reg & 0x04) != 0 { 0x7F } else { 0xFF };
+        let or = if (self.reg & 0x04) != 0 {
+            ((self.reg as usize) << 6) & 0x180
         } else {
-            or |= (self.reg[1] << 1) & 0x40;
-        }
-        or
-    }
-    fn chr_and(&self) -> usize {
-        0xFFusize >> ((!self.reg[2] & 0x0F) as usize)
-    }
-    fn chr_or(&self) -> usize {
-        (self.reg[0] as usize) | (((self.reg[2] as usize) << 4) & 0xF00)
+            ((self.reg as usize) << 6) & 0x100
+        };
+        (raw & and) | or
     }
 }
-impl Mapper for Mapper401 {
+
+impl Mapper for Mapper430 {
     fn reset(&mut self) {
-        self.index = 0;
-        self.reg = [0x00, 0x00, 0x0F, 0x00];
+        self.reg = 0;
         self.mmc3.reset();
     }
+
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
-            if (self.dip_switches & 1) != 0 && (self.reg[1] & 0x80) != 0 {
-                return FetchResult {
-                    data: 0,
-                    driven: false,
-                };
-            }
             let len = cart.prg_rom.len();
             if len == 0 {
                 return FetchResult {
                     data: 0,
-                    driven: false,
+                    driven: true,
                 };
             }
-            let last = (len / 0x2000).saturating_sub(1);
-            let second_last = last.saturating_sub(1);
-            let mode = (self.mmc3.r8000 & 0x40) != 0;
-            let page = (address - 0x8000) / 0x2000;
-            let mmc3_bank = match (page, mode) {
-                (0, false) => self.mmc3.bank_8c as usize,
-                (0, true) => second_last,
-                (1, _) => self.mmc3.bank_a as usize,
-                (2, false) => second_last,
-                (2, true) => self.mmc3.bank_8c as usize,
-                (_, _) => last,
+            let bank = match address {
+                0xE000..=0xFFFF => 3,
+                0xC000..=0xDFFF => 2,
+                0xA000..=0xBFFF => 1,
+                _ => 0,
             };
-            let bank = (mmc3_bank & self.prg_and()) | self.prg_or() as usize;
-            let offset = bank * 0x2000 + (address as usize & 0x1FFF);
+            let raw = self.prg_raw_bank(bank);
+            let bank8 = (raw & 0x0F) | ((self.reg as usize) << 4);
+            let offset = bank8 * 0x2000 + (address as usize & 0x1FFF);
             FetchResult {
                 data: cart.prg_rom[offset % len],
                 driven: true,
@@ -93,19 +105,15 @@ impl Mapper for Mapper401 {
             }
         }
     }
+
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
-        if address < 0x8000 {
+        if (0x6000..0x8000).contains(&address) {
             if (self.mmc3.prg_ram_protect & 0x40) == 0 {
-                if !cart.prg_ram.is_empty() {
-                    let off = (address - 0x6000) as usize;
-                    if off < cart.prg_ram.len() {
-                        cart.prg_ram[off] = data;
-                    }
+                let off = (address - 0x6000) as usize;
+                if self.mmc3.config.prg_ram_size > 0 && off < self.mmc3.config.prg_ram_size {
+                    cart.prg_ram[off] = data;
                 }
-                if (self.reg[3] & 0x40) == 0 {
-                    self.reg[self.index as usize & 3] = data;
-                    self.index = self.index.wrapping_add(1);
-                }
+                self.reg = (address & 0xFF) as u8;
             }
         } else {
             self.mmc3.store_prg(cart, address, data);
@@ -114,14 +122,17 @@ impl Mapper for Mapper401 {
             }
         }
     }
+
     fn take_irq_ack(&mut self) -> bool {
         let ack = self.irq_clear_pending;
         self.irq_clear_pending = false;
         ack
     }
+
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         self.mmc3.mirror_nametable(cart, address)
     }
+
     fn fetch_ppu(
         &mut self,
         prg_rom: &[u8],
@@ -139,13 +150,14 @@ impl Mapper for Mapper401 {
         let address = (ppu_address_bus & 0x3F00) | ppu_octal_latch as u16;
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
         if address < 0x2000 {
-            let chr_bank = self.mmc3.chr_bank(address) as usize;
-            let bank = (chr_bank & self.chr_and()) | self.chr_or();
-            let offset = bank * 0x400 + (address as usize & 0x3FF);
             let byte = if using_chr_ram && !chr_ram.is_empty() {
-                chr_ram[offset % chr_ram.len()]
+                let bank = self.chr_bank(address);
+                let offset = (bank * 0x400 + (address as usize & 0x3FF)) % chr_ram.len();
+                chr_ram[offset]
             } else if !chr_rom.is_empty() {
-                chr_rom[offset % chr_rom.len()]
+                let bank = self.chr_bank(address);
+                let offset = (bank * 0x400 + (address as usize & 0x3FF)) % chr_rom.len();
+                chr_rom[offset]
             } else {
                 0
             };
@@ -167,9 +179,19 @@ impl Mapper for Mapper401 {
             )
         }
     }
+
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
-        self.mmc3.store_ppu(cart, address, data, vram);
+        if address < 0x2000 {
+            if !cart.chr_ram.is_empty() {
+                let bank = self.chr_bank(address);
+                let offset = (bank * 0x400 + (address as usize & 0x3FF)) % cart.chr_ram.len();
+                cart.chr_ram[offset] = data;
+            }
+        } else {
+            self.mmc3.store_ppu(cart, address, data, vram);
+        }
     }
+
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -179,40 +201,25 @@ impl Mapper for Mapper401 {
         ppu_sprite_x16: bool,
         rendering_on: bool,
     ) -> bool {
-        self.mmc3.ppu_clock(ppu_address_bus, ppu_a12_prev, scanline, dot, ppu_sprite_x16, rendering_on)
+        self.mmc3
+            .ppu_clock(ppu_address_bus, ppu_a12_prev, scanline, dot, ppu_sprite_x16, rendering_on)
     }
+
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         self.mmc3.cpu_clock_rise(ppu_address_bus)
     }
-    fn get_dip_switches(&self) -> u8 {
-        self.dip_switches
-    }
-    fn set_dip_switches(&mut self, value: u8) {
-        self.dip_switches = value;
-    }
+
     fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8> {
         let mut state = self.mmc3.save_mapper_registers(cart);
-        state.push(self.index);
-        state.extend_from_slice(&self.reg);
-        state.push(self.dip_switches);
+        state.push(self.reg);
         state
     }
+
     fn load_mapper_registers(&mut self, cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
-        let mut p = self.mmc3.load_mapper_registers(cart, state, start);
-        if p < state.len() {
-            self.index = state[p];
-            p += 1;
+        let idx = self.mmc3.load_mapper_registers(cart, state, start);
+        if idx < state.len() {
+            self.reg = state[idx];
         }
-        for i in 0..4 {
-            if p < state.len() {
-                self.reg[i] = state[p];
-                p += 1;
-            }
-        }
-        if p < state.len() {
-            self.dip_switches = state[p];
-            p += 1;
-        }
-        p
+        idx + 1
     }
 }

@@ -1,24 +1,19 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
-
 pub struct Mapper286 {
     prg: [u8; 4],
     chr: [u8; 4],
     mirroring: u8,
     dip_switches: u8,
 }
-
 impl Mapper286 {
     pub fn new() -> Self {
         Self { prg: [0xC, 0xD, 0xE, 0xF], chr: [0; 4], mirroring: 0, dip_switches: 0 }
     }
 }
-
 impl Mapper for Mapper286 {
     fn reset(&mut self) {
-        // soft reset — preserve state (reference: only hard reset clears registers)
     }
-
     fn reset_power_cycle(&mut self) {
         for i in 0..4 {
             self.prg[i] = 0xC | i as u8;
@@ -27,7 +22,6 @@ impl Mapper for Mapper286 {
         self.mirroring = 0;
         self.dip_switches = 0;
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let num_8k = cart.prg_rom.len() / 0x2000;
@@ -45,7 +39,6 @@ impl Mapper for Mapper286 {
             FetchResult { data: 0, driven: false }
         }
     }
-
     fn store_prg(&mut self, _cart: &mut Cartridge, address: u16, _data: u8) {
         if address >= 0x8000 {
             let ah = address & 0xF000;
@@ -60,7 +53,6 @@ impl Mapper for Mapper286 {
             }
         }
     }
-
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
         if self.mirroring != 0 {
             (address & 0x33FF) | ((address & 0x0800) >> 1)
@@ -68,7 +60,6 @@ impl Mapper for Mapper286 {
             address & 0x37FF
         }
     }
-
     fn fetch_ppu(
         &mut self,
         _prg_rom: &[u8],
@@ -105,7 +96,6 @@ impl Mapper for Mapper286 {
         }
         (new_addr_bus as u8, new_addr_bus)
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if address < 0x2000 {
             if cart.using_chr_ram && !cart.chr_ram.is_empty() {
@@ -125,15 +115,12 @@ impl Mapper for Mapper286 {
             vram[(mirrored & 0x7FF) as usize] = data;
         }
     }
-
     fn get_dip_switches(&self) -> u8 {
         self.dip_switches
     }
-
     fn set_dip_switches(&mut self, value: u8) {
         self.dip_switches = value;
     }
-
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
         let mut state = Vec::with_capacity(10);
         state.extend_from_slice(&self.prg);
@@ -142,7 +129,6 @@ impl Mapper for Mapper286 {
         state.push(self.dip_switches);
         state
     }
-
     fn load_mapper_registers(&mut self, _cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let mut p = start;
         if p + 4 <= state.len() { self.prg.copy_from_slice(&state[p..p+4]); p += 4; }

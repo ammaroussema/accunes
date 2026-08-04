@@ -1,18 +1,12 @@
-// Mapper 383 - 晶太 YY840708C (MMC3-based with PAL logic)
-//
-// Reference: NintendulatorNRS-DBG MMC3-based/mapper383.cpp
-
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
 use crate::mappers::mmc3::{mmc3_chr_bank, MapperMMC3, Mmc3Config};
-
 pub struct Mapper383 {
     mmc3: MapperMMC3,
     a15: u8,
     a16: u8,
     a17a18: u8,
 }
-
 impl Mapper383 {
     pub fn new(header: &[u8], _rom: &[u8], _rom_name: &str) -> Self {
         let chr_size = header.get(5).copied().unwrap_or(0);
@@ -32,17 +26,14 @@ impl Mapper383 {
             a17a18: 0,
         }
     }
-
     fn fixed_last_index(cart: &Cartridge) -> usize {
         let len = cart.prg_rom.len();
         if len == 0 { 0 } else { (len / 0x2000).saturating_sub(1) }
     }
-
     fn fixed_second_last_index(cart: &Cartridge) -> usize {
         let len = cart.prg_rom.len();
         if len < 0x4000 { 0 } else { (len / 0x2000).saturating_sub(2) }
     }
-
     fn raw_mmc3_prg_bank(&self, cart: &Cartridge, slot: usize) -> u8 {
         match slot {
             0 => {
@@ -64,16 +55,13 @@ impl Mapper383 {
             _ => 0,
         }
     }
-
     fn apply_prg_mask_value(raw: u8, mask: u8, value: u8) -> u8 {
         (raw & mask) | value
     }
-
     fn get_prg_bank_6000(&self, cart: &Cartridge) -> u8 {
         let raw = self.raw_mmc3_prg_bank(cart, 3);
         Self::apply_prg_mask_value(raw, 0x0B, 0x30)
     }
-
     fn get_prg_banks(&self, cart: &Cartridge) -> [u8; 4] {
         let mut banks = [0u8; 4];
         let raw = [
@@ -82,7 +70,6 @@ impl Mapper383 {
             self.raw_mmc3_prg_bank(cart, 2),
             self.raw_mmc3_prg_bank(cart, 3),
         ];
-
         if self.a17a18 == 0x00 {
             let mask = if self.a16 != 0 { 0x07 } else { 0x03 };
             let value = if self.a16 != 0 {
@@ -105,30 +92,25 @@ impl Mapper383 {
         }
         banks
     }
-
     fn prg_read(&self, cart: &Cartridge, address: u16) -> u8 {
         let len = cart.prg_rom.len();
         if len == 0 {
             return 0;
         }
-
         if self.a17a18 == 0x30 && (0x6000..0x8000).contains(&address) {
             let bank = self.get_prg_bank_6000(cart) as usize;
             let offset = bank * 0x2000 + (address as usize & 0x1FFF);
             return cart.prg_rom[offset % len];
         }
-
         if address < 0x8000 {
             return 0;
         }
-
         let banks = self.get_prg_banks(cart);
         let slot = ((address - 0x8000) / 0x2000) as usize;
         let bank = banks[slot.min(3)] as usize;
         let offset = bank * 0x2000 + (address as usize & 0x1FFF);
         cart.prg_rom[offset % len]
     }
-
     fn chr_bank_raw(&self, address: u16) -> u8 {
         mmc3_chr_bank(
             self.mmc3.r8000,
@@ -142,17 +124,14 @@ impl Mapper383 {
         )
     }
 }
-
 impl Mapper for Mapper383 {
         fn reset(&mut self) {}
-
     fn reset_power_cycle(&mut self) {
         self.a15 = 0;
         self.a16 = 0;
         self.a17a18 = 0;
         self.mmc3.reset();
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x6000 && address < 0x8000 {
             if self.a17a18 == 0x30 {
@@ -173,7 +152,6 @@ impl Mapper for Mapper383 {
                 driven: false,
             };
         }
-
         if address >= 0x8000 {
             if self.a17a18 == 0x00 && address < 0xC000 {
                 let slot = ((address - 0x8000) / 0x2000) as usize;
@@ -185,13 +163,11 @@ impl Mapper for Mapper383 {
                 driven: true,
             };
         }
-
         FetchResult {
             data: 0,
             driven: false,
         }
     }
-
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x8000 {
             if (address & 0x100) != 0 {
@@ -201,7 +177,6 @@ impl Mapper for Mapper383 {
             self.mmc3.store_prg(cart, address, data);
         }
     }
-
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         if cart.alternative_nametable_arrangement {
             address
@@ -211,7 +186,6 @@ impl Mapper for Mapper383 {
             address & 0x37FF
         }
     }
-
     fn fetch_ppu(
         &mut self,
         _prg_rom: &[u8],
@@ -259,7 +233,6 @@ impl Mapper for Mapper383 {
             (new_addr_bus as u8, new_addr_bus)
         }
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if address < 0x2000 {
             if cart.using_chr_ram && !cart.chr_ram.is_empty() {
@@ -281,7 +254,6 @@ impl Mapper for Mapper383 {
             }
         }
     }
-
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -300,19 +272,15 @@ impl Mapper for Mapper383 {
             rendering_on,
         )
     }
-
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         self.mmc3.cpu_clock_rise(ppu_address_bus)
     }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         self.mmc3.cpu_clock(cycles)
     }
-
     fn take_irq_ack(&mut self) -> bool {
         self.mmc3.take_irq_ack()
     }
-
     fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8> {
         let mut state = self.mmc3.save_mapper_registers(cart);
         state.push(self.a15);
@@ -320,7 +288,6 @@ impl Mapper for Mapper383 {
         state.push(self.a17a18);
         state
     }
-
     fn load_mapper_registers(
         &mut self,
         cart: &mut Cartridge,

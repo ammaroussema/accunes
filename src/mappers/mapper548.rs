@@ -1,6 +1,5 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
-
 struct FdsSound {
     fout: i32, master_io: bool, master_vol: u8,
     wave: [[i32; 64]; 2], freq: [u32; 2], phase: [u32; 2],
@@ -10,7 +9,6 @@ struct FdsSound {
     env_timer: [u32; 2], env_speed: [u32; 2], env_out: [u32; 2],
     master_env_speed: u8, current_audio_sample: f32,
 }
-
 impl FdsSound {
     fn new() -> Self {
         let mut s = Self {
@@ -109,7 +107,6 @@ impl FdsSound {
         }
     }
 }
-
 pub struct Mapper548 {
     latch: u8,
     reg: u8,
@@ -118,7 +115,6 @@ pub struct Mapper548 {
     irq_acknowledged: bool,
     fds: FdsSound,
 }
-
 impl Mapper548 {
     pub fn new() -> Self {
         Self {
@@ -130,14 +126,12 @@ impl Mapper548 {
             fds: FdsSound::new(),
         }
     }
-
     fn prg_read_bank16(&self, bank: u8, address: u16, prg_rom: &[u8]) -> u8 {
         if prg_rom.is_empty() { return 0xFF; }
         let offset = (bank as usize * 0x4000) + (address as usize & 0x3FFF);
         prg_rom[offset % prg_rom.len()]
     }
 }
-
 impl Mapper for Mapper548 {
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         match address {
@@ -150,7 +144,6 @@ impl Mapper for Mapper548 {
             _ => FetchResult { data: 0, driven: false },
         }
     }
-
     fn store_prg(&mut self, _cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x4020 && address < 0x40A0 {
             self.fds.write_reg(address, data);
@@ -163,7 +156,6 @@ impl Mapper for Mapper548 {
             return;
         }
         if address >= 0x4000 && address < 0x5000 {
-            // FDSsound Write4 also handles these
             if address & 0x800 != 0 {
                 self.latch = ((address >> 2) & 3) as u8 | ((address >> 3) & 4) as u8;
                 if address & 4 != 0 {
@@ -174,17 +166,14 @@ impl Mapper for Mapper548 {
                     self.counting = true;
                 }
             }
-            // Also relay to FDS sound for $4020-$4FFF audio regs
             if address >= 0x4020 {
                 self.fds.write_reg(address, data);
             }
         }
     }
-
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         if cart.nametable_horizontal_mirroring { (address & 0x3FFF) | ((address & 0x0800) >> 1) } else { address & 0x37FF }
     }
-
     fn fetch_ppu(&mut self, _prg_rom: &[u8], chr_rom: &[u8], _prg_ram: &[u8], chr_ram: &[u8], _prg_vram: &[u8], using_chr_ram: bool, nh: bool, _alt: bool, ppu_addr: u16, ppu_latch: u8, vram: &[u8]) -> (u8, u16) {
         let address = (ppu_addr & 0x3F00) | ppu_latch as u16;
         let mut nab = ppu_addr & 0xFF00;
@@ -198,7 +187,6 @@ impl Mapper for Mapper548 {
         }
         (nab as u8, nab)
     }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.counting {
             self.counter = self.counter.saturating_add(cycles as u16);
@@ -207,27 +195,22 @@ impl Mapper for Mapper548 {
             } else if self.counter == 23680 {
                 return true;
             } else if self.counter == 24320 {
-                // IRQ clear happens automatically via the return flow
             }
         }
         if cycles > 0 { self.fds.run(cycles as u32); }
         false
     }
-
     fn audio_sample(&self) -> f32 { self.fds.current_audio_sample }
-
     fn take_irq_ack(&mut self) -> bool {
         if self.irq_acknowledged { self.irq_acknowledged = false; return true; }
         false
     }
-
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
         let mut state = vec![self.latch, self.reg];
         state.extend_from_slice(&self.counter.to_le_bytes());
         state.push(self.counting as u8);
         state
     }
-
     fn load_mapper_registers(&mut self, _cart: &mut Cartridge, state: &[u8], mut start: usize) -> usize {
         if start < state.len() { self.latch = state[start]; start += 1; }
         if start < state.len() { self.reg = state[start]; start += 1; }
@@ -235,7 +218,6 @@ impl Mapper for Mapper548 {
         if start < state.len() { self.counting = state[start] != 0; start += 1; }
         start
     }
-
     fn reset(&mut self) {
         self.latch = 0x7; self.reg = self.latch ^ 0x5; self.counter = 0; self.counting = false;
         self.irq_acknowledged = false; self.fds.reset();

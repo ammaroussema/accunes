@@ -1,30 +1,21 @@
-// Mapper 381 - KN-42 (multicart latch)
-//
-// Reference: NintendulatorNRS-DBG multicart multiple regs/mapper381.cpp
-
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper, mirror_h_or_v};
-
 pub struct Mapper381 {
     latch: u8,
     game: u8,
     first_reset: bool,
 }
-
 impl Mapper381 {
     pub fn new() -> Self {
         Self { latch: 0, game: 0, first_reset: true }
     }
-
     fn prg_bank_lo(&self) -> usize {
         let bank = (((self.latch as u16) << 1) | ((self.latch as u16) >> 4)) as u8;
         ((bank & 0x0F) | (self.game << 4)) as usize
     }
-
     fn prg_bank_hi(&self) -> usize {
         0x0F | ((self.game as usize) << 4)
     }
-
     fn prg_read(&self, cart: &Cartridge, address: u16) -> u8 {
         let prg_len = cart.prg_rom.len();
         if prg_len == 0 {
@@ -39,7 +30,6 @@ impl Mapper381 {
         cart.prg_rom[offset]
     }
 }
-
 impl Mapper for Mapper381 {
     fn reset(&mut self) {
         self.latch = 0;
@@ -50,7 +40,6 @@ impl Mapper for Mapper381 {
             self.game = self.game.wrapping_add(1);
         }
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             return FetchResult {
@@ -63,17 +52,14 @@ impl Mapper for Mapper381 {
             driven: false,
         }
     }
-
     fn store_prg(&mut self, _cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x8000 {
             self.latch = data;
         }
     }
-
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         mirror_h_or_v(cart.nametable_horizontal_mirroring, address)
     }
-
     fn fetch_ppu(
         &mut self,
         _prg_rom: &[u8],
@@ -103,7 +89,6 @@ impl Mapper for Mapper381 {
         }
         (new_addr_bus as u8, new_addr_bus)
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if address < 0x2000 {
             if !cart.chr_ram.is_empty() {
@@ -118,11 +103,9 @@ impl Mapper for Mapper381 {
             }
         }
     }
-
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
         vec![self.latch, self.game, if self.first_reset { 1 } else { 0 }]
     }
-
     fn load_mapper_registers(&mut self, _cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         if start < state.len() {
             self.latch = state[start];

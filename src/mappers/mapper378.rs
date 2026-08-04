@@ -1,29 +1,20 @@
-// Mapper 378 - 8-in-1 AOROM+UNROM multicart (data latch, bus conflict AND)
-//
-// Reference: NintendulatorNRS-DBG multicart data latch/mapper378.cpp
-
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper, mirror_h_or_v};
-
 pub struct Mapper378 {
     data: u8,
 }
-
 impl Mapper378 {
     pub fn new() -> Self {
         Self { data: 0 }
     }
-
     fn aorom_mode(&self) -> bool {
         (self.data & 0x20) != 0
     }
-
     fn prg_offset(&self, cart: &Cartridge, address: u16) -> usize {
         let len = cart.prg_rom.len();
         if len == 0 {
             return 0;
         }
-
         if self.aorom_mode() {
             let num_16k = (len / 0x4000).max(1);
             let bank = if address < 0xC000 {
@@ -38,11 +29,9 @@ impl Mapper378 {
             (bank % num_32k) * 0x8000 + (address as usize & 0x7FFF)
         }
     }
-
     fn single_screen_high(&self) -> bool {
         !self.aorom_mode() && (self.data & 0x10) != 0
     }
-
     fn vram_index(&self, address: u16) -> usize {
         let off = (address & 0x03FF) as usize;
         if self.aorom_mode() {
@@ -66,12 +55,10 @@ impl Mapper378 {
         }
     }
 }
-
 impl Mapper for Mapper378 {
     fn reset(&mut self) {
         self.data = 0;
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let len = cart.prg_rom.len();
@@ -91,7 +78,6 @@ impl Mapper for Mapper378 {
             }
         }
     }
-
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x8000 {
             let len = cart.prg_rom.len();
@@ -103,7 +89,6 @@ impl Mapper for Mapper378 {
             self.data = data & rom_data;
         }
     }
-
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
         if self.aorom_mode() {
             mirror_h_or_v((self.data & 0x04) != 0, address)
@@ -113,7 +98,6 @@ impl Mapper for Mapper378 {
             0x2000 | (address & 0x03FF)
         }
     }
-
     fn fetch_ppu(
         &mut self,
         _prg_rom: &[u8],
@@ -143,7 +127,6 @@ impl Mapper for Mapper378 {
         }
         (new_addr_bus as u8, new_addr_bus)
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if address < 0x2000 {
             if cart.using_chr_ram && !cart.chr_ram.is_empty() {
@@ -158,11 +141,9 @@ impl Mapper for Mapper378 {
             }
         }
     }
-
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
         vec![self.data]
     }
-
     fn load_mapper_registers(&mut self, _cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         if start < state.len() {
             self.data = state[start];

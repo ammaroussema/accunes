@@ -1,5 +1,3 @@
-//! OneBus GPIO & Attached Security/Peripheral Subsystem (NintendulatorNRS `h_OneBus_GPIO`).
-
 pub trait SecurityDevice: Send + Sync {
     fn set_pins_serial(&mut self, _select: bool, _clock: bool, _data: bool) {}
     fn set_pins_parallel(&mut self, _select: bool, _clock: bool, _data: u8) {}
@@ -11,14 +9,12 @@ pub trait SecurityDevice: Send + Sync {
     #[allow(dead_code)]
     fn load_state(&mut self, _state: &[u8], start: usize) -> usize { start }
 }
-
 #[derive(Clone, Copy)]
 pub struct SerialBinding {
     pub select: u8,
     pub clock: u8,
     pub data: u8,
 }
-
 #[derive(Clone, Copy)]
 pub struct ParallelBinding {
     pub select: u8,
@@ -29,30 +25,25 @@ pub struct ParallelBinding {
     pub data_from_device: u8,
     pub data_from_device_mask: u8,
 }
-
 pub enum DeviceBinding {
     Serial(SerialBinding),
     Parallel(ParallelBinding),
 }
-
 pub struct AttachedDevice {
     pub device: Box<dyn SecurityDevice>,
     pub binding: DeviceBinding,
 }
-
 pub struct GpioPort {
     pub mask: u8,
     pub latch: u8,
     pub state: u8,
     pub devices: Vec<AttachedDevice>,
 }
-
 impl Default for GpioPort {
     fn default() -> Self {
         Self::new()
     }
 }
-
 impl GpioPort {
     pub fn new() -> Self {
         Self {
@@ -62,7 +53,6 @@ impl GpioPort {
             devices: Vec::new(),
         }
     }
-
     pub fn reset(&mut self) {
         self.mask = 0;
         self.latch = 0;
@@ -71,7 +61,6 @@ impl GpioPort {
             dev.device.reset();
         }
     }
-
     pub fn read(&mut self, address: u8) -> u8 {
         match address & 7 {
             0 => self.mask,
@@ -99,7 +88,6 @@ impl GpioPort {
             _ => 0xFF,
         }
     }
-
     pub fn write(&mut self, address: u8, value: u8) {
         match address & 7 {
             0 => {
@@ -113,7 +101,6 @@ impl GpioPort {
             _ => {}
         }
     }
-
     fn update_state_and_notify(&mut self) {
         self.state = (self.state & !self.mask) | (self.latch & self.mask);
         for dev in &mut self.devices {
@@ -134,10 +121,6 @@ impl GpioPort {
         }
     }
 }
-
-// -----------------------------------------------------------------------------
-// Mapper 426: Serial ROM
-// -----------------------------------------------------------------------------
 pub struct SerialRomDevice {
     bit_position: usize,
     command: u8,
@@ -146,7 +129,6 @@ pub struct SerialRomDevice {
     output: bool,
     rom: Vec<u8>,
 }
-
 impl SerialRomDevice {
     pub fn new(rom: Vec<u8>) -> Self {
         Self {
@@ -159,7 +141,6 @@ impl SerialRomDevice {
         }
     }
 }
-
 impl SecurityDevice for SerialRomDevice {
     fn reset(&mut self) {
         self.bit_position = 0;
@@ -168,11 +149,9 @@ impl SecurityDevice for SerialRomDevice {
         self.clock = true;
         self.output = true;
     }
-
     fn get_data_bit(&self) -> bool {
         self.output
     }
-
     fn set_pins_serial(&mut self, select: bool, new_clock: bool, new_data: bool) {
         if select {
             self.state = 0;
@@ -202,10 +181,6 @@ impl SecurityDevice for SerialRomDevice {
         self.clock = new_clock;
     }
 }
-
-// -----------------------------------------------------------------------------
-// Mapper 427: Serial Inverter
-// -----------------------------------------------------------------------------
 pub struct InverterDevice {
     command: u8,
     result: u8,
@@ -214,13 +189,11 @@ pub struct InverterDevice {
     data: bool,
     output: bool,
 }
-
 impl Default for InverterDevice {
     fn default() -> Self {
         Self::new()
     }
 }
-
 impl InverterDevice {
     pub fn new() -> Self {
         Self {
@@ -233,7 +206,6 @@ impl InverterDevice {
         }
     }
 }
-
 impl SecurityDevice for InverterDevice {
     fn reset(&mut self) {
         self.command = 0;
@@ -243,11 +215,9 @@ impl SecurityDevice for InverterDevice {
         self.data = true;
         self.output = true;
     }
-
     fn get_data_bit(&self) -> bool {
         self.output
     }
-
     fn set_pins_serial(&mut self, _select: bool, new_clock: bool, new_data: bool) {
         if self.clock && new_clock && self.data && !new_data {
             self.state = 1;
@@ -283,10 +253,6 @@ impl SecurityDevice for InverterDevice {
         self.data = new_data;
     }
 }
-
-// -----------------------------------------------------------------------------
-// Mapper 427: I2C 24C04 EEPROM
-// -----------------------------------------------------------------------------
 pub struct I2cEeprom24C04 {
     pub storage: [u8; 512],
     address: u16,
@@ -298,13 +264,11 @@ pub struct I2cEeprom24C04 {
     output: bool,
     read_mode: bool,
 }
-
 impl Default for I2cEeprom24C04 {
     fn default() -> Self {
         Self::new()
     }
 }
-
 impl I2cEeprom24C04 {
     pub fn new() -> Self {
         Self {
@@ -319,7 +283,6 @@ impl I2cEeprom24C04 {
             read_mode: false,
         }
     }
-
     fn receive_bit(&mut self) {
         match self.state {
             1 => self.state += 1,
@@ -391,7 +354,6 @@ impl I2cEeprom24C04 {
             }
             _ => {}
         }
-
         match self.state {
             10 | 13 => self.output = false,
             11 => self.output = (self.latch & (0x80 >> self.bit)) != 0,
@@ -399,11 +361,9 @@ impl I2cEeprom24C04 {
         }
     }
 }
-
 fn new_bit_matches(expected_bit_mask: u8, data: bool) -> bool {
     (expected_bit_mask != 0) == data
 }
-
 impl SecurityDevice for I2cEeprom24C04 {
     fn reset(&mut self) {
         self.address = 0;
@@ -415,11 +375,9 @@ impl SecurityDevice for I2cEeprom24C04 {
         self.output = true;
         self.read_mode = false;
     }
-
     fn get_data_bit(&self) -> bool {
         self.output
     }
-
     fn set_pins_serial(&mut self, _select: bool, new_clock: bool, new_data: bool) {
         if self.clock && new_clock && self.data && !new_data {
             self.state = 1;
@@ -432,10 +390,6 @@ impl SecurityDevice for I2cEeprom24C04 {
         self.data = new_data;
     }
 }
-
-// -----------------------------------------------------------------------------
-// Mapper 496: InverterAdder
-// -----------------------------------------------------------------------------
 pub struct InverterAdderDevice {
     command: u8,
     command_state: u8,
@@ -445,13 +399,11 @@ pub struct InverterAdderDevice {
     data_from_device: bool,
     clock_from_device: bool,
 }
-
 impl Default for InverterAdderDevice {
     fn default() -> Self {
         Self::new()
     }
 }
-
 impl InverterAdderDevice {
     pub fn new() -> Self {
         Self {
@@ -465,7 +417,6 @@ impl InverterAdderDevice {
         }
     }
 }
-
 impl SecurityDevice for InverterAdderDevice {
     fn reset(&mut self) {
         self.command = 0xFF;
@@ -476,16 +427,13 @@ impl SecurityDevice for InverterAdderDevice {
         self.data_from_device = true;
         self.clock_from_device = false;
     }
-
     fn get_data_bit(&self) -> bool {
         self.data_from_device
     }
-
     fn get_clock_bit(&mut self) -> bool {
         self.clock_from_device = !self.clock_from_device;
         self.clock_from_device
     }
-
     fn set_pins_parallel(&mut self, _select: bool, new_clock: bool, new_data: u8) {
         if self.sending && self.command_state > 0 {
             if new_clock ^ self.clock_to_device {
@@ -518,7 +466,6 @@ impl SecurityDevice for InverterAdderDevice {
             } else if self.command == 0x00 && self.command_state == 0 {
                 self.sending = true;
                 self.command_state = 1;
-                // Standard default controller latch fallback
                 self.latch = 0x00;
             }
         }

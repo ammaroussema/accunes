@@ -1,22 +1,10 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
 use crate::mappers::mmc1::{mmc1_mirror_for_ppu, MapperMMC1, Mmc1Config};
-
-// iNES mapper 546 ("03-101", the Tenchi wo Kurau 10-in-1 pirate multicart):
-// an MMC1B-based board with an extra outer-bank latch taken from the low 8
-// bits of the CPU address on writes to $8000-$80FF / $9000-$90FF. Bit 4
-// selects MMC1 mode: PRG banks are (MMC1 bank & 0x0F) | 0x10 and an 8 KiB
-// PRG-RAM window is mapped at $6000 (open bus while the MMC1 PRG bit 4 is
-// set). Bit 4 clear selects direct mode: $6000-$7FFF is open bus and PRG is
-// a 32 KiB bank (outer >> 1) when bit 5 is set, otherwise the same 16 KiB
-// outer bank in both slots. CHR is always 8 KiB CHR-RAM, and bit 7 write
-// protects it (read-only).
-
 pub struct Mapper546 {
     mmc1: MapperMMC1,
     outer_bank: u8,
 }
-
 impl Mapper546 {
     pub fn new(
         header: &[u8],
@@ -39,7 +27,6 @@ impl Mapper546 {
             outer_bank: 0,
         }
     }
-
     fn mmc1_prg_raw_bank(&self, bank: usize) -> usize {
         let prg = self.mmc1.core.prg as usize;
         let control = self.mmc1.core.control as usize;
@@ -53,11 +40,9 @@ impl Mapper546 {
             prg & !1 | bank
         }
     }
-
     fn wram_open_bus(&self) -> bool {
         (self.mmc1.core.prg & 0x10) != 0
     }
-
     fn prg_offset(&self, address: u16) -> usize {
         if (self.outer_bank & 0x10) != 0 {
             let bank = if address >= 0xC000 { 1 } else { 0 };
@@ -69,18 +54,15 @@ impl Mapper546 {
             (self.outer_bank as usize * 0x4000) + (address as usize & 0x3FFF)
         }
     }
-
     fn chr_offset(&self, address: u16) -> usize {
         address as usize & 0x1FFF
     }
 }
-
 impl Mapper for Mapper546 {
     fn reset(&mut self) {
         self.outer_bank = 0;
         self.mmc1.reset();
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             if cart.prg_rom.is_empty() {
@@ -102,7 +84,6 @@ impl Mapper for Mapper546 {
             FetchResult { data: 0, driven: false }
         }
     }
-
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x8000 {
             if address < 0xA000 && (address & 0x0F00) == 0 {
@@ -117,11 +98,9 @@ impl Mapper for Mapper546 {
             }
         }
     }
-
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         self.mmc1.mirror_nametable(cart, address)
     }
-
     fn fetch_ppu(
         &mut self,
         _prg_rom: &[u8],
@@ -138,7 +117,6 @@ impl Mapper for Mapper546 {
     ) -> (u8, u16) {
         let address = (ppu_address_bus & 0x3F00) | ppu_octal_latch as u16;
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
-
         if address < 0x2000 {
             let offset = self.chr_offset(address);
             let byte = if using_chr_ram {
@@ -151,10 +129,8 @@ impl Mapper for Mapper546 {
             let mirrored = mmc1_mirror_for_ppu(&self.mmc1.core, nametable_horizontal_mirroring, address);
             new_addr_bus |= vram[(mirrored & 0x7FF) as usize] as u16;
         }
-
         (new_addr_bus as u8, new_addr_bus)
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if address < 0x2000 {
             if cart.using_chr_ram && !cart.chr_ram.is_empty() && (self.outer_bank & 0x80) == 0 {
@@ -167,21 +143,17 @@ impl Mapper for Mapper546 {
             vram[(mirrored & 0x7FF) as usize] = data;
         }
     }
-
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         self.mmc1.cpu_clock_rise(ppu_address_bus)
     }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         self.mmc1.cpu_clock(cycles)
     }
-
     fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8> {
         let mut state = self.mmc1.save_mapper_registers(cart);
         state.push(self.outer_bank);
         state
     }
-
     fn load_mapper_registers(&mut self, cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let mut idx = self.mmc1.load_mapper_registers(cart, state, start);
         if idx < state.len() {

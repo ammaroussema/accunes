@@ -1,17 +1,11 @@
-// Mapper 382 - 830928C (multicart mixed latch)
-//
-// Reference: NintendulatorNRS-DBG multicart mixed latch/mapper382.cpp
-
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper, mirror_h_or_v};
-
 pub struct Mapper382 {
     latch_addr: u16,
     latch_data: u8,
     addr_locked: u16,
     data_locked: u8,
 }
-
 impl Mapper382 {
     pub fn new() -> Self {
         Self {
@@ -21,11 +15,9 @@ impl Mapper382 {
             data_locked: 0,
         }
     }
-
     fn is_32k_mode(&self) -> bool {
         (self.latch_addr & 0x08) != 0
     }
-
     fn prg_read(&self, cart: &Cartridge, address: u16) -> u8 {
         let prg_len = cart.prg_rom.len();
         if prg_len == 0 {
@@ -44,7 +36,6 @@ impl Mapper382 {
         }
     }
 }
-
 impl Mapper for Mapper382 {
     fn reset(&mut self) {
         self.latch_addr = 0;
@@ -52,7 +43,6 @@ impl Mapper for Mapper382 {
         self.addr_locked = 0;
         self.data_locked = 0;
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             FetchResult {
@@ -66,7 +56,6 @@ impl Mapper for Mapper382 {
             }
         }
     }
-
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x8000 {
             let rom_data = self.prg_read(cart, address);
@@ -85,11 +74,9 @@ impl Mapper for Mapper382 {
             }
         }
     }
-
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
         mirror_h_or_v((self.latch_addr & 0x10) != 0, address)
     }
-
     fn fetch_ppu(
         &mut self,
         _prg_rom: &[u8],
@@ -119,7 +106,6 @@ impl Mapper for Mapper382 {
         }
         (new_addr_bus as u8, new_addr_bus)
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if address < 0x2000 {
             if !cart.chr_ram.is_empty() {
@@ -131,7 +117,6 @@ impl Mapper for Mapper382 {
             vram[(mir & 0x7FF) as usize] = data;
         }
     }
-
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
         let mut state = self.latch_addr.to_le_bytes().to_vec();
         state.push(self.latch_data);
@@ -139,7 +124,6 @@ impl Mapper for Mapper382 {
         state.extend_from_slice(&locked.to_le_bytes());
         state
     }
-
     fn load_mapper_registers(&mut self, _cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let mut p = start;
         if p + 2 <= state.len() {

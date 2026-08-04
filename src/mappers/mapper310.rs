@@ -1,33 +1,27 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
-
 pub struct Mapper310 {
     reg: [u8; 3],
 }
-
 impl Mapper310 {
     pub fn new() -> Self {
         Self { reg: [0; 3] }
     }
 }
-
 impl Mapper for Mapper310 {
     fn reset(&mut self) {
         self.reg = [0; 3];
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let prg = (self.reg[0] as usize) & 0x3F | ((self.reg[1] as usize) << 4) & !0x3F;
             let mode = self.reg[1] & 3;
             let (offset, _size) = match mode {
                 0 => {
-                    // 32KB at $8000
                     let bank = prg >> 1;
                     (bank * 0x8000 + (address as usize - 0x8000), 0x8000)
                 }
                 1 => {
-                    // 16KB at $8000, 16KB fixed at $C000
                     if address < 0xC000 {
                         (prg * 0x4000 + (address as usize - 0x8000), 0x4000)
                     } else {
@@ -35,13 +29,11 @@ impl Mapper for Mapper310 {
                     }
                 }
                 2 => {
-                    // four 8KB banks
                     let bank = prg << 1 | ((self.reg[0] >> 7) as usize);
                     let _slot = (address as usize - 0x8000) / 0x2000;
                     (bank * 0x2000 + (address as usize & 0x1FFF), 0x2000)
                 }
                 _ => {
-                    // 16KB at both $8000 and $C000, same
                     if address < 0xC000 {
                         (prg * 0x4000 + (address as usize - 0x8000), 0x4000)
                     } else {
@@ -63,7 +55,6 @@ impl Mapper for Mapper310 {
             FetchResult { data: 0, driven: false }
         }
     }
-
     fn store_prg(&mut self, _cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x8000 && address < 0xC000 {
             self.reg[0] = data;
@@ -72,7 +63,6 @@ impl Mapper for Mapper310 {
             self.reg[2] = data;
         }
     }
-
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         if cart.alternative_nametable_arrangement {
             return address;
@@ -83,7 +73,6 @@ impl Mapper for Mapper310 {
             address & 0x37FF
         }
     }
-
     fn fetch_ppu(
         &mut self,
         _prg_rom: &[u8],
@@ -128,7 +117,6 @@ impl Mapper for Mapper310 {
         }
         (new_addr_bus as u8, new_addr_bus)
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if (0x2000..0x3F00).contains(&address) {
             let mirrored = self.mirror_nametable(cart, address);
@@ -141,7 +129,6 @@ impl Mapper for Mapper310 {
             }
         }
     }
-
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
         let mut state = Vec::new();
         for r in &self.reg {
@@ -149,7 +136,6 @@ impl Mapper for Mapper310 {
         }
         state
     }
-
     fn load_mapper_registers(&mut self, _cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let mut p = start;
         for r in self.reg.iter_mut() {

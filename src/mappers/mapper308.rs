@@ -1,6 +1,5 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
-
 pub struct Mapper308 {
     prg: [u8; 2],
     chr: [u16; 8],
@@ -11,7 +10,6 @@ pub struct Mapper308 {
     irq_counter_high: u8,
     irq_ack: bool,
 }
-
 impl Mapper308 {
     pub fn new() -> Self {
         Self {
@@ -26,7 +24,6 @@ impl Mapper308 {
         }
     }
 }
-
 impl Mapper for Mapper308 {
     fn reset(&mut self) {
         self.prg = [0, 1];
@@ -38,7 +35,6 @@ impl Mapper for Mapper308 {
         self.irq_counter_high = 0;
         self.irq_ack = false;
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0xE000 {
             let bank = (0xFF & 0x1F) as usize;
@@ -88,7 +84,6 @@ impl Mapper for Mapper308 {
             FetchResult { data: 0, driven: false }
         }
     }
-
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x6000 && address < 0x8000 {
             let offset = (address as usize & 0x1FFF) % cart.prg_ram.len().max(1);
@@ -96,7 +91,6 @@ impl Mapper for Mapper308 {
                 cart.prg_ram[offset] = data;
             }
         } else if address >= 0xF000 {
-            // VRC24 IRQ write ($F000-$FFFF)
             let a0 = (address & 1) != 0;
             let a1 = (address & 2) != 0;
             let reg = ((a1 as u8) << 1) | (a0 as u8);
@@ -111,7 +105,6 @@ impl Mapper for Mapper308 {
                 _ => {}
             }
         } else if address >= 0xB000 && address < 0xF000 {
-            // VRC24 CHR write ($B000-$EFFF)
             let bank = ((address >> 12) - 0xB) as usize;
             let a0 = (address & 1) != 0;
             let a1 = (address & 2) != 0;
@@ -124,7 +117,6 @@ impl Mapper for Mapper308 {
                 }
             }
         } else if address >= 0x9000 && address < 0xA000 {
-            // VRC24 misc write ($9000-$9FFF) - mirroring and misc
             let a0 = (address & 1) != 0;
             let a1 = (address & 2) != 0;
             let reg = ((a1 as u8) << 1) | (a0 as u8);
@@ -136,27 +128,23 @@ impl Mapper for Mapper308 {
                 _ => {}
             }
         } else if address >= 0xA000 && address < 0xB000 {
-            // VRC24 PRG write - $A000-$AFFF = prg[1]
             self.prg[1] = data;
         } else if address >= 0x8000 && address < 0x9000 {
-            // VRC24 PRG write - $8000-$8FFF = prg[0]
             self.prg[0] = data;
         }
     }
-
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         if cart.alternative_nametable_arrangement {
             return address;
         }
         match self.mirroring & 3 {
-            0 => address & 0x37FF,                     // vertical
-            1 => (address & 0x33FF) | ((address & 0x0800) >> 1), // horizontal
-            2 => 0x2000 | (address & 0x3FF),           // single screen (A)
-            3 => 0x2400 | (address & 0x3FF),           // single screen (B)
+            0 => address & 0x37FF,
+            1 => (address & 0x33FF) | ((address & 0x0800) >> 1),
+            2 => 0x2000 | (address & 0x3FF),
+            3 => 0x2400 | (address & 0x3FF),
             _ => address & 0x37FF,
         }
     }
-
     fn fetch_ppu(
         &mut self,
         _prg_rom: &[u8],
@@ -198,7 +186,6 @@ impl Mapper for Mapper308 {
         }
         (new_addr_bus as u8, new_addr_bus)
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if (0x2000..0x3F00).contains(&address) {
             let mirrored = self.mirror_nametable(cart, address);
@@ -210,7 +197,6 @@ impl Mapper for Mapper308 {
             }
         }
     }
-
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if self.irq_enabled {
             self.irq_counter_low = self.irq_counter_low.wrapping_add(1);
@@ -223,13 +209,11 @@ impl Mapper for Mapper308 {
         }
         false
     }
-
     fn take_irq_ack(&mut self) -> bool {
         let ack = self.irq_ack;
         self.irq_ack = false;
         ack
     }
-
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
         let mut state = Vec::new();
         state.push(self.prg[0]);
@@ -244,7 +228,6 @@ impl Mapper for Mapper308 {
         state.push(self.irq_counter_high);
         state
     }
-
     fn load_mapper_registers(&mut self, _cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let mut p = start;
         self.prg[0] = state.get(p).copied().unwrap_or(0); p += 1;

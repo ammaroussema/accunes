@@ -1,19 +1,11 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
 use crate::mappers::mmc1::{mmc1_mirror_for_ppu, MapperMMC1, Mmc1Config, Mmc1Variant};
-
-// iNES mapper 483 ("3927"): a 7-in-1 multicart of MMC1 boards. A `game`
-// counter is incremented on each reset (and cleared on power cycle), cycling
-// 0..6. Games 0-2 use the MMC1B PRG/CHR registers; games 3-5 use a fixed
-// 32K PRG bank plus a bus-latch CHR select with vertical mirroring; game 6
-// uses a fixed 32K PRG bank with the MMC1 CHR registers.
-
 pub struct Mapper483 {
     mmc1: MapperMMC1,
     game: u8,
     latch: u8,
 }
-
 impl Mapper483 {
     pub fn new(
         header: &[u8],
@@ -37,7 +29,6 @@ impl Mapper483 {
             latch: 0,
         }
     }
-
     fn mmc1_prg_raw_bank(&self, bank: usize) -> usize {
         let prg = self.mmc1.core.prg as usize;
         let control = self.mmc1.core.control as usize;
@@ -56,7 +47,6 @@ impl Mapper483 {
             result & 0x0F
         }
     }
-
     fn mmc1_chr_raw_bank(&self, slot: usize) -> usize {
         let control = self.mmc1.core.control;
         if (control & 0x10) != 0 {
@@ -68,7 +58,6 @@ impl Mapper483 {
             (self.mmc1.core.chr0 as usize & !1) | slot
         }
     }
-
     fn lookup_prg(&self, cart: &Cartridge, address: u16) -> usize {
         let offset = match self.game {
             0 | 1 | 2 => {
@@ -90,7 +79,6 @@ impl Mapper483 {
         let len = if cart.prg_rom.is_empty() { 1 } else { cart.prg_rom.len() };
         offset % len
     }
-
     fn lookup_chr_offset(&self, address: u16, chr_len: usize) -> usize {
         let addr = address as usize;
         let slot = (addr >> 12) & 0x03;
@@ -114,7 +102,6 @@ impl Mapper483 {
         let chr_len = chr_len.max(1);
         offset % chr_len
     }
-
     fn chr_byte(&self, chr_rom: &[u8], chr_ram: &[u8], using_chr_ram: bool, offset: usize) -> u8 {
         let len = if using_chr_ram { chr_ram.len() } else { chr_rom.len() };
         if len == 0 {
@@ -126,20 +113,17 @@ impl Mapper483 {
         }
     }
 }
-
 impl Mapper for Mapper483 {
     fn reset(&mut self) {
         self.game = (self.game + 1) % 7;
         self.latch = 0;
         self.mmc1.reset();
     }
-
     fn reset_power_cycle(&mut self) {
         self.game = 0;
         self.latch = 0;
         self.mmc1.reset();
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             if cart.prg_rom.is_empty() {
@@ -151,7 +135,6 @@ impl Mapper for Mapper483 {
             self.mmc1.fetch_prg(cart, address)
         }
     }
-
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x8000 {
             match self.game {
@@ -163,7 +146,6 @@ impl Mapper for Mapper483 {
             self.mmc1.store_prg(cart, address, data);
         }
     }
-
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         if self.game == 3 || self.game == 4 || self.game == 5 {
             address & 0x37FF
@@ -171,7 +153,6 @@ impl Mapper for Mapper483 {
             self.mmc1.mirror_nametable(cart, address)
         }
     }
-
     fn fetch_ppu(
         &mut self,
         _prg_rom: &[u8],
@@ -188,7 +169,6 @@ impl Mapper for Mapper483 {
     ) -> (u8, u16) {
         let address = (ppu_address_bus & 0x3F00) | ppu_octal_latch as u16;
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
-
         if address < 0x2000 {
             let chr_len = if using_chr_ram { chr_ram.len() } else { chr_rom.len() };
             let offset = self.lookup_chr_offset(address, chr_len);
@@ -202,10 +182,8 @@ impl Mapper for Mapper483 {
             };
             new_addr_bus |= vram[(mirrored & 0x7FF) as usize] as u16;
         }
-
         (new_addr_bus as u8, new_addr_bus)
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if address < 0x2000 {
             if cart.using_chr_ram && !cart.chr_ram.is_empty() {
@@ -217,22 +195,18 @@ impl Mapper for Mapper483 {
             vram[(mirrored & 0x7FF) as usize] = data;
         }
     }
-
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         self.mmc1.cpu_clock_rise(ppu_address_bus)
     }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         self.mmc1.cpu_clock(cycles)
     }
-
     fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8> {
         let mut state = self.mmc1.save_mapper_registers(cart);
         state.push(self.game);
         state.push(self.latch);
         state
     }
-
     fn load_mapper_registers(&mut self, cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let mut idx = self.mmc1.load_mapper_registers(cart, state, start);
         if idx < state.len() {

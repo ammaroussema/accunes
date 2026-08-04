@@ -1,23 +1,9 @@
-// Mapper 406 - Impact Soft (MMC3-based with AMD/Macronix flash ROM)
-//
-// Reference: NintendulatorNRS-DBG MMC3-based/mapper406.cpp
-//
-// The MMC3 core (AX5202P type) banks PRG/CHR, while the flash chip is the PRG
-// ROM itself: the flash data aliases the PRG ROM data in place, so program and
-// sector/chip erase operations modify the running ROM directly. Every $8000+
-// read goes through the flash (software ID and toggle-bit states), and every
-// $8000+ write feeds the flash command state machine plus the MMC3 registers.
-// The MMC3 register decode is scrambled per submapper: submapper 1 swaps the
-// $8000/$E000 register regions and uses A0, submapper 0 uses A1 as A0.
-
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
 use crate::mappers::mmc3::{MapperMMC3, Mmc3Config};
-
 const SECTOR_SIZE: usize = 65536;
 const MAGIC_ADDR1: u16 = 0x5555;
 const MAGIC_ADDR2: u16 = 0x2AAA;
-
 pub struct Mapper406 {
     mmc3: MapperMMC3,
     sub_mapper_1: bool,
@@ -27,7 +13,6 @@ pub struct Mapper406 {
     time_out: u32,
     irq_clear_pending: bool,
 }
-
 impl Mapper406 {
     pub fn new(submapper_id: u8, header: &[u8], rom: &[u8], rom_name: &str) -> Self {
         let chr_size = if header.len() > 5 { header[5] } else { 0 };
@@ -45,9 +30,6 @@ impl Mapper406 {
             irq_clear_pending: false,
         }
     }
-
-    // Current 8KB PRG bank for the given $8000+ address, masked with the 0x3F
-    // sync AND (MMC3::syncPRG(0x3F, 0) in the reference).
     fn prg_bank8(&self, cart: &Cartridge, address: u16) -> usize {
         let len = cart.prg_rom.len();
         if len == 0 {
@@ -67,19 +49,12 @@ impl Mapper406 {
         };
         mmc3_bank & 0x3F
     }
-
-    // Reference writeFlash address reconstruction: the low two bits of the PRG
-    // bank drive A14/A13 of the flash and bit 12 of the CPU address drives A12,
-    // so the command addresses ($5555/$2AAA) are recognized regardless of the
-    // currently-mapped 8KB window.
     fn flash_addr(&self, cart: &Cartridge, address: u16) -> u16 {
         let bank = self.prg_bank8(cart, address);
         (address & 0x1FFF) | (((bank & 3) as u16) << 13)
     }
-
     fn flash_write(&mut self, cart: &mut Cartridge, addr: u16, offset: usize, val: u8) {
         match self.flash_state {
-            // command start
             0x01 => {
                 if addr == MAGIC_ADDR2 && val == 0x55 {
                     self.flash_state = 0x02;
@@ -90,7 +65,6 @@ impl Mapper406 {
                     self.flash_state = val;
                 }
             }
-            // sector or chip erase
             0x80 => {
                 if addr == MAGIC_ADDR1 && val == 0xAA {
                     self.flash_state = 0x81;
@@ -103,7 +77,6 @@ impl Mapper406 {
             }
             0x82 => {
                 if val == 0x30 {
-                    // sector erase
                     let len = cart.prg_rom.len();
                     if offset < len {
                         let start = offset & !(SECTOR_SIZE - 1);
@@ -114,7 +87,6 @@ impl Mapper406 {
                         self.time_out = SECTOR_SIZE as u32;
                     }
                 } else if val == 0x10 && addr == MAGIC_ADDR1 {
-                    // chip erase
                     for b in cart.prg_rom.iter_mut() {
                         *b = 0xFF;
                     }
@@ -123,13 +95,11 @@ impl Mapper406 {
                     self.flash_state = 0;
                 }
             }
-            // software ID
             0x90 => {
                 if val == 0xF0 {
                     self.flash_state = 0;
                 }
             }
-            // byte program
             0xA0 => {
                 let len = cart.prg_rom.len();
                 if offset < len {
@@ -144,10 +114,6 @@ impl Mapper406 {
             }
         }
     }
-
-    // Translate a CPU $8000+ address into the MMC3 register address: submapper
-    // 1 swaps the $8000 and $E000 register regions (bank ^ 6) and keeps A0;
-    // submapper 0 keeps the region and uses A1 as A0.
     fn mmc3_addr(&self, address: u16) -> u16 {
         if self.sub_mapper_1 {
             let region = match address & 0xE000 {
@@ -161,16 +127,13 @@ impl Mapper406 {
         }
     }
 }
-
 impl Mapper for Mapper406 {
     fn reset(&mut self) {
         self.mmc3.reset();
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             if self.flash_state == 0x90 {
-                // software ID
                 let data = if address & 1 != 0 {
                     self.model_id
                 } else {
@@ -203,7 +166,6 @@ impl Mapper for Mapper406 {
             }
         }
     }
-
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address < 0x8000 {
             self.mmc3.store_prg(cart, address, data);
@@ -218,17 +180,14 @@ impl Mapper for Mapper406 {
             self.irq_clear_pending = true;
         }
     }
-
     fn take_irq_ack(&mut self) -> bool {
         let ack = self.irq_clear_pending;
         self.irq_clear_pending = false;
         ack
     }
-
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         self.mmc3.mirror_nametable(cart, address)
     }
-
     fn fetch_ppu(
         &mut self,
         prg_rom: &[u8],
@@ -257,11 +216,9 @@ impl Mapper for Mapper406 {
             vram,
         )
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         self.mmc3.store_ppu(cart, address, data, vram);
     }
-
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -273,11 +230,9 @@ impl Mapper for Mapper406 {
     ) -> bool {
         self.mmc3.ppu_clock(ppu_address_bus, ppu_a12_prev, scanline, dot, ppu_sprite_x16, rendering_on)
     }
-
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         self.mmc3.cpu_clock_rise(ppu_address_bus)
     }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.time_out > 0 {
             self.time_out = self.time_out.saturating_sub(cycles as u32);
@@ -287,14 +242,12 @@ impl Mapper for Mapper406 {
         }
         false
     }
-
     fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8> {
         let mut state = self.mmc3.save_mapper_registers(cart);
         state.push(self.flash_state);
         state.extend_from_slice(&self.time_out.to_le_bytes());
         state
     }
-
     fn load_mapper_registers(&mut self, cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let mut p = self.mmc3.load_mapper_registers(cart, state, start);
         if p + 5 <= state.len() {

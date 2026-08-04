@@ -1,16 +1,10 @@
-// Mapper 377 - 晶太 EL860947C (MMC3 + AX5202P outer bank, lockable)
-//
-// Reference: NintendulatorNRS-DBG MMC3-based/mapper377.cpp
-
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
 use crate::mappers::mmc3::{mmc3_chr_bank, MapperMMC3, Mmc3Config};
-
 pub struct Mapper377 {
     mmc3: MapperMMC3,
     outer_bank: u8,
 }
-
 impl Mapper377 {
     pub fn new(header: &[u8], _rom: &[u8], _rom_name: &str) -> Self {
         let chr_size = if header.len() > 5 { header[5] } else { 0 };
@@ -28,12 +22,10 @@ impl Mapper377 {
             outer_bank: 0,
         }
     }
-
     fn bank(&self) -> usize {
         let ob = self.outer_bank as usize;
         ((ob & 0x20) >> 2) | (ob & 0x06)
     }
-
     fn mmc3_prg_bank(&self, cart: &Cartridge, address: u16) -> usize {
         let prg_len_8k = cart.prg_rom.len() / 0x2000;
         let last = prg_len_8k.saturating_sub(1);
@@ -51,15 +43,12 @@ impl Mapper377 {
         }
     }
 }
-
 impl Mapper for Mapper377 {
         fn reset(&mut self) {}
-
     fn reset_power_cycle(&mut self) {
         self.outer_bank = 0;
         self.mmc3.reset();
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x6000 && address < 0x8000 {
             return FetchResult { data: 0, driven: false };
@@ -77,7 +66,6 @@ impl Mapper for Mapper377 {
         }
         FetchResult { data: 0, driven: false }
     }
-
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x6000 && address < 0x8000 {
             if (self.outer_bank & 0x80) == 0 {
@@ -87,11 +75,9 @@ impl Mapper for Mapper377 {
         }
         self.mmc3.store_prg(cart, address, data);
     }
-
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         self.mmc3.mirror_nametable(cart, address)
     }
-
     fn fetch_ppu(
         &mut self,
         _prg_rom: &[u8],
@@ -142,7 +128,6 @@ impl Mapper for Mapper377 {
         }
         (new_addr_bus as u8, new_addr_bus)
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if address < 0x2000 && cart.using_chr_ram {
             let chr_or = self.bank() << 6;
@@ -167,7 +152,6 @@ impl Mapper for Mapper377 {
             vram[(mirrored & 0x7FF) as usize] = data;
         }
     }
-
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -186,21 +170,17 @@ impl Mapper for Mapper377 {
             rendering_on,
         )
     }
-
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         self.mmc3.cpu_clock_rise(ppu_address_bus)
     }
-
     fn take_irq_ack(&mut self) -> bool {
         self.mmc3.take_irq_ack()
     }
-
     fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8> {
         let mut state = self.mmc3.save_mapper_registers(cart);
         state.push(self.outer_bank);
         state
     }
-
     fn load_mapper_registers(&mut self, cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let p = self.mmc3.load_mapper_registers(cart, state, start);
         if p < state.len() {

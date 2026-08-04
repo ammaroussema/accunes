@@ -1,23 +1,19 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
-
 pub struct Mapper309 {
     prg: u8,
     mirroring: bool,
 }
-
 impl Mapper309 {
     pub fn new() -> Self {
         Self { prg: 0, mirroring: false }
     }
 }
-
 impl Mapper for Mapper309 {
     fn reset(&mut self) {
         self.prg = 0;
         self.mirroring = false;
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0xE000 {
             let offset = (255 * 0x2000 + (address as usize & 0x1FFF)) % cart.prg_rom.len().max(1);
@@ -55,7 +51,6 @@ impl Mapper for Mapper309 {
             FetchResult { data: 0, driven: false }
         }
     }
-
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x8000 && address < 0x9000 {
             self.prg = data;
@@ -68,13 +63,10 @@ impl Mapper for Mapper309 {
             }
         }
     }
-
     fn handle_cpu_write(&mut self, address: u16, _data: u8) {
         if (0x4020..=0x40FF).contains(&address) {
-            // FDS audio writes - not implemented
         }
     }
-
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         if cart.alternative_nametable_arrangement {
             return address;
@@ -85,7 +77,6 @@ impl Mapper for Mapper309 {
             address & 0x37FF
         }
     }
-
     fn fetch_ppu(
         &mut self,
         _prg_rom: &[u8],
@@ -120,7 +111,6 @@ impl Mapper for Mapper309 {
         }
         (new_addr_bus as u8, new_addr_bus)
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if (0x2000..0x3F00).contains(&address) {
             let mirrored = self.mirror_nametable(cart, address);
@@ -132,11 +122,9 @@ impl Mapper for Mapper309 {
             }
         }
     }
-
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
         vec![self.prg, if self.mirroring { 1 } else { 0 }]
     }
-
     fn load_mapper_registers(&mut self, _cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let mut p = start;
         self.prg = state.get(p).copied().unwrap_or(0); p += 1;

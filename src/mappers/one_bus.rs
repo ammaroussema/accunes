@@ -1,21 +1,14 @@
-//! Shared OneBus ASIC core (NintendulatorNRS `h_OneBus.cpp`).
-//! Used by OneBus mappers 256, 270, 296, 407, 408, 419, 423, 424, 425, 426, 427, 436, 496.
-
 use crate::mappers::one_bus_gpio::GpioPort;
-
 pub const VB0S_TABLE: [u8; 8] = [0, 1, 2, 0, 3, 4, 5, 1];
-
 pub fn is_onebus_mapper(mapper: u16) -> bool {
     matches!(
         mapper,
         256 | 270 | 296 | 407 | 408 | 419 | 423 | 424 | 425 | 426 | 427 | 436 | 496
     )
 }
-
 pub fn descramble_chr_byte(val: u8) -> u8 {
     (val << 4 & 0x90) | (val >> 4 & 0x09) | (val << 1 & 0x44) | (val >> 1 & 0x22)
 }
-
 fn next_pow2(n: usize) -> usize {
     if n == 0 {
         return 1;
@@ -26,7 +19,6 @@ fn next_pow2(n: usize) -> usize {
     }
     p
 }
-
 fn rom_read(rom: &[u8], offset: usize) -> u8 {
     if rom.is_empty() {
         0
@@ -34,8 +26,6 @@ fn rom_read(rom: &[u8], offset: usize) -> u8 {
         rom[offset % rom.len()]
     }
 }
-
-/// PRG/CHR window masks applied on top of the base OneBus banking formulas.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct OneBusBanking {
     pub prg_and: u16,
@@ -43,7 +33,6 @@ pub struct OneBusBanking {
     pub chr_and: usize,
     pub chr_or: usize,
 }
-
 impl OneBusBanking {
     pub const MAPPER256: Self = Self {
         prg_and: 0x0FFF,
@@ -51,7 +40,6 @@ impl OneBusBanking {
         chr_and: 0x7FFF,
         chr_or: 0,
     };
-
     pub fn mapper270(submapper: u8, reg2c: u8) -> Self {
         let prg_or = prg_or_from_412c(submapper, reg2c);
         Self {
@@ -62,7 +50,6 @@ impl OneBusBanking {
         }
     }
 }
-
 pub fn prg_or_from_412c(submapper: u8, reg2c: u8) -> u16 {
     match submapper {
         1 => {
@@ -101,29 +88,24 @@ pub fn prg_or_from_412c(submapper: u8, reg2c: u8) -> u16 {
         }
     }
 }
-
 #[allow(dead_code)]
 pub fn prg_or_from_296_regs(reg2c: u8, reg2e: u8) -> u16 {
     (if reg2c & 1 != 0 { 0x1000 } else { 0 })
         | (if reg2c & 4 != 0 { 0x2000 } else { 0 })
         | (if reg2e & 1 != 0 { 0x4000 } else { 0 })
 }
-
 #[allow(dead_code)]
 pub fn chr_or_from_296_regs(reg2c: u8, reg2e: u8) -> usize {
     (if reg2c & 2 != 0 { 0x8000 } else { 0 })
         | (if reg2c & 8 != 0 { 0x10000 } else { 0 })
         | (if reg2e & 1 != 0 { 0x20000 } else { 0 })
 }
-
-/// Optional submapper register remapping (mapper 256/419).
 #[derive(Clone, Copy, Default)]
 pub struct OneBusMangle {
     pub ppu: [u8; 6],
     pub cpu: [u8; 4],
     pub mmc3: [u8; 8],
 }
-
 impl OneBusMangle {
     pub const IDENTITY: Self = Self {
         ppu: [0, 1, 2, 3, 4, 5],
@@ -131,7 +113,6 @@ impl OneBusMangle {
         mmc3: [0, 1, 2, 3, 4, 5, 6, 7],
     };
 }
-
 pub struct OneBus {
     pub reg2000: [u8; 0x100],
     pub reg4100: [u8; 0x100],
@@ -159,7 +140,6 @@ pub struct OneBus {
     pub alu_operand67: u16,
     pub alu_busy: u8,
 }
-
 impl OneBus {
     pub fn new(prg_rom: &[u8], chr_rom: &[u8], banking: OneBusBanking) -> Self {
         let raw_chr = if chr_rom.is_empty() {
@@ -172,7 +152,6 @@ impl OneBus {
         let mut chr_high = vec![0u8; chr_size >> 1];
         let mut chr_low16 = vec![0u8; chr_size >> 1];
         let mut chr_high16 = vec![0u8; chr_size >> 1];
-
         for i in 0..chr_size.min(raw_chr.len()) {
             let shifted = (i & 0xF) | ((i >> 1) & !0xF);
             if i & 0x10 != 0 {
@@ -182,7 +161,6 @@ impl OneBus {
             } else if shifted < chr_low.len() {
                 chr_low[shifted] = raw_chr[i];
             }
-
             if i & 1 != 0 {
                 if (i >> 1) < chr_high16.len() {
                     chr_high16[i >> 1] = raw_chr[i];
@@ -191,7 +169,6 @@ impl OneBus {
                 chr_low16[i >> 1] = raw_chr[i];
             }
         }
-
         let mut ob = OneBus {
             reg2000: [0; 0x100],
             reg4100: [0; 0x100],
@@ -222,7 +199,6 @@ impl OneBus {
         ob.reset();
         ob
     }
-
     pub fn reset(&mut self) {
         self.reg2000 = [0; 0x100];
         self.reg4100 = [0; 0x100];
@@ -262,57 +238,43 @@ impl OneBus {
             g.reset();
         }
     }
-
     pub fn ps(&self) -> u8 {
         self.reg4100[0x0B] & 7
     }
-
     pub fn fwen(&self) -> bool {
         (self.reg4100[0x0B] & 0x08) != 0
     }
-
     pub fn comr6(&self) -> bool {
         (self.reg4100[0x05] & 0x40) != 0
     }
-
     pub fn comr7(&self) -> bool {
         (self.reg4100[0x05] & 0x80) != 0
     }
-
     pub fn pq2en(&self) -> bool {
         (self.reg4100[0x0B] & 0x40) != 0
     }
-
     pub fn tsynen(&self) -> bool {
         (self.reg4100[0x0B] & 0x80) != 0
     }
-
     pub fn bk16en(&self) -> bool {
         (self.reg2000[0x10] & 0x02) != 0
     }
-
     pub fn use_4bpp_chr(&self) -> bool {
         let flags = self.reg2000[0x10];
         (flags & 0x86) != 0
     }
-
     pub fn hv(&self) -> u8 {
         self.reg4100[0x06] & 1
     }
-
     pub fn mirror_nametable_address(&self, address: u16) -> u16 {
         if (self.reg4100[0x06] & 2) != 0 {
-            // One-screen mirroring (all nametables mapped to 0x2000 page 0)
             address & 0x23FF
         } else if (self.reg4100[0x06] & 1) != 0 {
-            // HV == 1: Horizontal Mirroring (top/bottom separate, left/right mirrored)
             (address & 0x33FF) | ((address & 0x0800) >> 1)
         } else {
-            // HV == 0: Vertical Mirroring (left/right separate, top/bottom mirrored)
             address & 0x37FF
         }
     }
-
     pub fn get_prg_bank(&self, mut slot: usize) -> usize {
         let ps = self.ps();
         let prg_and = if ps == 7 { 0xFFu16 } else { 0x3Fu16 >> ps };
@@ -338,7 +300,6 @@ impl OneBus {
         let bank = ((pq & prg_and | prg_or) as usize) + self.relative_8k;
         ((bank as u16 & self.banking.prg_and) | self.banking.prg_or) as usize
     }
-
     #[allow(dead_code)]
     pub fn get_prg16_bank(&self, bank0: usize, slot: usize) -> usize {
         let ps = self.ps();
@@ -349,23 +310,18 @@ impl OneBus {
         let bank = (sub & prg_and | prg_or) as usize;
         ((bank as u16 & self.banking.prg_and) | self.banking.prg_or) as usize
     }
-
     pub fn vrwb(&self) -> u8 {
         self.reg2000[0x18] & 0x07
     }
-
     pub fn bkpage(&self) -> bool {
         (self.reg2000[0x18] & 0x08) != 0
     }
-
     pub fn bkexten(&self) -> bool {
         (self.reg2000[0x10] & 0x10) != 0
     }
-
     pub fn spexten(&self) -> bool {
         (self.reg2000[0x10] & 0x08) != 0
     }
-
     pub fn chr_bank_1k_ext(&self, slot: usize, is_bg: bool, is_sprite: bool) -> usize {
         let vb0s = (self.reg2000[0x1A] & 7) as usize;
         let shift = VB0S_TABLE[vb0s] as u16;
@@ -373,7 +329,6 @@ impl OneBus {
         let rv6 = (self.reg2000[0x1A] & 0xF8) as u16;
         let mut chr_or = rv6 & !chr_and;
         let extended = self.bkexten() || self.spexten();
-
         let bank_reg = match slot & 7 {
             0 => self.reg2000[0x16] & !1,
             1 => self.reg2000[0x16] | 1,
@@ -385,7 +340,6 @@ impl OneBus {
             7 => self.reg2000[0x15],
             _ => 0,
         };
-
         let va21 = (self.reg4100[0x00] & 0x0F) as u16;
         let bank_val = if extended {
             let eva = if is_bg {
@@ -404,11 +358,9 @@ impl OneBus {
         let bank = bank_val + (self.relative_8k << 3);
         ((bank & self.banking.chr_and) | self.banking.chr_or) as usize
     }
-
     pub fn chr_bank_1k(&self, slot: usize) -> usize {
         self.chr_bank_1k_ext(slot, false, false)
     }
-
     pub fn fetch_prg_byte(&self, prg_rom: &[u8], address: u16) -> u8 {
         if address < 0x8000 {
             return 0;
@@ -418,7 +370,6 @@ impl OneBus {
         let offset = bank * 0x2000 + (address as usize & 0x1FFF);
         rom_read(prg_rom, offset)
     }
-
     fn ensure_chr_planes(&mut self, prg_rom: &[u8], chr_rom: &[u8]) {
         let raw_chr = if chr_rom.is_empty() { prg_rom } else { chr_rom };
         if raw_chr.len() == self.chr_source_len {
@@ -439,7 +390,6 @@ impl OneBus {
             } else if shifted < self.chr_low.len() {
                 self.chr_low[shifted] = raw_chr[i];
             }
-
             if i & 1 != 0 {
                 if (i >> 1) < self.chr_high16.len() {
                     self.chr_high16[i >> 1] = raw_chr[i];
@@ -450,17 +400,6 @@ impl OneBus {
         }
         self.chr_source_len = raw_chr.len();
     }
-
-    /// Fetch one byte from CHR for VT03/OneBus.
-    /// Maps to the reference `setCHR` + `syncCHR` logic in h_OneBus.cpp.
-    ///
-    /// The PPU issues fetches in 6 address windows:
-    ///   0x0000-0x1FFF  ($2007 read/write, chrLow  window, slots 0-7)
-    ///   0x4000-0x5FFF  ($2007 read/write, chrHigh window, slots 0-7)
-    ///   0x8000-0x9FFF  BG  chrLow  window  (is_bg && !high_plane)
-    ///   0xA000-0xBFFF  SPR chrLow  window  (is_sprite && !high_plane)
-    ///   0xC000-0xDFFF  BG  chrHigh window  (is_bg && high_plane)
-    ///   0xE000-0xFFFF  SPR chrHigh window  (is_sprite && high_plane)
     pub fn fetch_chr_byte_ext(
         &mut self,
         prg_rom: &[u8],
@@ -472,27 +411,20 @@ impl OneBus {
         is_sprite: bool,
     ) -> u8 {
         self.ensure_chr_planes(prg_rom, chr_rom);
-
-        // Only CHR address regions are valid; nametable area is not handled here.
-        let in_low_plane  = address < 0x2000;                              // 0x0000-0x1FFF
-        let in_high_plane = address >= 0x4000 && address < 0x6000;        // 0x4000-0x5FFF
-        let in_bg_low     = address >= 0x8000 && address < 0xA000;        // 0x8000-0x9FFF BG low
-        let in_spr_low    = address >= 0xA000 && address < 0xC000;        // 0xA000-0xBFFF SPR low
-        let in_bg_high    = address >= 0xC000 && address < 0xE000;        // 0xC000-0xDFFF BG high
-        let in_spr_high   = address >= 0xE000;                             // 0xE000-0xFFFF SPR high
-
+        let in_low_plane  = address < 0x2000;
+        let in_high_plane = address >= 0x4000 && address < 0x6000;
+        let in_bg_low     = address >= 0x8000 && address < 0xA000;
+        let in_spr_low    = address >= 0xA000 && address < 0xC000;
+        let in_bg_high    = address >= 0xC000 && address < 0xE000;
+        let in_spr_high   = address >= 0xE000;
         if !in_low_plane && !in_high_plane && !in_bg_low && !in_spr_low && !in_bg_high && !in_spr_high {
             return 0;
         }
-
         if chr_ram_flat && !chr_ram.is_empty() {
             return chr_ram[(address as usize) & 0x1FFF];
         }
-
         let use_4bpp = self.use_4bpp_chr();
         let flip = if self.comr7() { 4 } else { 0 };
-
-        // Determine which 1K slot (0-7) to look up in the bank register
         let slot_base_addr = if in_low_plane || in_high_plane {
             address as usize & 0x1FFF
         } else if in_bg_low || in_spr_low {
@@ -501,8 +433,6 @@ impl OneBus {
             address as usize & 0x1FFF
         };
         let slot = ((slot_base_addr >> 10) & 7) ^ flip;
-
-        // Determine is_bg/is_sprite for extended (BKEXTEN/SPEXTEN) EVA computation
         let (eff_is_bg, eff_is_sprite) = if in_low_plane || in_high_plane {
             (is_bg, is_sprite)
         } else if in_bg_low || in_bg_high {
@@ -510,24 +440,17 @@ impl OneBus {
         } else {
             (false, true)
         };
-
-        // Whether this particular window fetches from the HIGH plane buffer
         let fetch_high_plane = in_high_plane || in_bg_high || in_spr_high;
-
-        // Whether 4bpp is active for this window
         let is_4bpp_window = if in_bg_low || in_bg_high {
-            use_4bpp && (self.bk16en() || (self.reg2000[0x10] & 0x80) != 0)  // COLCOMP||BK16EN
+            use_4bpp && (self.bk16en() || (self.reg2000[0x10] & 0x80) != 0)
         } else if in_spr_low || in_spr_high {
-            (self.reg2000[0x10] & 0x04) != 0   // SP16EN
+            (self.reg2000[0x10] & 0x04) != 0
         } else {
-            // 2007 low/high window uses 4bpp when any 4bpp flag is set
             use_4bpp
         };
-
         if is_4bpp_window {
             let bank_full = self.chr_bank_1k_ext(slot, eff_is_bg, eff_is_sprite);
             let within_1k = (address as usize) & 0x3FF;
-
             let plane = if fetch_high_plane {
                 if self.console_type_vt09 || self.console_type_vt369 {
                     &self.chr_high16
@@ -539,7 +462,6 @@ impl OneBus {
             } else {
                 &self.chr_low
             };
-
             if !plane.is_empty() {
                 let offset = bank_full * 0x400 + within_1k;
                 rom_read(plane, offset)
@@ -547,14 +469,12 @@ impl OneBus {
                 0
             }
         } else {
-            // 2bpp mode — direct raw CHR ROM access
             let bank = self.chr_bank_1k_ext(slot, eff_is_bg, eff_is_sprite);
             let offset = bank * 0x400 + ((address as usize) & 0x3FF);
             let raw = if !chr_rom.is_empty() { chr_rom } else { prg_rom };
             rom_read(raw, offset)
         }
     }
-
     pub fn fetch_chr_byte(
         &mut self,
         prg_rom: &[u8],
@@ -565,7 +485,6 @@ impl OneBus {
     ) -> u8 {
         self.fetch_chr_byte_ext(prg_rom, chr_rom, chr_ram, address, chr_ram_flat, false, false)
     }
-
     pub fn read_apu(&mut self, address: u16) -> Option<u8> {
         let idx = (address & 0xFF) as usize;
         if address >= 0x4100 && address < 0x4200 {
@@ -611,7 +530,6 @@ impl OneBus {
         }
         None
     }
-
     pub fn write_ppu(&mut self, addr: u16, val: u8, mangle: &OneBusMangle) {
         let mut a = (addr & 0xFF) as u8;
         if (0x12..=0x17).contains(&a) {
@@ -624,7 +542,6 @@ impl OneBus {
             self.reg2000[a as usize] = val;
         }
     }
-
     pub fn write_apu(&mut self, addr: u16, val: u8, mangle: &OneBusMangle) {
         let mut idx = (addr & 0xFF) as usize;
         if (0x07..=0x0A).contains(&idx) {
@@ -684,7 +601,6 @@ impl OneBus {
         }
         self.reg4100[idx] = val;
     }
-
     pub fn write_mmc3(&mut self, address: u16, val: u8, mangle: &OneBusMangle) {
         if self.fwen() {
             return;
@@ -712,7 +628,6 @@ impl OneBus {
             _ => {}
         }
     }
-
     pub fn store_prg_mmc3(&mut self, address: u16, data: u8, mangle: &OneBusMangle) {
         let val = if (address <= 0x9FFF) && ((address & 1) == 0) {
             data & 0xF8 | mangle.mmc3[(data & 0x07) as usize]
@@ -721,7 +636,6 @@ impl OneBus {
         };
         self.write_mmc3(address, val, mangle);
     }
-
     fn clock_scanline_counter(&mut self, rendering: bool) {
         if self.irq_counter == 0 {
             self.irq_counter = self.irq_reload;
@@ -736,7 +650,6 @@ impl OneBus {
             }
         }
     }
-
     pub fn ppu_cycle(
         &mut self,
         addr: u16,
@@ -767,7 +680,6 @@ impl OneBus {
         }
         false
     }
-
     pub fn cpu_cycle(&mut self) -> bool {
         if self.alu_busy > 0 {
             self.alu_busy = self.alu_busy.wrapping_sub(1);
@@ -783,13 +695,11 @@ impl OneBus {
         }
         false
     }
-
     pub fn take_irq_ack(&mut self) -> bool {
         let ack = self.irq_ack;
         self.irq_ack = false;
         ack
     }
-
     pub fn save_core(&self) -> Vec<u8> {
         let mut state = Vec::new();
         state.extend_from_slice(&self.reg2000);
@@ -803,7 +713,6 @@ impl OneBus {
         state.push(if self.pending_irq { 1 } else { 0 });
         state
     }
-
     pub fn load_core(&mut self, state: &[u8], start: usize) -> usize {
         let mut p = start;
         if p + 0x100 <= state.len() {

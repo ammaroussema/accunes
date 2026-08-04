@@ -1,21 +1,9 @@
-// Mapper 400 - 8BIT-XMAS (multicart address latch + 4 write-only registers)
-//
-// Reference: NintendulatorNRS-DBG multicart multiple regs/mapper400.cpp
-//
-// Writes to $C000-$FFFF latch the data byte (Latch). Writes to
-// $6000/$6800/$7000/$7800 (only when addr & 0x7FF == 0) set four registers.
-// Writes to $8000-$BFFF only drive the cart's cosmetic LED label display,
-// which has no effect on banking. PRG is two 16KB banks; CHR is 8KB of
-// CHR RAM selected by bits 5+ of the latch. Mirroring comes from reg[3] bit 5.
-
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
-
 pub struct Mapper400 {
     reg: [u8; 4],
     latch_data: u8,
 }
-
 impl Mapper400 {
     pub fn new() -> Self {
         Self {
@@ -23,7 +11,6 @@ impl Mapper400 {
             latch_data: 0,
         }
     }
-
     fn mirror_address(&self, address: u16) -> u16 {
         if self.reg[3] & 0x20 != 0 {
             (address & 0x33FF) | ((address & 0x0800) >> 1)
@@ -32,14 +19,12 @@ impl Mapper400 {
         }
     }
 }
-
 impl Mapper for Mapper400 {
     fn reset(&mut self) {
         self.reg[2] = 0;
         self.reg[3] = 0x80;
         self.latch_data = 0;
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let bank16 = if address < 0xC000 {
@@ -65,7 +50,6 @@ impl Mapper for Mapper400 {
             }
         }
     }
-
     fn store_prg(&mut self, _cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0xC000 {
             self.latch_data = data;
@@ -76,11 +60,9 @@ impl Mapper for Mapper400 {
             self.reg[index] = data;
         }
     }
-
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
         self.mirror_address(address)
     }
-
     fn fetch_ppu(
         &mut self,
         _prg_rom: &[u8],
@@ -115,7 +97,6 @@ impl Mapper for Mapper400 {
         }
         (new_addr_bus as u8, new_addr_bus)
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if address < 0x2000 {
             let bank = (self.latch_data >> 5) as usize;
@@ -129,13 +110,11 @@ impl Mapper for Mapper400 {
             vram[(mirrored & 0x7FF) as usize] = data;
         }
     }
-
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
         let mut state = vec![self.latch_data];
         state.extend_from_slice(&self.reg);
         state
     }
-
     fn load_mapper_registers(&mut self, _cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let mut p = start;
         if p < state.len() {

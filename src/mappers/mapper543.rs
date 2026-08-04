@@ -1,22 +1,12 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
 use crate::mappers::mmc1::{mmc1_mirror_for_ppu, MapperMMC1, Mmc1Config};
-
-// iNES mapper 543 (CH-501 "5-in-1"): an MMC1B-based multicart (AX5904 MMC1
-// clone in SOROM/SNROM configuration) with an extra write-only outer-bank
-// register at $5000-$5FFF, clocked serially from bit 3 of the data bus, 4
-// bits LSB-first with no shift-register reset. The outer bank extends PRG ROM
-// to 2 MiB and selects between two 32 KiB battery-backed PRG-RAM chips, of
-// which an 8 KiB window is mapped at $6000. CHR is RAM only (32 KiB on the
-// board, 8 KiB used) with 4K banks masked to $7.
-
 pub struct Mapper543 {
     mmc1: MapperMMC1,
     outer_bank: u8,
     shift: u8,
     bits: u8,
 }
-
 impl Mapper543 {
     pub fn new(
         header: &[u8],
@@ -41,7 +31,6 @@ impl Mapper543 {
             bits: 0,
         }
     }
-
     fn mmc1_prg_raw_bank(&self, bank: usize) -> usize {
         let prg = self.mmc1.core.prg as usize;
         let control = self.mmc1.core.control as usize;
@@ -55,7 +44,6 @@ impl Mapper543 {
             prg & !1 | bank
         }
     }
-
     fn mmc1_chr_raw_bank(&self, slot: usize) -> usize {
         let control = self.mmc1.core.control;
         if (control & 0x10) != 0 {
@@ -67,7 +55,6 @@ impl Mapper543 {
             (self.mmc1.core.chr0 as usize & !1) | slot
         }
     }
-
     fn wram_bank(&self) -> usize {
         let outer = self.outer_bank as usize;
         if outer & 2 != 0 {
@@ -77,24 +64,20 @@ impl Mapper543 {
             ((chr0 & 8) >> 3) | ((outer & 1) << 1)
         }
     }
-
     fn wram_open_bus(&self) -> bool {
         (self.mmc1.core.prg & 0x10) != 0
     }
-
     fn wram_offset(&self, address: u16) -> Option<usize> {
         if self.wram_open_bus() {
             return None;
         }
         Some(self.wram_bank() * 0x2000 + (address as usize & 0x1FFF))
     }
-
     fn chr_ram_offset(&self, address: u16) -> usize {
         let (bank, mask) = self.mmc1.core.chr_bank_and_mask(address);
         (bank & 0x07) * 0x1000 + (address as usize & mask)
     }
 }
-
 impl Mapper for Mapper543 {
     fn reset(&mut self) {
         self.outer_bank = 0;
@@ -102,7 +85,6 @@ impl Mapper for Mapper543 {
         self.bits = 0;
         self.mmc1.reset();
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             if cart.prg_rom.is_empty() {
@@ -128,7 +110,6 @@ impl Mapper for Mapper543 {
             FetchResult { data: 0, driven: false }
         }
     }
-
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x8000 {
             self.mmc1.store_prg(cart, address, data);
@@ -151,11 +132,9 @@ impl Mapper for Mapper543 {
             }
         }
     }
-
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         self.mmc1.mirror_nametable(cart, address)
     }
-
     fn fetch_ppu(
         &mut self,
         _prg_rom: &[u8],
@@ -172,7 +151,6 @@ impl Mapper for Mapper543 {
     ) -> (u8, u16) {
         let address = (ppu_address_bus & 0x3F00) | ppu_octal_latch as u16;
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
-
         if address < 0x2000 {
             let offset = self.chr_ram_offset(address);
             let byte = if using_chr_ram {
@@ -185,10 +163,8 @@ impl Mapper for Mapper543 {
             let mirrored = mmc1_mirror_for_ppu(&self.mmc1.core, nametable_horizontal_mirroring, address);
             new_addr_bus |= vram[(mirrored & 0x7FF) as usize] as u16;
         }
-
         (new_addr_bus as u8, new_addr_bus)
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if address < 0x2000 {
             if cart.using_chr_ram && !cart.chr_ram.is_empty() {
@@ -201,15 +177,12 @@ impl Mapper for Mapper543 {
             vram[(mirrored & 0x7FF) as usize] = data;
         }
     }
-
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         self.mmc1.cpu_clock_rise(ppu_address_bus)
     }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         self.mmc1.cpu_clock(cycles)
     }
-
     fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8> {
         let mut state = self.mmc1.save_mapper_registers(cart);
         state.push(self.outer_bank);
@@ -217,7 +190,6 @@ impl Mapper for Mapper543 {
         state.push(self.bits);
         state
     }
-
     fn load_mapper_registers(&mut self, cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let mut idx = self.mmc1.load_mapper_registers(cart, state, start);
         if idx + 2 < state.len() {

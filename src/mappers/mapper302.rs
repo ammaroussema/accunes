@@ -1,11 +1,9 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
-
 pub struct Mapper302 {
     chr: [u16; 8],
     mirroring: u8,
 }
-
 impl Mapper302 {
     pub fn new() -> Self {
         Self {
@@ -14,13 +12,11 @@ impl Mapper302 {
         }
     }
 }
-
 impl Mapper for Mapper302 {
     fn reset(&mut self) {
         self.chr = [0, 1, 2, 3, 4, 5, 6, 7];
         self.mirroring = 0;
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x6000 && address < 0xA000 {
             let bank = ((address >> 12) as usize) - 6;
@@ -55,14 +51,11 @@ impl Mapper for Mapper302 {
             FetchResult { data: 0, driven: false }
         }
     }
-
     fn store_prg(&mut self, _cart: &mut Cartridge, address: u16, data: u8) {
         match address & 0xF000 {
             0x8000 | 0xA000 => {
-                // VRC24 PRG register - ignored (fixed banking)
             }
             0x9000 => {
-                // VRC24 Misc - mirroring
                 self.mirroring = data & 3;
             }
             0xB000 | 0xC000 | 0xD000 | 0xE000 => {
@@ -80,7 +73,6 @@ impl Mapper for Mapper302 {
             _ => {}
         }
     }
-
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         if cart.alternative_nametable_arrangement {
             return address;
@@ -91,7 +83,6 @@ impl Mapper for Mapper302 {
             address & 0x37FF
         }
     }
-
     fn fetch_ppu(
         &mut self,
         _prg_rom: &[u8],
@@ -130,7 +121,6 @@ impl Mapper for Mapper302 {
         }
         (new_addr_bus as u8, new_addr_bus)
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if (0x2000..0x3F00).contains(&address) {
             let mirrored = self.mirror_nametable(cart, address);
@@ -142,7 +132,6 @@ impl Mapper for Mapper302 {
             }
         }
     }
-
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
         let mut state = Vec::new();
         for c in &self.chr {
@@ -151,7 +140,6 @@ impl Mapper for Mapper302 {
         state.push(self.mirroring);
         state
     }
-
     fn load_mapper_registers(&mut self, _cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let mut p = start;
         for c in self.chr.iter_mut() {

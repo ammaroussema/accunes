@@ -260,12 +260,16 @@ pub use crate::mappers::mapper300::Mapper300;
 pub use crate::mappers::mapper407::Mapper407;
 pub use crate::mappers::mapper408::Mapper408;
 pub use crate::mappers::mapper419::Mapper419;
+pub use crate::mappers::mapper420::Mapper420;
 pub use crate::mappers::mapper421::Mapper421;
 pub use crate::mappers::mapper423::Mapper423;
 pub use crate::mappers::mapper424::Mapper424;
 pub use crate::mappers::mapper425::Mapper425;
 pub use crate::mappers::mapper426::Mapper426;
 pub use crate::mappers::mapper427::Mapper427;
+pub use crate::mappers::mapper428::Mapper428;
+pub use crate::mappers::mapper429::Mapper429;
+pub use crate::mappers::mapper430::Mapper430;
 pub use crate::mappers::mapper436::Mapper436;
 pub use crate::mappers::mapper496::Mapper496;
 pub use crate::mappers::mapper302::Mapper302;
@@ -303,7 +307,14 @@ pub use crate::mappers::mapper404::Mapper404;
 pub use crate::mappers::mapper406::Mapper406;
 pub use crate::mappers::mapper395::Mapper395;
 pub use crate::mappers::mapper409::Mapper409;
+pub use crate::mappers::mapper410::Mapper410;
+pub use crate::mappers::mapper411::Mapper411;
+pub use crate::mappers::mapper412::Mapper412;
+pub use crate::mappers::mapper413::Mapper413;
+pub use crate::mappers::mapper414::Mapper414;
 pub use crate::mappers::mapper415::Mapper415;
+pub use crate::mappers::mapper416::Mapper416;
+pub use crate::mappers::mapper417::Mapper417;
 pub use crate::mappers::mapper418::Mapper418;
 pub use crate::mappers::mapper437::Mapper437;
 pub use crate::mappers::mapper455::Mapper455;
@@ -399,9 +410,9 @@ pub use crate::mappers::mapper582::Mapper582;
 
 pub fn mirror_h_or_v(horizontal: bool, address: u16) -> u16 {
     if horizontal {
-        address & 0x37FF
-    } else {
         (address & 0x33FF) | ((address & 0x0800) >> 1)
+    } else {
+        address & 0x37FF
     }
 }
 
@@ -1109,9 +1120,17 @@ pub fn create_mapper(
         407 => Box::new(Mapper407::new()),
         408 => Box::new(Mapper408::new()),
         409 => Box::new(Mapper409::new()),
+        410 => Box::new(Mapper410::new(header, rom, rom_name)),
+        411 => Box::new(Mapper411::new(submapper_id, header, rom, rom_name)),
+        412 => Box::new(Mapper412::new(header, rom, rom_name)),
+        413 => Box::new(Mapper413::new()),
+        414 => Box::new(Mapper414::new(header, rom, rom_name)),
         415 => Box::new(Mapper415::new()),
+        416 => Box::new(Mapper416::new(header, rom, rom_name)),
+        417 => Box::new(Mapper417::new(submapper_id)),
         418 => Box::new(Mapper418::new()),
         419 => Box::new(Mapper419::new(submapper_id)),
+        420 => Box::new(Mapper420::new(header, rom, rom_name)),
         421 => Box::new(Mapper421::new()),
         422 => Box::new(MapperAx5202p::new(Ax5202pVariant::Mapper422)),
         423 => Box::new(Mapper423::new()),
@@ -1119,6 +1138,9 @@ pub fn create_mapper(
         425 => Box::new(Mapper425::new()),
         426 => Box::new(Mapper426::new(rom)),
         427 => Box::new(Mapper427::new(submapper_id)),
+        428 => Box::new(Mapper428::new(header, rom, rom_name)),
+        429 => Box::new(Mapper429::new(submapper_id, has_battery)),
+        430 => Box::new(Mapper430::new(header, rom, rom_name)),
         436 => Box::new(Mapper436::new(submapper_id)),
         437 => Box::new(Mapper437::new()),
         455 => Box::new(Mapper455::new(header, rom, rom_name)),

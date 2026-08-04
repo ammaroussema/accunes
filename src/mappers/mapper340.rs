@@ -9,6 +9,10 @@ impl Mapper340 {
     pub fn new(_header: &[u8], _rom: &[u8], _rom_name: &str) -> Self {
         Self { latch_addr: 0 }
     }
+
+    fn horizontal_mirroring(&self) -> bool {
+        (self.latch_addr & 0x25) == 0x25 || (self.latch_addr & 0x40) != 0
+    }
 }
 
 impl Mapper for Mapper340 {
@@ -46,7 +50,7 @@ impl Mapper for Mapper340 {
     }
 
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
-        mirror_h_or_v((self.latch_addr & 0x40) != 0, address)
+        mirror_h_or_v(self.horizontal_mirroring(), address)
     }
 
     fn fetch_ppu(
@@ -73,7 +77,7 @@ impl Mapper for Mapper340 {
             } else { 0 };
             new_addr_bus |= byte as u16;
         } else {
-            let mir = mirror_h_or_v((self.latch_addr & 0x40) != 0, address);
+            let mir = mirror_h_or_v(self.horizontal_mirroring(), address);
             new_addr_bus |= vram[(mir & 0x7FF) as usize] as u16;
         }
         (new_addr_bus as u8, new_addr_bus)

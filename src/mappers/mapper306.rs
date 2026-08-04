@@ -1,21 +1,17 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
-
 pub struct Mapper306 {
     prg: u8,
 }
-
 impl Mapper306 {
     pub fn new() -> Self {
         Self { prg: 0 }
     }
 }
-
 impl Mapper for Mapper306 {
     fn reset(&mut self) {
         self.prg = 0;
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let bank = (3 * 0x8000 + (address as usize - 0x8000)) % cart.prg_rom.len().max(1);
@@ -36,7 +32,6 @@ impl Mapper for Mapper306 {
             FetchResult { data: 0, driven: false }
         }
     }
-
     fn store_prg(&mut self, _cart: &mut Cartridge, address: u16, _data: u8) {
         if address >= 0x8000 && (address & 0x903) == 0x903 {
             if address & 0x40 != 0 {
@@ -45,16 +40,12 @@ impl Mapper for Mapper306 {
                 self.prg = (((address >> 2) & 0x03) | 0x08) as u8;
             }
         } else if address >= 0x4020 && address <= 0x40FF {
-            // FDS audio writes - not implemented
         }
     }
-
     fn handle_cpu_write(&mut self, address: u16, _data: u8) {
         if (0x4020..=0x40FF).contains(&address) {
-            // FDS audio passthrough - not implemented
         }
     }
-
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         if cart.alternative_nametable_arrangement {
             address
@@ -64,7 +55,6 @@ impl Mapper for Mapper306 {
             address & 0x37FF
         }
     }
-
     fn fetch_ppu(
         &mut self,
         _prg_rom: &[u8],
@@ -102,7 +92,6 @@ impl Mapper for Mapper306 {
         }
         (new_addr_bus as u8, new_addr_bus)
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if (0x2000..0x3F00).contains(&address) {
             let mirrored = self.mirror_nametable(cart, address);
@@ -114,11 +103,9 @@ impl Mapper for Mapper306 {
             }
         }
     }
-
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
         vec![self.prg]
     }
-
     fn load_mapper_registers(&mut self, _cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let mut p = start;
         self.prg = state.get(p).copied().unwrap_or(0);

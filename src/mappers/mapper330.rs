@@ -1,6 +1,5 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
-
 pub struct Mapper330 {
     prg: [u8; 3],
     chr: [u8; 8],
@@ -9,7 +8,6 @@ pub struct Mapper330 {
     irq_counter: u16,
     irq_pending: bool,
 }
-
 impl Mapper330 {
     pub fn new(_header: &[u8], _rom: &[u8], _rom_name: &str) -> Self {
         Self {
@@ -22,7 +20,6 @@ impl Mapper330 {
         }
     }
 }
-
 impl Mapper for Mapper330 {
     fn reset(&mut self) {
         self.prg = [0, 1, 2];
@@ -31,7 +28,6 @@ impl Mapper for Mapper330 {
         self.irq_counter = 0;
         self.irq_pending = false;
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         match address {
             0x4000..=0x4FFF => {
@@ -68,7 +64,6 @@ impl Mapper for Mapper330 {
             _ => FetchResult { data: 0, driven: false },
         }
     }
-
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         match address {
             0x4020..=0x4FFF => {
@@ -106,7 +101,6 @@ impl Mapper for Mapper330 {
                 let bank = ((address >> 12) & 0xF) as usize;
                 let addr_off = (address & 0xFFF) as usize;
                 if bank == 0xF && (addr_off & 0x800) != 0 {
-                    // $F800-$FFFF: N163 sound (stub)
                 } else if (addr_off & 0x400) == 0 {
                     let idx = ((bank & 1) << 1) | ((addr_off >> 11) & 1);
                     if idx < 3 {
@@ -117,20 +111,17 @@ impl Mapper for Mapper330 {
             _ => {}
         }
     }
-
     fn handle_cpu_write(&mut self, address: u16, data: u8) {
         if address >= 0x4000 && address <= 0x401F {
             let idx = (address & 0x7F) as usize;
             self.chip_ram[idx] = data;
         }
     }
-
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
         let nt_idx = ((address >> 10) & 3) as usize;
         let page = self.nt[nt_idx] as u16;
         (page << 10) | (address & 0x3FF)
     }
-
     fn fetch_ppu(
         &mut self,
         _prg_rom: &[u8],
@@ -172,7 +163,6 @@ impl Mapper for Mapper330 {
         }
         (new_addr_bus as u8, new_addr_bus)
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if address < 0x2000 && cart.using_chr_ram {
             let bank = self.chr[(address >> 10) as usize] as usize;
@@ -186,7 +176,6 @@ impl Mapper for Mapper330 {
             vram[(mirrored & 0x7FF) as usize] = data;
         }
     }
-
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if (self.irq_counter & 0x8000) != 0 {
             self.irq_counter = self.irq_counter.wrapping_add(1);
@@ -196,7 +185,6 @@ impl Mapper for Mapper330 {
         }
         false
     }
-
     fn take_irq_ack(&mut self) -> bool {
         if self.irq_pending {
             self.irq_pending = false;
@@ -204,7 +192,6 @@ impl Mapper for Mapper330 {
         }
         false
     }
-
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
         let mut state = Vec::with_capacity(3 + 8 + 4 + 128 + 2);
         state.extend_from_slice(&self.prg);
@@ -214,7 +201,6 @@ impl Mapper for Mapper330 {
         state.extend_from_slice(&self.irq_counter.to_le_bytes());
         state
     }
-
     fn load_mapper_registers(&mut self, _cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let mut p = start;
         if p + 3 > state.len() { return p; }

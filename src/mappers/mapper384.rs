@@ -1,13 +1,7 @@
-// Mapper 384 - L1A16 (VRC4-based with outer bank)
-//
-// Reference: NintendulatorNRS-DBG VRC-based/mapper384.cpp
-
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
-
 const PRG_MASK: u8 = 0x0F;
 const CHR_MASK: u8 = 0x7F;
-
 pub struct Mapper384 {
     prg_reg: [u8; 2],
     chr_reg: [u8; 8],
@@ -21,7 +15,6 @@ pub struct Mapper384 {
     irq_cmd: u8,
     outer_bank: u8,
 }
-
 impl Mapper384 {
     pub fn new() -> Self {
         Self {
@@ -38,7 +31,6 @@ impl Mapper384 {
             outer_bank: 0,
         }
     }
-
     fn prg_bank(&self, slot: u16) -> usize {
         let flipped = (self.reg_cmd & 2) != 0;
         let inner = match (slot, flipped) {
@@ -52,7 +44,6 @@ impl Mapper384 {
         };
         (inner as usize) | ((self.outer_bank as usize) << 4)
     }
-
     fn prg_read(&self, cart: &Cartridge, address: u16) -> u8 {
         let len = cart.prg_rom.len();
         if len == 0 {
@@ -63,20 +54,17 @@ impl Mapper384 {
         let offset = bank * 0x2000 + (address as usize & 0x1FFF);
         cart.prg_rom[offset % len]
     }
-
     fn vrc4_decode(address: u16) -> u8 {
         let bit0 = if (address & 0x04) != 0 { 1 } else { 0 };
         let bit1 = if (address & 0x08) != 0 { 2 } else { 0 };
         bit1 | bit0
     }
-
     fn chr_bank(&self, address: u16) -> usize {
         let index = (address >> 10) as usize & 7;
         let inner = (self.chr_reg[index] & CHR_MASK) as usize;
         inner | ((self.outer_bank as usize) << 7)
     }
 }
-
 impl Mapper for Mapper384 {
     fn reset(&mut self) {
         self.prg_reg = [0, 1];
@@ -91,7 +79,6 @@ impl Mapper for Mapper384 {
         self.irq_cmd = 0;
         self.outer_bank = 0;
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             FetchResult {
@@ -111,7 +98,6 @@ impl Mapper for Mapper384 {
             }
         }
     }
-
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x6000 && address < 0x8000 {
             if !cart.prg_ram.is_empty() {
@@ -126,10 +112,8 @@ impl Mapper for Mapper384 {
         if address < 0x8000 {
             return;
         }
-
         let bank_4k = (address >> 12) & 0xF;
         let reg = Self::vrc4_decode(address);
-
         match bank_4k {
             0x8 | 0xA => {
                 let idx = (address >> 13) & 1;
@@ -176,7 +160,6 @@ impl Mapper for Mapper384 {
             _ => {}
         }
     }
-
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
         match self.mirr & 3 {
             0 => address & 0x37FF,
@@ -186,7 +169,6 @@ impl Mapper for Mapper384 {
             _ => address,
         }
     }
-
     fn fetch_ppu(
         &mut self,
         _prg_rom: &[u8],
@@ -226,7 +208,6 @@ impl Mapper for Mapper384 {
         }
         (new_addr_bus as u8, new_addr_bus)
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if address < 0x2000 {
             if cart.using_chr_ram && !cart.chr_ram.is_empty() {
@@ -240,7 +221,6 @@ impl Mapper for Mapper384 {
             vram[(mirrored & 0x7FF) as usize] = data;
         }
     }
-
     fn ppu_clock(
         &mut self,
         _ppu_address_bus: u16,
@@ -266,7 +246,6 @@ impl Mapper for Mapper384 {
         }
         false
     }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.irq_enabled && self.irq_mode {
             self.acount += cycles as u16;
@@ -281,7 +260,6 @@ impl Mapper for Mapper384 {
         }
         false
     }
-
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
         let mut state = Vec::new();
         state.extend_from_slice(&self.prg_reg);
@@ -297,7 +275,6 @@ impl Mapper for Mapper384 {
         state.push(self.outer_bank);
         state
     }
-
     fn load_mapper_registers(&mut self, _cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let mut p = start;
         if p + 2 <= state.len() {

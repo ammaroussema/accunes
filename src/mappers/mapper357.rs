@@ -108,7 +108,7 @@ impl Mapper for Mapper357 {
             new_addr_bus |= byte as u16;
         } else {
             let h = self.dip_switches == 0x18;
-            let mir = mirror_h_or_v(!h, address);
+            let mir = mirror_h_or_v(h, address);
             new_addr_bus |= vram[(mir & 0x7FF) as usize] as u16;
         }
         (new_addr_bus as u8, new_addr_bus)
@@ -120,7 +120,7 @@ impl Mapper for Mapper357 {
             if len > 0 { cart.chr_ram[(address as usize) % len] = data; }
         } else if address >= 0x2000 && address < 0x3F00 {
             let h = self.dip_switches == 0x18;
-            let mir = mirror_h_or_v(!h, address);
+            let mir = mirror_h_or_v(h, address);
             vram[(mir & 0x7FF) as usize] = data;
         }
     }

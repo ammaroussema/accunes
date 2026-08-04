@@ -1,28 +1,15 @@
-// Mapper 402 - J-2282 (multicart address latch)
-//
-// Reference: NintendulatorNRS-DBG multicart address latch/mapper402.cpp
-//
-// Any CPU write to $8000-$FFFF latches the full write address. The latched
-// address bits drive PRG banking (bit 0x40 selects 16KB/32KB, bits 0-4 the
-// bank), an FDS-slot ROM window at $6000-$6FFF (bit 0x800), CHR-RAM write
-// protection (bit 0x400) and mirroring (bit 0x80).
-
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
-
 pub struct Mapper402 {
     latch_addr: u16,
 }
-
 impl Mapper402 {
     pub fn new() -> Self {
         Self { latch_addr: 0 }
     }
-
     fn prg(&self) -> u16 {
         self.latch_addr & 0x1F
     }
-
     fn mirror_address(&self, address: u16) -> u16 {
         if self.latch_addr & 0x80 != 0 {
             (address & 0x33FF) | ((address & 0x0800) >> 1)
@@ -31,12 +18,10 @@ impl Mapper402 {
         }
     }
 }
-
 impl Mapper for Mapper402 {
     fn reset(&mut self) {
         self.latch_addr = 0;
     }
-
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let len = cart.prg_rom.len();
@@ -84,17 +69,14 @@ impl Mapper for Mapper402 {
             }
         }
     }
-
     fn store_prg(&mut self, _cart: &mut Cartridge, address: u16, _data: u8) {
         if address >= 0x8000 {
             self.latch_addr = address;
         }
     }
-
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
         self.mirror_address(address)
     }
-
     fn fetch_ppu(
         &mut self,
         _prg_rom: &[u8],
@@ -127,7 +109,6 @@ impl Mapper for Mapper402 {
         }
         (new_addr_bus as u8, new_addr_bus)
     }
-
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if address < 0x2000 {
             if self.latch_addr & 0x400 != 0 {
@@ -142,11 +123,9 @@ impl Mapper for Mapper402 {
             vram[(mirrored & 0x7FF) as usize] = data;
         }
     }
-
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
         self.latch_addr.to_le_bytes().to_vec()
     }
-
     fn load_mapper_registers(&mut self, _cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         if start + 1 < state.len() {
             self.latch_addr = u16::from_le_bytes([state[start], state[start + 1]]);

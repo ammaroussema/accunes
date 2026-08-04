@@ -68,8 +68,8 @@ impl Mapper for Mapper368 {
 
     fn store_prg(&mut self, _cart: &mut Cartridge, _address: u16, _data: u8) {}
 
-    fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
-        crate::mapper::mirror_h_or_v(true, address)
+    fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
+        crate::mapper::mirror_h_or_v(cart.nametable_horizontal_mirroring, address)
     }
 
     fn fetch_ppu(
@@ -80,7 +80,7 @@ impl Mapper for Mapper368 {
         chr_ram: &[u8],
         _prg_vram: &[u8],
         using_chr_ram: bool,
-        _nametable_horizontal_mirroring: bool,
+        nametable_horizontal_mirroring: bool,
         _alternative_nametable_arrangement: bool,
         ppu_address_bus: u16,
         ppu_octal_latch: u8,
@@ -96,7 +96,7 @@ impl Mapper for Mapper368 {
             } else { 0 };
             new_addr_bus |= byte as u16;
         } else {
-            let mir = crate::mapper::mirror_h_or_v(true, address);
+            let mir = crate::mapper::mirror_h_or_v(nametable_horizontal_mirroring, address);
             new_addr_bus |= vram[(mir & 0x7FF) as usize] as u16;
         }
         (new_addr_bus as u8, new_addr_bus)
@@ -107,7 +107,7 @@ impl Mapper for Mapper368 {
             let len = cart.chr_ram.len();
             cart.chr_ram[(address as usize) % len] = data;
         } else if address >= 0x2000 && address < 0x3F00 {
-            let mir = crate::mapper::mirror_h_or_v(true, address);
+            let mir = crate::mapper::mirror_h_or_v(cart.nametable_horizontal_mirroring, address);
             vram[(mir & 0x7FF) as usize] = data;
         }
     }

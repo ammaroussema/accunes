@@ -21,7 +21,7 @@ impl Mapper396 {
     }
 
     fn is_horizontal_mirroring(&self) -> bool {
-        (self.outer_bank & 0x60) == 0
+        (self.outer_bank & 0x60) != 0
     }
 }
 
