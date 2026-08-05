@@ -264,35 +264,33 @@ impl Mmc1Core {
         if self.config.serom {
             return (address as usize - 0x8000) & (cart.prg_rom.len() - 1);
         }
-        let offs = self.prg_outer_bank();
+        let outer = self.prg_outer_bank();
         let prg_reg = (self.prg & 0x0F) as usize;
         let num_banks = Self::num_prg_banks(cart);
+        let bank16 = |index: usize| (index | outer) & (num_banks - 1);
         let mode = (self.control >> 2) & 0x03;
-        match mode {
+        let bank = match mode {
             0 | 1 => {
-                let bank32 = ((prg_reg & 0x0E) + offs).min(num_banks.saturating_sub(2));
-                bank32 * 0x8000 + (address as usize & 0x7FFF)
+                let half = if address >= 0xC000 { 1 } else { 0 };
+                bank16((prg_reg & 0x0E) | half)
             }
             2 => {
                 if address >= 0xC000 {
-                    let bank = (prg_reg + offs).min(num_banks - 1);
-                    bank * 0x4000 + (address as usize & 0x3FFF)
+                    bank16(prg_reg & 0x0F)
                 } else {
-                    let bank = offs.min(num_banks - 1);
-                    bank * 0x4000 + (address as usize & 0x3FFF)
+                    bank16(0)
                 }
             }
             3 => {
                 if address >= 0xC000 {
-                    let fixed = (0x0F + offs).min(num_banks - 1);
-                    fixed * 0x4000 + (address as usize & 0x3FFF)
+                    bank16(0x0F)
                 } else {
-                    let bank = (prg_reg + offs).min(num_banks - 1);
-                    bank * 0x4000 + (address as usize & 0x3FFF)
+                    bank16(prg_reg & 0x0F)
                 }
             }
             _ => unreachable!(),
-        }
+        };
+        bank * 0x4000 + (address as usize & 0x3FFF)
     }
 
     pub fn prg_rom_offset(&self, cart: &Cartridge, address: u16) -> usize {

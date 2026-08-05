@@ -383,11 +383,21 @@ impl Mapper for MapperMMC3 {
                                 data: cart.prg_ram[address as usize & 0x3FF],
                                 driven: true,
                             };
+                        } else if (self.prg_ram_protect & 0x80) != 0 {
+                            return FetchResult {
+                                data: 0,
+                                driven: true,
+                            };
                         }
                     } else if (0x7200..=0x73FF).contains(&address) {
                         if (self.prg_ram_protect & 0x80) != 0 {
                             return FetchResult {
                                 data: cart.prg_ram[address as usize & 0x3FF],
+                                driven: true,
+                            };
+                        } else if (self.prg_ram_protect & 0x20) != 0 {
+                            return FetchResult {
+                                data: 0,
                                 driven: true,
                             };
                         }
@@ -427,23 +437,22 @@ impl Mapper for MapperMMC3 {
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address < 0x8000 {
             if self.config.mmc6 || cart.sub_mapper == 1 {
-                if (self.r8000 & 0x20) != 0 {
-                    if (0x7000..=0x71FF).contains(&address) {
-                        if (self.prg_ram_protect & 0x10) != 0 {
-                            cart.prg_ram[address as usize & 0x3FF] = data;
-                        }
-                    } else if (0x7200..=0x73FF).contains(&address) {
-                        if (self.prg_ram_protect & 0x40) != 0 {
-                            cart.prg_ram[address as usize & 0x3FF] = data;
-                        }
-                    }
+                let writable = (self.r8000 & 0x20) != 0
+                    && ((0x7000..=0x71FF).contains(&address)
+                        && (self.prg_ram_protect & 0x20) != 0
+                        && (self.prg_ram_protect & 0x10) != 0
+                        || (0x7200..=0x73FF).contains(&address)
+                            && (self.prg_ram_protect & 0x80) != 0
+                            && (self.prg_ram_protect & 0x40) != 0);
+                if writable {
+                    cart.prg_ram[address as usize & 0x3FF] = data;
                 }
             } else if address >= 0x6000
                 && self.config.prg_ram_size > 0
                 && if self.config.ax5202p {
-                    (self.prg_ram_protect & 0x40) != 0
+                    (self.prg_ram_protect & 0x40) == 0
                 } else {
-                    (self.prg_ram_protect & 0xC0) != 0
+                    (self.prg_ram_protect & 0xC0) == 0x80
                 }
             {
                 let off = (address - 0x6000) as usize;

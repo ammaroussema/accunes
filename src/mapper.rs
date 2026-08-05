@@ -270,6 +270,10 @@ pub use crate::mappers::mapper427::Mapper427;
 pub use crate::mappers::mapper428::Mapper428;
 pub use crate::mappers::mapper429::Mapper429;
 pub use crate::mappers::mapper430::Mapper430;
+pub use crate::mappers::mapper432::Mapper432;
+pub use crate::mappers::mapper433::Mapper433;
+pub use crate::mappers::mapper434::Mapper434;
+pub use crate::mappers::mapper435::Mapper435;
 pub use crate::mappers::mapper436::Mapper436;
 pub use crate::mappers::mapper496::Mapper496;
 pub use crate::mappers::mapper302::Mapper302;
@@ -317,6 +321,9 @@ pub use crate::mappers::mapper416::Mapper416;
 pub use crate::mappers::mapper417::Mapper417;
 pub use crate::mappers::mapper418::Mapper418;
 pub use crate::mappers::mapper437::Mapper437;
+pub use crate::mappers::mapper438::Mapper438;
+pub use crate::mappers::mapper439::Mapper439;
+pub use crate::mappers::mapper440::Mapper440;
 pub use crate::mappers::mapper455::Mapper455;
 pub use crate::mappers::mapper461::Mapper461;
 pub use crate::mappers::mapper469::Mapper469;
@@ -609,8 +616,8 @@ pub fn create_mapper(
         26 => Box::new(Vrc6::new(Vrc6Variant::Mapper26)),
         27 => Box::new(Mapper27::new()),
         28 => {
-            let prg_size_16k = if header[4] == 0 { 1 } else { header[4] as usize };
-            Box::new(Mapper28::new(prg_size_16k - 1))
+            let prg_size_16k = if prg_size == 0 { 1 } else { prg_size as usize };
+            Box::new(Mapper28::new(prg_size_16k.next_power_of_two() - 1))
         }
         29 => Box::new(Mapper29::new()),
         30 => Box::new(Mapper30::new(submapper_id, has_battery, header)),
@@ -1141,8 +1148,16 @@ pub fn create_mapper(
         428 => Box::new(Mapper428::new(header, rom, rom_name)),
         429 => Box::new(Mapper429::new(submapper_id, has_battery)),
         430 => Box::new(Mapper430::new(header, rom, rom_name)),
+        431 => Box::new(Mapper396::new(submapper_id)),
+        432 => Box::new(Mapper432::new(submapper_id, header, rom, rom_name)),
+        433 => Box::new(Mapper433::new()),
+        434 => Box::new(Mapper434::new()),
+        435 => Box::new(Mapper435::new(submapper_id)),
         436 => Box::new(Mapper436::new(submapper_id)),
         437 => Box::new(Mapper437::new()),
+        438 => Box::new(Mapper438::new()),
+        439 => Box::new(Mapper439::new()),
+        440 => Box::new(Mapper440::new()),
         455 => Box::new(Mapper455::new(header, rom, rom_name)),
         461 => Box::new(Mapper461::new(header, rom, rom_name, using_chr_ram, has_battery)),
         469 => {

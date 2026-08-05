@@ -100,12 +100,13 @@ impl Emulator {
 
         // ntsc odd frame skip
         if !self.is_pal() && !self.is_dendy() {
-            if self.ppu_odd_frame && (self.ppu_mask_show_background || self.ppu_mask_show_sprites) {
-                if self.ppu_scanline == self.pre_render_scanline() && self.ppu_dot == 340 {
-                    self.ppu_scanline = 0;
-                    self.ppu_dot = 0;
-                    self.skipped_pre_render_dot_341 = true;
-                }
+            if self.ppu_odd_frame
+                && (self.ppu_mask_show_background || self.ppu_mask_show_sprites)
+                && self.ppu_scanline == 0
+                && self.ppu_dot == 0
+            {
+                self.ppu_dot += 1;
+                self.skipped_pre_render_dot_341 = true;
             }
             if self.ppu_odd_frame
                 && (self.ppu_mask_show_background || self.ppu_mask_show_sprites)
@@ -398,6 +399,10 @@ impl Emulator {
 
     /// mapper ppu bus interactions
     pub(crate) fn fetch_ppu(&mut self) -> u8 {
+        if self.copy_v {
+            self.ppu_address_bus = self.ppu_v;
+        }
+
         let addr = (self.ppu_address_bus & 0x7F00) | self.ppu_octal_latch as u16;
 
         let (data, new_addr_bus) = if let Some(cart) = self.cart.as_mut() {

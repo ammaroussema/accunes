@@ -11,24 +11,14 @@ pub struct Mapper28 {
 }
 
 impl Mapper28 {
-    pub fn new(prg_size_16k: usize) -> Self {
+    pub fn new(prg_mask_16k: usize) -> Self {
         Mapper28 {
             reg: 0,
             chr: 0,
             prg: 15,
             mode: 0,
             outer: 63,
-            prg_mask_16k: prg_size_16k,
-        }
-    }
-
-    fn sync_mirror(&self) -> bool {
-        match self.mode & 3 {
-            0 => false, 
-            1 => true,  
-            2 => false, 
-            3 => true,  
-            _ => false,
+            prg_mask_16k,
         }
     }
 
@@ -70,6 +60,18 @@ impl Mapper28 {
         let chr = (self.chr & 3) as usize;
         (prglo, prghi, chr)
     }
+
+    /// Returns the VRAM byte index (0–0x7FF) for a nametable address,
+    /// honouring the Action 53 mode register mirroring bits (bits 0–1).
+    fn mirror_addr(&self, address: u16) -> u16 {
+        match self.mode & 3 {
+            0 => address & 0x03FF,                                   // 1-screen lower
+            1 => (address & 0x03FF) | 0x0400,                        // 1-screen upper
+            2 => address & 0x07FF,                                   // Vertical
+            3 => (address & 0x03FF) | (((address >> 11) & 1) << 10), // Horizontal
+            _ => address & 0x07FF,
+        }
+    }
 }
 
 impl Mapper for Mapper28 {
@@ -80,6 +82,7 @@ impl Mapper for Mapper28 {
         self.mode = 0;
         self.outer = 63;
     }
+
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let (prglo, prghi, _) = self.sync();
@@ -134,13 +137,12 @@ impl Mapper for Mapper28 {
     }
 
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
-        let horizontal = self.sync_mirror();
-        if horizontal {
-            let nt = (address >> 10) & 1;
-            (address & 0x03FF) | (nt << 10)
-        } else {
-            let nt = (address >> 11) & 1;
-            (address & 0x03FF) | (nt << 10)
+        match self.mode & 3 {
+            0 => address & 0x03FF,                                   // 1-screen lower (page 0)
+            1 => (address & 0x03FF) | 0x0400,                        // 1-screen upper (page 1)
+            2 => address & 0x07FF,                                   // Vertical
+            3 => (address & 0x03FF) | (((address >> 11) & 1) << 10), // Horizontal
+            _ => address & 0x07FF,
         }
     }
 
@@ -169,7 +171,7 @@ impl Mapper for Mapper28 {
                 new_addr_bus |= chr_rom[offset % chr_rom.len()] as u16;
             }
         } else if address >= 0x2000 && address < 0x3F00 {
-            let idx = (address & 0x7FF) as usize;
+            let idx = self.mirror_addr(address) as usize;
             new_addr_bus |= vram[idx] as u16;
         }
         (new_addr_bus as u8, new_addr_bus)
@@ -184,7 +186,7 @@ impl Mapper for Mapper28 {
                 cart.chr_ram[offset & (len - 1)] = data;
             }
         } else if address >= 0x2000 && address < 0x3F00 {
-            let idx = (address & 0x7FF) as usize;
+            let idx = self.mirror_addr(address) as usize;
             vram[idx] = data;
         }
     }

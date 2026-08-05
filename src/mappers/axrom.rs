@@ -45,7 +45,7 @@ impl Mapper for MapperAxROM {
     }
 
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
-        if address >= 0x4020 {
+        if address >= 0x8000 {
             let mut value = data;
             if self.submapper_id == 2 && !cart.prg_rom.is_empty() {
                 let banks_32k = (cart.prg_rom.len() / 0x8000).max(1);
