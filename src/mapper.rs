@@ -324,6 +324,11 @@ pub use crate::mappers::mapper437::Mapper437;
 pub use crate::mappers::mapper438::Mapper438;
 pub use crate::mappers::mapper439::Mapper439;
 pub use crate::mappers::mapper440::Mapper440;
+pub use crate::mappers::mapper441::Mapper441;
+pub use crate::mappers::mapper442::Mapper442;
+pub use crate::mappers::mapper443::Mapper443;
+pub use crate::mappers::mapper444::Mapper444;
+pub use crate::mappers::mapper445::Mapper445;
 pub use crate::mappers::mapper455::Mapper455;
 pub use crate::mappers::mapper461::Mapper461;
 pub use crate::mappers::mapper469::Mapper469;
@@ -1158,6 +1163,11 @@ pub fn create_mapper(
         438 => Box::new(Mapper438::new()),
         439 => Box::new(Mapper439::new()),
         440 => Box::new(Mapper440::new()),
+        441 => Box::new(Mapper441::new(header, rom, rom_name)),
+        442 => Box::new(Mapper442::new()),
+        443 => Box::new(Mapper443::new(header, rom, rom_name)),
+        444 => Box::new(Mapper444::new(submapper_id, header, rom, rom_name)),
+        445 => Box::new(Mapper445::new(header, rom, rom_name)),
         455 => Box::new(Mapper455::new(header, rom, rom_name)),
         461 => Box::new(Mapper461::new(header, rom, rom_name, using_chr_ram, has_battery)),
         469 => {
