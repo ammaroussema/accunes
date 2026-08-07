@@ -1,5 +1,5 @@
 use crate::mappers::one_bus_gpio::GpioPort;
-pub const VB0S_TABLE: [u8; 8] = [0, 1, 2, 0, 3, 4, 5, 1];
+pub const VB0S_TABLE: [u8; 8] = [0, 1, 2, 0, 3, 4, 5, 0];
 pub fn is_onebus_mapper(mapper: u16) -> bool {
     matches!(
         mapper,
@@ -234,6 +234,10 @@ impl OneBus {
         self.reg4100[0x0F] = 0xFF;
         self.reg4100[0x60] = 0x00;
         self.reg4100[0x61] = 0x00;
+        // VT369: turn off the sound CPU on every reset (hard or soft)
+        if self.console_type_vt369 {
+            self.reg4100[0x62] = 0x00;
+        }
         for g in &mut self.gpio {
             g.reset();
         }
@@ -327,8 +331,21 @@ impl OneBus {
         let shift = VB0S_TABLE[vb0s] as u16;
         let chr_and = 0xFFu16 >> shift;
         let rv6 = (self.reg2000[0x1A] & 0xF8) as u16;
-        let mut chr_or = rv6 & !chr_and;
-        let extended = self.bkexten() || self.spexten();
+        let chr_or = rv6 & !chr_and;
+        let extended = if is_bg {
+            self.bkexten()
+        } else if is_sprite {
+            self.spexten()
+        } else {
+            self.bkexten() || self.spexten()
+        };
+        let is_4bpp = if is_bg {
+            self.use_4bpp_chr() && self.bk16en()
+        } else if is_sprite {
+            (self.reg2000[0x10] & 0x04) != 0
+        } else {
+            self.use_4bpp_chr()
+        };
         let bank_reg = match slot & 7 {
             0 => self.reg2000[0x16] & !1,
             1 => self.reg2000[0x16] | 1,
@@ -341,6 +358,16 @@ impl OneBus {
             _ => 0,
         };
         let va21 = (self.reg4100[0x00] & 0x0F) as u16;
+        let mut map_and = self.banking.chr_and;
+        let mut map_or = self.banking.chr_or;
+        let mut rel = self.relative_8k << 3;
+
+        if is_4bpp {
+            map_and >>= 1;
+            map_or >>= 1;
+            rel >>= 1;
+        }
+
         let bank_val = if extended {
             let eva = if is_bg {
                 if self.bkpage() { 4 } else { 0 }
@@ -349,14 +376,15 @@ impl OneBus {
             } else {
                 self.vrwb() as usize
             };
-            ((((bank_reg as u16 & chr_and) | chr_or) as usize) << 3) | eva | ((va21 as usize) << 11)
+            let raw_bank = ((((bank_reg as u16 & chr_and) | chr_or) as usize) << 3) | eva | ((va21 as usize) << 11);
+            ((raw_bank & map_and) | map_or) + rel
         } else {
             let va18 = ((self.reg2000[0x18] >> 4) & 7) as u16;
-            chr_or |= va18 << 8;
-            ((bank_reg as u16 & chr_and) | chr_or | (va21 << 11)) as usize
+            let raw_or = chr_or | (va18 << 8);
+            let raw_bank = ((bank_reg as u16 & chr_and) | raw_or | (va21 << 11)) as usize;
+            ((raw_bank & map_and) | map_or) + rel
         };
-        let bank = bank_val + (self.relative_8k << 3);
-        ((bank & self.banking.chr_and) | self.banking.chr_or) as usize
+        bank_val
     }
     pub fn chr_bank_1k(&self, slot: usize) -> usize {
         self.chr_bank_1k_ext(slot, false, false)
@@ -400,6 +428,29 @@ impl OneBus {
         }
         self.chr_source_len = raw_chr.len();
     }
+    /// Update a single byte in the 4bpp split CHR planes after a write to the underlying
+    /// ROM data (mapper 407 writable PRG window). Mirrors Furbtendulator's writeRAM()
+    /// chr plane update logic.
+    pub fn update_chr_plane_byte(&mut self, rom_addr: usize, val: u8) {
+        let shifted = (rom_addr & 0xF) | ((rom_addr >> 1) & !0xF);
+        if rom_addr & 0x10 != 0 {
+            if shifted < self.chr_high.len() {
+                self.chr_high[shifted] = val;
+            }
+        } else if shifted < self.chr_low.len() {
+            self.chr_low[shifted] = val;
+        }
+        // Also update the 16-bit interleaved planes (odd bytes → chr_high16, even → chr_low16)
+        let half = rom_addr >> 1;
+        if rom_addr & 1 != 0 {
+            if half < self.chr_high16.len() {
+                self.chr_high16[half] = val;
+            }
+        } else if half < self.chr_low16.len() {
+            self.chr_low16[half] = val;
+        }
+    }
+
     pub fn fetch_chr_byte_ext(
         &mut self,
         prg_rom: &[u8],
@@ -442,22 +493,27 @@ impl OneBus {
         };
         let fetch_high_plane = in_high_plane || in_bg_high || in_spr_high;
         let is_4bpp_window = if in_bg_low || in_bg_high {
-            use_4bpp && (self.bk16en() || (self.reg2000[0x10] & 0x80) != 0)
+            use_4bpp && self.bk16en()
         } else if in_spr_low || in_spr_high {
             (self.reg2000[0x10] & 0x04) != 0
         } else {
             use_4bpp
         };
+        // V16BEN: use the 16-bit interleaved planes when the console type requires it,
+        // or when reg2000[0x10] bit 6 is set, or when reg4100[0x2B] == 0x61.
+        let use_16bit_planes = self.console_type_vt369
+            || (self.reg2000[0x10] & 0x40) != 0
+            || self.reg4100[0x2B] == 0x61;
         if is_4bpp_window {
             let bank_full = self.chr_bank_1k_ext(slot, eff_is_bg, eff_is_sprite);
             let within_1k = (address as usize) & 0x3FF;
             let plane = if fetch_high_plane {
-                if self.console_type_vt09 || self.console_type_vt369 {
+                if use_16bit_planes {
                     &self.chr_high16
                 } else {
                     &self.chr_high
                 }
-            } else if self.console_type_vt09 || self.console_type_vt369 {
+            } else if use_16bit_planes {
                 &self.chr_low16
             } else {
                 &self.chr_low
@@ -523,6 +579,10 @@ impl OneBus {
                 _ => {}
             }
             if (0x00..=0x0D).contains(&idx) || (0x60..=0xFF).contains(&idx) {
+                return Some(self.reg4100[idx]);
+            }
+            // Mirror reg4100 reads for $4200-$47FF (addr & 0xFF gives reg index)
+            if address >= 0x4200 && address < 0x4800 {
                 return Some(self.reg4100[idx]);
             }
         } else if address == 0x4326 {
@@ -601,30 +661,31 @@ impl OneBus {
         }
         self.reg4100[idx] = val;
     }
-    pub fn write_mmc3(&mut self, address: u16, val: u8, mangle: &OneBusMangle) {
+    pub fn write_mmc3(&mut self, address: u16, val: u8, _mangle: &OneBusMangle) {
         if self.fwen() {
             return;
         }
         let bank_bits = ((address >> 12) & 6) as u8;
         let addr_bit_0 = (address & 1) as u8;
         let mmc3_addr = bank_bits | addr_bit_0;
+        let identity = OneBusMangle::IDENTITY;
         match mmc3_addr {
-            0 => self.write_apu(0x4105, val & !0x20, mangle),
+            0 => self.write_apu(0x4105, val & !0x20, &identity),
             1 => {
                 let pointer = self.reg4100[0x05] & 7;
                 if pointer < 2 {
-                    self.write_ppu(0x2016 + pointer as u16, val, mangle);
+                    self.write_ppu(0x2016 + pointer as u16, val, &identity);
                 } else if pointer < 6 {
-                    self.write_ppu(0x2010 + pointer as u16, val, mangle);
+                    self.write_ppu(0x2010 + pointer as u16, val, &identity);
                 } else {
-                    self.write_apu(0x4101 + pointer as u16, val, mangle);
+                    self.write_apu(0x4101 + pointer as u16, val, &identity);
                 }
             }
-            2 => self.write_apu(0x4106, val & 1, mangle),
-            4 => self.write_apu(0x4101, val, mangle),
-            5 => self.write_apu(0x4102, val, mangle),
-            6 => self.write_apu(0x4103, val, mangle),
-            7 => self.write_apu(0x4104, val, mangle),
+            2 => self.write_apu(0x4106, val & 1, &identity),
+            4 => self.write_apu(0x4101, val, &identity),
+            5 => self.write_apu(0x4102, val, &identity),
+            6 => self.write_apu(0x4103, val, &identity),
+            7 => self.write_apu(0x4104, val, &identity),
             _ => {}
         }
     }
@@ -657,7 +718,11 @@ impl OneBus {
         dot: u16,
         rendering: bool,
     ) -> bool {
-        if self.console_type_vt369 && (self.reg4100[0x1C] & 0x80) != 0 && scanline == 0 {
+        // Furbtendulator uses scanline <= 0 to cover both scanline 0 and the pre-render
+        // line. We represent the pre-render line as 261 (u16::MAX would wrap), so guard
+        // both scanline 0 and 261 here.
+        let is_prerender_or_zero = scanline == 0 || scanline == 261;
+        if self.console_type_vt369 && (self.reg4100[0x1C] & 0x80) != 0 && is_prerender_or_zero {
             return false;
         }
         if self.console_type_vt369 && (self.reg4100[0x1C] & 0x20) != 0 && scanline == 0 {

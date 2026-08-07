@@ -272,7 +272,7 @@ impl Mapper for Mapper296 {
         ppu_octal_latch: u8,
         vram: &[u8],
     ) -> (u8, u16) {
-        let raw_address = (ppu_address_bus & 0x3FFF) | (ppu_octal_latch as u16);
+        let raw_address = (ppu_address_bus & 0x7FFF) | (ppu_octal_latch as u16);
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
         let is_chr_fetch = raw_address < 0x2000 || (raw_address >= 0x4000 && raw_address < 0x6000);
         if is_chr_fetch {
@@ -381,7 +381,7 @@ impl Mapper for Mapper296 {
         p
     }
 
-    fn vt03_4bpp_bg(&self) -> bool { (self.core.reg2000[0x10] & 0x82) != 0 }
-    fn vt03_4bpp_sp(&self) -> bool { (self.core.reg2000[0x10] & 0x84) != 0 }
+    fn vt03_4bpp_bg(&self) -> bool { (self.core.reg2000[0x10] & 0x02) != 0 }
+    fn vt03_4bpp_sp(&self) -> bool { (self.core.reg2000[0x10] & 0x04) != 0 }
     fn vt03_reg2000_10(&self) -> u8 { self.core.reg2000[0x10] }
 }

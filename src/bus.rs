@@ -669,8 +669,8 @@ impl Emulator {
             };
             self.palette_ram[pal_addr] = input;
             
-            // palette mirrors
-            if (pal_addr & 0x63) == 0 {
+            // palette mirrors (standard NES 2bpp only; VT03 palette RAM is 256 independent bytes)
+            if !is_onebus && (pal_addr & 3) == 0 {
                 self.palette_ram[pal_addr ^ 0x10] = input;
             }
         }

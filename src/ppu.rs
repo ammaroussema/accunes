@@ -809,6 +809,9 @@ impl Emulator {
         let mut palette: u8 = 0;
         let mut color: u8 = 0;
 
+        let bg_color_mask: u8 = if self.vt03_4bpp_bg_enabled() { 0x0F } else { 0x03 };
+        let sp_color_mask: u8 = if self.vt03_4bpp_sp_enabled() { 0x0F } else { 0x03 };
+
         if self.ppu_mask_show_background
             && (self.ppu_dot > 8 || self.ppu_mask_8px_show_background)
         {
@@ -825,7 +828,7 @@ impl Emulator {
             let pal1 = ((self.ppu_bg_attr_sr_h >> (7 - self.ppu_fine_x_scroll as u16)) & 1) as u8;
             palette = (pal1 << 1) | pal0;
 
-            if (color & 3) == 0 && palette != 0 {
+            if (color & bg_color_mask) == 0 && palette != 0 {
                 palette = 0;
             }
         }
@@ -856,7 +859,7 @@ impl Emulator {
                     continue;
                 }
 
-                if (sprite_color & 3) != 0 {
+                if (sprite_color & sp_color_mask) != 0 {
                     break;
                 }
             }
@@ -866,8 +869,8 @@ impl Emulator {
                 && self.ppu_current_scanline_contains_sprite_zero
                 && self.ppu_mask_show_background
                 && self.ppu_mask_show_sprites
-                && (color & 3) != 0
-                && (sprite_color & 3) != 0
+                && (color & bg_color_mask) != 0
+                && (sprite_color & sp_color_mask) != 0
                 && (self.ppu_mask_8px_show_sprites || self.ppu_dot > 8)
                 && self.ppu_dot < 256
             {
@@ -878,29 +881,31 @@ impl Emulator {
                 }
             }
 
-            if (color & 3) == 0 && (sprite_color & 3) != 0 {
+            if (color & bg_color_mask) == 0 && (sprite_color & sp_color_mask) != 0 {
                 color = sprite_color;
                 palette = sprite_palette;
-            } else if (sprite_color & 3) != 0 && sprite_priority {
+            } else if (sprite_color & sp_color_mask) != 0 && sprite_priority {
                 color = sprite_color;
                 palette = sprite_palette;
             }
         }
 
-        let is_vt03 = self.vt03_4bpp_bg_enabled() || self.vt03_4bpp_sp_enabled();
         let reg2000_10 = self.cart.as_ref().map_or(0, |c| c.mapper_chip.vt03_reg2000_10());
+        let is_vt03 = self.vt03_4bpp_bg_enabled() || self.vt03_4bpp_sp_enabled() || (reg2000_10 & 0x80) != 0;
 
         if (self.ppu_mask_show_background || self.ppu_mask_show_sprites)
             && self.ppu_scanline < 240
         {
             if is_vt03 {
                 let bkexten = (reg2000_10 & 0x10) != 0;
+                let is_sprite = (palette & 4) != 0;
                 let c0 = color & 1;
                 let c1 = (color >> 1) & 1;
                 let c2 = (color >> 2) & 1;
                 let c3 = (color >> 3) & 1;
-                let attr_bits = if bkexten { 0 } else { palette & 3 };
-                let tc = (c3 << 6) | (c2 << 5) | (attr_bits << 2) | (c1 << 1) | c0;
+                let attr_bits = if !is_sprite && bkexten { 0 } else { palette & 3 };
+                let sprite_flag = if is_sprite { 0x10 } else { 0 };
+                let tc = (c3 << 6) | (c2 << 5) | sprite_flag | (attr_bits << 2) | (c1 << 1) | c0;
                 self.palette_ram_address = if (tc & 0x63) == 0 { 0 } else { tc };
             } else {
                 self.palette_ram_address = (palette << 2) | color;
@@ -965,7 +970,8 @@ impl Emulator {
                 let x = (self.ppu_dot as usize) - 4 - odd_offset;
                 let y = self.ppu_scanline as usize;
                 if x < 256 && y < 240 {
-                    let is_vt03 = self.vt03_4bpp_bg_enabled() || self.vt03_4bpp_sp_enabled();
+                    let reg2000_10 = self.cart.as_ref().map_or(0, |c| c.mapper_chip.vt03_reg2000_10());
+                    let is_vt03 = self.vt03_4bpp_bg_enabled() || self.vt03_4bpp_sp_enabled() || (reg2000_10 & 0x80) != 0;
                     if is_vt03 {
                         self.screen[y * 256 + x] = self.prev_prev_prev_dot_color_rgb;
                     } else {

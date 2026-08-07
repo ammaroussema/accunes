@@ -133,7 +133,7 @@ impl Mapper for Mapper436 {
     }
 
     fn take_irq_ack(&mut self) -> bool {
-        false
+        self.core.take_irq_ack()
     }
 
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {

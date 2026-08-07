@@ -57,9 +57,13 @@ impl GpioPort {
         self.mask = 0;
         self.latch = 0;
         self.state = 0xFF;
+        // Clear attached devices on reset, matching Furbtendulator's serialDevices.clear().
+        // Mapper reset functions re-attach devices after calling OneBus::reset(), so
+        // clearing here prevents duplicate entries accumulating across resets.
         for dev in &mut self.devices {
             dev.device.reset();
         }
+        self.devices.clear();
     }
     pub fn read(&mut self, address: u8) -> u8 {
         match address & 7 {

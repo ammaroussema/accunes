@@ -7,6 +7,7 @@ mod cartridge;
 mod crc;
 mod mappers;
 mod mapper;
+mod wxn;
 mod emulator;
 mod cpu;
 mod ppu;
@@ -661,7 +662,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.3.8";
+const APP_VERSION: &str = "1.3.9";
 
 fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     let a = a.trim_start_matches('v');
@@ -1009,7 +1010,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.3.8")
+        .with_title("AccuNES 1.3.9")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -3525,9 +3526,10 @@ fn main() {
                                         match file_menu_items[i] {
                                             FileMenuItem::Open => {
                                                 if let Some(path) = rfd::FileDialog::new()
-                                                    .add_filter("All ROMs", &["nes", "unif", "unf", "fds"])
+                                                    .add_filter("All ROMs", &["nes", "unif", "unf", "fds", "wxn"])
                                                     .add_filter("NES ROMs", &["nes", "unif", "unf"])
                                                     .add_filter("FDS ROMs", &["fds"])
+                                                    .add_filter("Waixing ROMs", &["wxn"])
                                                     .pick_file() {
                                                     let path_str = path.to_string_lossy().to_string();
                                                     match cartridge::Cartridge::from_file(&path_str) {
@@ -4168,14 +4170,14 @@ fn main() {
                             .unwrap_or_else(|| rom_path.clone());
                         
                         let lower = filename.to_lowercase();
-                        if lower.ends_with(".nes") || lower.ends_with(".unif") || lower.ends_with(".unf") {
+                        if lower.ends_with(".nes") || lower.ends_with(".unif") || lower.ends_with(".unf") || lower.ends_with(".wxn") {
                             filename.truncate(filename.len() - 4);
                         } else if lower.ends_with(".fds") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.3.8: {}", filename)
+                        format!("AccuNES 1.3.9: {}", filename)
                     } else {
-                        "AccuNES 1.3.8".to_string()
+                        "AccuNES 1.3.9".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -4390,7 +4392,7 @@ fn main() {
                                         .unwrap_or_default();
                                     let mut cut_idx = filename.len();
                                     let lower_filename = filename.to_lowercase();
-                                    for ext in &[".nes", ".fds", ".unif", ".unf"] {
+                                    for ext in &[".nes", ".fds", ".unif", ".unf", ".wxn"] {
                                         if let Some(idx) = lower_filename.find(ext) { cut_idx = cut_idx.min(idx); }
                                     }
                                     for ch in &['(', '['] {
@@ -4595,7 +4597,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.3.8",
+                        "Version: 1.3.9",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };

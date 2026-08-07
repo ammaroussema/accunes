@@ -49,10 +49,50 @@ pub struct Cartridge {
 
     pub tv_system: TvSystem,
 }
+fn convert_mfc_to_ines(rom: &[u8]) -> Result<Vec<u8>, String> {
+    if rom.len() < 16 || &rom[0..4] != b"mfc\0" {
+        return Err("Not a valid MFC ROM file".to_string());
+    }
+    let prg_16k = rom[4] as usize;
+    let chr_8k = rom[5] as usize;
+    let mfc_mapper = ((rom[6] & 0xF0) >> 4) | (rom[7] & 0xF0);
+    let expected = 16 + prg_16k * 0x4000 + chr_8k * 0x2000;
+    if rom.len() < expected {
+        return Err(format!(
+            "MFC ROM file too small: expected {} bytes, got {}",
+            expected,
+            rom.len()
+        ));
+    }
+
+    let (mapper, submapper, prgram, chrram, battery) = match mfc_mapper {
+        1 => (256u16, 1u8, 0x00u8, 0x00u8, false),
+        3 => (4u16, 0u8, 0x00u8, 0x00u8, false),
+        30 => (176u16, 2u8, 0x90u8, 0x00u8, true),
+        61 => (164u16, 0u8, 0x70u8, 0x07u8, true),
+        _ => return Err(format!("Unknown MFC mapper number: {}", mfc_mapper)),
+    };
+
+    let mut out = vec![0u8; expected];
+    out[0..4].copy_from_slice(b"NES\x1a");
+    out[4] = prg_16k as u8;
+    out[5] = chr_8k as u8;
+    out[6] = ((mapper as u8 & 0x0F) << 4) | 0x01 | if battery { 0x02 } else { 0x00 };
+    out[7] = 0x08 | (((mapper >> 4) as u8 & 0x0F) << 4);
+    out[8] = ((submapper & 0x0F) << 4) | ((mapper >> 8) as u8 & 0x0F);
+    out[9] = 0x00;
+    out[10] = prgram;
+    out[11] = chrram;
+    out[12] = 0x03;
+    out[13] = if mapper == 256 { 8 } else { 0 };
+    out[16..].copy_from_slice(&rom[16..expected]);
+    Ok(out)
+}
 
 impl Cartridge {
+
     pub fn from_file(filepath: &str) -> Result<Cartridge, String> {
-        let rom = fs::read(filepath).map_err(|e| format!("Failed to read file: {}", e))?;
+        let mut rom = fs::read(filepath).map_err(|e| format!("Failed to read file: {}", e))?;
 
         if rom.len() < 16 {
             return Err("File too small to contain iNES header".to_string());
@@ -475,13 +515,25 @@ impl Cartridge {
             return Ok(cartridge);
         }
 
+        let is_mfc = &rom[0..4] == b"mfc\0";
+        let is_mfc_encrypted = is_mfc && rom.len() > 11 && rom[11] != 0;
+        if is_mfc {
+            let mfc_mapper = ((rom[6] & 0xF0) >> 4) | (rom[7] & 0xF0);
+            rom = convert_mfc_to_ines(&rom)?;
+            println!("MFC ROM detected (MFC mapper {}), converted to iNES 2.0", mfc_mapper);
+        }
+
         if &rom[0..4] != b"NES\x1a" {
             return Err("Not a valid iNES ROM file".to_string());
         }
 
         let is_nes20 = (rom[7] & 0x0C) == 0x08;
+        let is_wxn = !is_nes20 && rom.len() > 11 && rom[11] == 1;
         let mut memory_mapper = ((rom[6] >> 4) as u16) | ((rom[7] & 0xF0) as u16)
             | if is_nes20 { ((rom[8] & 0x0F) as u16) << 8 } else { 0 };
+        if is_wxn && memory_mapper == 4 {
+            memory_mapper = 256;
+        }
         let is_vs_system = (rom[7] & 0x03) == 1 || memory_mapper == 99;
         let sub_mapper = if is_nes20 {
             (rom[8] >> 4) & 0x0F
@@ -502,7 +554,7 @@ impl Cartridge {
         };
         let mut using_chr_ram = chr_size_val == 0;
 
-        let prg_rom_len = if prg_size == 0 {
+        let mut prg_rom_len = if prg_size == 0 {
             let after_header = 0x10 + trainer_len;
             let chr_bytes = chr_size_val * 0x2000;
             let remaining = rom.len().saturating_sub(after_header + chr_bytes);
@@ -518,11 +570,23 @@ impl Cartridge {
             let prg_bytes = ((2 * (lo & 3) + 1) << (lo >> 2)) as usize;
             prg_size = (prg_bytes / 0x4000).min(0xFF) as u8;
             prg_bytes
+        } else if is_nes20 {
+            let prg_size_12bit = (rom[4] as usize) | (((rom[9] & 0x0F) as usize) << 8);
+            prg_size = prg_size_12bit.min(0xFF) as u8;
+            prg_size_12bit * 0x4000
         } else {
             prg_size as usize * 0x4000
         };
-        let prg_size_minus_1 = prg_size.wrapping_sub(1);
+
         let chr_rom_len = chr_size_val * 0x2000;
+        let after_header = 0x10 + trainer_len;
+        let file_prg_avail = rom.len().saturating_sub(after_header + chr_rom_len);
+        if file_prg_avail > prg_rom_len {
+            prg_rom_len = file_prg_avail;
+            prg_size = (prg_rom_len / 0x4000).min(0xFF) as u8;
+        }
+
+        let prg_size_minus_1 = prg_size.wrapping_sub(1);
 
         if rom.len() < 0x10 + trainer_len + prg_rom_len + chr_rom_len {
             return Err(format!(
@@ -545,11 +609,41 @@ impl Cartridge {
             chr_rom.copy_from_slice(&rom[0x10 + trainer_len + prg_rom_len..0x10 + trainer_len + prg_rom_len + chr_rom_len]);
         }
 
+        if is_wxn || is_mfc_encrypted {
+            crate::wxn::decrypt_wxn(&mut prg_rom, &mut chr_rom);
+            if is_wxn {
+                println!("WXN encrypted ROM detected, decrypting PRG/CHR data");
+            } else {
+                println!("MFC encrypted ROM detected, decrypting PRG/CHR data");
+            }
+        }
+
+        if is_mfc && memory_mapper == 164 {
+            let scan_len = prg_rom.len().min(0x8000);
+            let mut found = false;
+            for i in 0..scan_len.saturating_sub(2) {
+                if prg_rom[i] == 0x8D && prg_rom[i + 1] == 0x00 && prg_rom[i + 2] == 0x50 {
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                memory_mapper = 227;
+                println!("MFC mapper 61: no STA $5000 found in first 32K, using Waixing FW01 (mapper 227)");
+            }
+        }
+
         println!("ROM SIZES: prg_size={} prg_rom_len=${:X} chr_size={} chr_rom_len=${:X} prg_rom_file_len=${:X}",
             prg_size, prg_rom_len, chr_size_val, chr_rom_len, prg_rom.len());
 
         let game_data_end = 0x10 + trainer_len + prg_rom_len + chr_rom_len;
-        let i_nes_game_crc32 = crate::crc::crc32(&rom[0x10 + trainer_len..game_data_end]);
+        let i_nes_game_crc32 = if is_wxn || is_mfc_encrypted {
+            let mut game_data = prg_rom.clone();
+            game_data.extend_from_slice(&chr_rom);
+            crate::crc::crc32(&game_data)
+        } else {
+            crate::crc::crc32(&rom[0x10 + trainer_len..game_data_end])
+        };
         if crate::crc::lookup_crc_override(i_nes_game_crc32).is_some() {
             let mut mapper_override = memory_mapper;
             let mut has_chr_rom = chr_rom_len > 0;
@@ -648,7 +742,7 @@ impl Cartridge {
             let battery_bytes = if battery_shift == 0 { 0 } else { 64usize << battery_shift };
             let total_ram = vram_bytes + battery_bytes;
             vec![0u8; total_ram]
-        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 448 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             vec![0u8; 0x2000]
         } else if using_chr_ram {
             vec![0u8; 0x2000]
@@ -662,7 +756,7 @@ impl Cartridge {
         if memory_mapper == 77 {
             using_chr_ram = true;
         }
-        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 448 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             using_chr_ram = true;
         }
         if memory_mapper == 314 && chr_size == 0 {
@@ -985,4 +1079,3 @@ fn fix_fds_disk_side(disk: &[u8], _side_index: usize, disk_crc32: u32) -> Result
     
     Ok(ret)
 }
-

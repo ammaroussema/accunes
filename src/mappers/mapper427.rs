@@ -157,6 +157,6 @@ impl Mapper for Mapper427 {
         p
     }
 
-    fn vt03_4bpp_bg(&self) -> bool { (self.core.reg2000[0x10] & 0x82) != 0 }
-    fn vt03_4bpp_sp(&self) -> bool { (self.core.reg2000[0x10] & 0x84) != 0 }
+    fn vt03_4bpp_bg(&self) -> bool { (self.core.reg2000[0x10] & 0x02) != 0 }
+    fn vt03_4bpp_sp(&self) -> bool { (self.core.reg2000[0x10] & 0x04) != 0 }
 }

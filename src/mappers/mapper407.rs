@@ -45,6 +45,12 @@ impl Mapper for Mapper407 {
             let rom_offset = bank * 0x2000 + (address as usize & 0x1FFF);
             if rom_offset < cart.prg_rom.len() {
                 cart.prg_rom[rom_offset] = data;
+                // Furbtendulator writeRAM(): if the written PRG bank is in the $80-$87
+                // range (the dual-purpose CHR data window), propagate the byte to the
+                // 4bpp split planes so the PPU sees the updated tile data immediately.
+                if (bank & 0xF8) == 0x80 {
+                    self.core.update_chr_plane_byte(rom_offset, data);
+                }
             }
         }
     }
@@ -117,7 +123,7 @@ impl Mapper for Mapper407 {
     }
 
     fn take_irq_ack(&mut self) -> bool {
-        false
+        self.core.take_irq_ack()
     }
 
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
@@ -130,6 +136,6 @@ impl Mapper for Mapper407 {
         self.core.load_core(state, start)
     }
 
-    fn vt03_4bpp_bg(&self) -> bool { (self.core.reg2000[0x10] & 0x82) != 0 }
-    fn vt03_4bpp_sp(&self) -> bool { (self.core.reg2000[0x10] & 0x84) != 0 }
+    fn vt03_4bpp_bg(&self) -> bool { (self.core.reg2000[0x10] & 0x02) != 0 }
+    fn vt03_4bpp_sp(&self) -> bool { (self.core.reg2000[0x10] & 0x04) != 0 }
 }

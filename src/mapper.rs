@@ -150,7 +150,7 @@ pub use crate::mappers::mapper172::Mapper172;
 pub use crate::mappers::mapper173::Mapper173;
 pub use crate::mappers::mapper174::Mapper174;
 pub use crate::mappers::mapper175::Mapper175;
-pub use crate::mappers::mapper176::Mapper176;
+pub use crate::mappers::mapper176::{Mapper176, Mapper176Config};
 pub use crate::mappers::mapper177::Mapper177;
 pub use crate::mappers::mapper178::Mapper178;
 pub use crate::mappers::mapper179::Mapper179;
@@ -329,6 +329,10 @@ pub use crate::mappers::mapper442::Mapper442;
 pub use crate::mappers::mapper443::Mapper443;
 pub use crate::mappers::mapper444::Mapper444;
 pub use crate::mappers::mapper445::Mapper445;
+pub use crate::mappers::mapper447::Mapper447;
+pub use crate::mappers::mapper448::Mapper448;
+pub use crate::mappers::mapper449::Mapper449;
+pub use crate::mappers::mapper450::Mapper450;
 pub use crate::mappers::mapper455::Mapper455;
 pub use crate::mappers::mapper461::Mapper461;
 pub use crate::mappers::mapper469::Mapper469;
@@ -544,6 +548,24 @@ pub trait Mapper: Send {
 
 
 // the mapper factory
+
+// Reads the NES 2.0 PRG RAM size from header byte 0x10 (volatile and battery nibbles).
+fn prg_ram_size_from_ines2(header: &[u8]) -> usize {
+    if header.len() <= 0x10 || header[0x10] == 0 {
+        return 0;
+    }
+    let volatile = (header[0x10] & 0x0F) as usize;
+    let battery = ((header[0x10] >> 4) & 0x0F) as usize;
+    let mut size = 0;
+    if volatile != 0 {
+        size += 64usize << volatile;
+    }
+    if battery != 0 {
+        size += 64usize << battery;
+    }
+    size
+}
+
 pub fn create_mapper(
     mapper_id: u16,
     submapper_id: u8,
@@ -858,7 +880,7 @@ pub fn create_mapper(
         162 => Box::new(Mapper162::new()),
         163 => Box::new(Mapper163::new()),
         164 => {
-            let prg_ram_size = header[0x13] as usize * 64;
+            let prg_ram_size = prg_ram_size_from_ines2(header);
             Box::new(Mapper164::new(prg_ram_size))
         },
         165 => Box::new(Mapper165::new()),
@@ -880,7 +902,14 @@ pub fn create_mapper(
         173 => Box::new(Mapper173::new()),
         174 => Box::new(Mapper174::new()),
         175 => Box::new(Mapper175::new()),
-        176 => Box::new(Mapper176::new()),
+        176 => Box::new(Mapper176::new(Mapper176Config::for_ines(
+            header,
+            submapper_id,
+            rom,
+            prg_size,
+            using_chr_ram,
+            has_battery,
+        ))),
         177 => Box::new(Mapper177::new()),
         178 => Box::new(Mapper178::new()),
         179 => Box::new(Mapper179::new()),
@@ -1168,6 +1197,13 @@ pub fn create_mapper(
         443 => Box::new(Mapper443::new(header, rom, rom_name)),
         444 => Box::new(Mapper444::new(submapper_id, header, rom, rom_name)),
         445 => Box::new(Mapper445::new(header, rom, rom_name)),
+    //  446 => Box::new(Mapper446::new()), (to be implemented in the future)
+        447 => Box::new(Mapper447::new()),
+        448 => Box::new(Mapper448::new()),
+        449 => Box::new(Mapper449::new()),
+        450 => Box::new(Mapper450::new(
+            rom.len() > 0x10 && (rom[7] & 0x0C) == 0x08 && rom[0x0A] == 0,
+        )),
         455 => Box::new(Mapper455::new(header, rom, rom_name)),
         461 => Box::new(Mapper461::new(header, rom, rom_name, using_chr_ram, has_battery)),
         469 => {

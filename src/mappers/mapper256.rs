@@ -70,9 +70,13 @@ impl Mapper256 {
     pub fn new(_config: Mmc3Config, submapper: u8, header: &[u8]) -> Self {
         let is_nes20 = header.len() >= 16 && (header[7] & 0x0C) == 0x08;
         let is_vt369 = is_nes20 && (header[7] & 0x03) == 3 && (header[13] & 0x0F) == 0x0A;
+        let is_vt09 = (is_nes20 && (header[7] & 0x03) == 3 && (header[13] & 0x0F) == 0x08) || submapper == 15;
         let mut core = OneBus::new(&[], &[], OneBusBanking::MAPPER256);
         if is_vt369 {
             core.console_type_vt369 = true;
+        }
+        if is_vt09 {
+            core.console_type_vt09 = true;
         }
         Self {
             core,
@@ -98,8 +102,10 @@ impl Mapper256 {
 impl Mapper for Mapper256 {
     fn reset(&mut self) {
         let is_vt369 = self.core.console_type_vt369;
+        let is_vt09 = self.core.console_type_vt09;
         self.core.reset();
         self.core.console_type_vt369 = is_vt369;
+        self.core.console_type_vt09 = is_vt09;
     }
 
     fn handle_cpu_write(&mut self, address: u16, data: u8) {
@@ -161,6 +167,25 @@ impl Mapper for Mapper256 {
             return FetchResult { data, driven: true };
         }
         if address >= 0x6000 && address < 0x8000 {
+            // Furbtendulator syncPRG(): on VT369, reg4100[0x1C] bit 6 switches $6000-$7FFF
+            // from PRG-RAM to a banked PRG-ROM window using reg4100[0x12] as the bank number.
+            if self.core.console_type_vt369 && (self.core.reg4100[0x1C] & 0x40) != 0 {
+                let ps = self.core.ps();
+                let prg_and = if ps == 7 { 0xFFu16 } else { 0x3Fu16 >> ps };
+                let pa21 = (self.core.reg4100[0x00] >> 4) as u16;
+                let prg_or = ((self.core.reg4100[0x0A] as u16) | (pa21 << 8)) & !prg_and;
+                let raw_bank = self.core.reg4100[0x12] as u16;
+                let bank = (((raw_bank & prg_and | prg_or) as u16 & self.core.banking.prg_and)
+                    | self.core.banking.prg_or) as usize
+                    + self.core.relative_8k;
+                let offset = bank * 0x2000 + (address as usize & 0x1FFF);
+                let data = if !cart.prg_rom.is_empty() {
+                    cart.prg_rom[offset % cart.prg_rom.len()]
+                } else {
+                    0
+                };
+                return FetchResult { data, driven: true };
+            }
             if !cart.prg_ram.is_empty() {
                 let off = (address - 0x6000) as usize;
                 if off < cart.prg_ram.len() {
@@ -204,7 +229,9 @@ impl Mapper for Mapper256 {
         ppu_octal_latch: u8,
         vram: &[u8],
     ) -> (u8, u16) {
-        let raw_address = (ppu_address_bus & 0x3FFF) | (ppu_octal_latch as u16);
+        // Preserve bit 14 (0x4000) so that 4bpp high-plane CHR fetches (ppu_address_bus | 0x4000)
+        // correctly route to the high CHR split (chr_high). Using 0x7FFF keeps bits 14:0.
+        let raw_address = (ppu_address_bus & 0x7FFF) | (ppu_octal_latch as u16);
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
 
         let is_chr_fetch = raw_address < 0x2000 || (raw_address >= 0x4000 && raw_address < 0x6000);
@@ -326,8 +353,8 @@ impl Mapper for Mapper256 {
         0
     }
     fn set_dip_switches(&mut self, _value: u8) {}
-    fn vt03_4bpp_bg(&self) -> bool { (self.core.reg2000[0x10] & 0x82) != 0 }
-    fn vt03_4bpp_sp(&self) -> bool { (self.core.reg2000[0x10] & 0x84) != 0 }
+    fn vt03_4bpp_bg(&self) -> bool { (self.core.reg2000[0x10] & 0x02) != 0 }
+    fn vt03_4bpp_sp(&self) -> bool { (self.core.reg2000[0x10] & 0x04) != 0 }
     fn vt03_reg2000_10(&self) -> u8 { self.core.reg2000[0x10] }
     fn battery_save_data(&self, _cart: &Cartridge) -> Option<Vec<u8>> {
         None
