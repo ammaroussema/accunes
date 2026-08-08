@@ -333,7 +333,16 @@ pub use crate::mappers::mapper447::Mapper447;
 pub use crate::mappers::mapper448::Mapper448;
 pub use crate::mappers::mapper449::Mapper449;
 pub use crate::mappers::mapper450::Mapper450;
+pub use crate::mappers::mapper451::Mapper451;
+pub use crate::mappers::mapper452::Mapper452;
+pub use crate::mappers::mapper453::Mapper453;
+pub use crate::mappers::mapper454::Mapper454;
 pub use crate::mappers::mapper455::Mapper455;
+pub use crate::mappers::mapper456::Mapper456;
+pub use crate::mappers::mapper457::Mapper457;
+pub use crate::mappers::mapper458::Mapper458;
+pub use crate::mappers::mapper459::Mapper459;
+pub use crate::mappers::mapper460::Mapper460;
 pub use crate::mappers::mapper461::Mapper461;
 pub use crate::mappers::mapper469::Mapper469;
 pub use crate::mappers::mapper471::Mapper471;
@@ -1204,7 +1213,16 @@ pub fn create_mapper(
         450 => Box::new(Mapper450::new(
             rom.len() > 0x10 && (rom[7] & 0x0C) == 0x08 && rom[0x0A] == 0,
         )),
+        451 => Box::new(Mapper451::new(header, rom, prg_size)),
+        452 => Box::new(Mapper452::new(submapper_id == 1)),
+        453 => Box::new(Mapper453::new()),
+        454 => Box::new(Mapper454::new()),
         455 => Box::new(Mapper455::new(header, rom, rom_name)),
+        456 => Box::new(Mapper456::new()),
+        457 => Box::new(Mapper457::new()),
+        458 => Box::new(Mapper458::new(submapper_id == 1)),
+        459 => Box::new(Mapper459::new()),
+        460 => Box::new(Mapper460::new()),
         461 => Box::new(Mapper461::new(header, rom, rom_name, using_chr_ram, has_battery)),
         469 => {
              let has_trainer = (header[6] & 4) != 0;
@@ -1230,11 +1248,11 @@ pub fn create_mapper(
         533 => Box::new(Mapper533::new()),
         534 => Box::new(MapperAx5202p::new(Ax5202pVariant::Mapper534)),
         535 => Box::new(Mapper535::new()),
-         538 => Box::new(Mapper538::new()),
-         539 => Box::new(Mapper539::new()),
-         543 => Box::new(Mapper543::new(header, rom, rom_name, using_chr_ram, has_battery)),
-         546 => Box::new(Mapper546::new(header, rom, rom_name, using_chr_ram, has_battery)),
-         548 => Box::new(Mapper548::new()),
+        538 => Box::new(Mapper538::new()),
+        539 => Box::new(Mapper539::new()),
+        543 => Box::new(Mapper543::new(header, rom, rom_name, using_chr_ram, has_battery)),
+        546 => Box::new(Mapper546::new(header, rom, rom_name, using_chr_ram, has_battery)),
+        548 => Box::new(Mapper548::new()),
         549 => Box::new(Mapper549::new()),
         550 => Box::new(Mapper550::new()),
         554 => Box::new(Mapper554::new()),

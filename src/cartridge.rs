@@ -99,8 +99,9 @@ impl Cartridge {
         }
 
         let is_fds = filepath.to_lowercase().ends_with(".fds") || &rom[0..4] == b"FDS\x1a";
+        let is_qd = filepath.to_lowercase().ends_with(".qd") || (rom.len() >= 65536 && rom.len() % 65536 == 0 && &rom[0..15] == b"\x01*NINTENDO-HVC*");
 
-        if is_fds {
+        if is_fds || is_qd {
             let bios_path = crate::config::load_fds_bios_path();
             let disksys = fs::read(&bios_path).map_err(|_| format!("Failed to find FDS BIOS file at: {}", bios_path))?;
             if disksys.len() != 0x2000 {
@@ -109,21 +110,27 @@ impl Cartridge {
 
             let mut fds_disks = Vec::new();
             let mut offset = 0;
-            let num_sides = if &rom[0..4] == b"FDS\x1a" {
+            let (num_sides, side_capacity) = if &rom[0..4] == b"FDS\x1a" {
                 offset = 16;
-                rom[4] as usize
+                (rom[4] as usize, 65500)
+            } else if is_qd {
+                (rom.len() / 65536, 65536)
             } else {
-                rom.len() / 65500
+                (rom.len() / 65500, 65500)
             };
 
             for i in 0..num_sides {
-                if offset + 65500 <= rom.len() {
-                    let mut side = vec![0u8; 65500];
-                    side.copy_from_slice(&rom[offset..offset + 65500]);
+                if offset + side_capacity <= rom.len() {
+                    let mut side = vec![0u8; side_capacity];
+                    side.copy_from_slice(&rom[offset..offset + side_capacity]);
                     let side_crc = crc32(&side);
-                    let fixed_side = fix_fds_disk_side(&side, i, side_crc)?;
+                    let fixed_side = if is_qd {
+                        fix_qd_disk_side(&side, i, side_crc)?
+                    } else {
+                        fix_fds_disk_side(&side, i, side_crc)?
+                    };
                     fds_disks.push(fixed_side);
-                    offset += 65500;
+                    offset += side_capacity;
                 } else {
                     break;
                 }
@@ -742,7 +749,7 @@ impl Cartridge {
             let battery_bytes = if battery_shift == 0 { 0 } else { 64usize << battery_shift };
             let total_ram = vram_bytes + battery_bytes;
             vec![0u8; total_ram]
-        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 448 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 448 | 452 | 453 | 454 | 460 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             vec![0u8; 0x2000]
         } else if using_chr_ram {
             vec![0u8; 0x2000]
@@ -756,7 +763,7 @@ impl Cartridge {
         if memory_mapper == 77 {
             using_chr_ram = true;
         }
-        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 448 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 448 | 452 | 453 | 454 | 460 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             using_chr_ram = true;
         }
         if memory_mapper == 314 && chr_size == 0 {
@@ -1077,5 +1084,67 @@ fn fix_fds_disk_side(disk: &[u8], _side_index: usize, disk_crc32: u32) -> Result
         ret.push(0);
     }
     
+    Ok(ret)
+}
+
+fn write_qd_block(dest: &mut Vec<u8>, data: &[u8], pregap: usize) {
+    for _ in 0..(pregap.saturating_sub(1)) {
+        dest.push(0);
+    }
+    dest.push(0x80);
+    dest.extend_from_slice(data);
+}
+
+fn fix_qd_disk_side(disk: &[u8], _side_index: usize, _disk_crc32: u32) -> Result<Vec<u8>, String> {
+    let mut offset = 0;
+    let mut ret = Vec::new();
+    let mut current_file_size = 0;
+
+    while offset < disk.len() {
+        let block_type = disk[offset];
+        if block_type == 0 && !ret.is_empty() {
+            break;
+        }
+
+        match block_type {
+            0x01 => {
+                if offset + 58 > disk.len() { break; }
+                write_qd_block(&mut ret, &disk[offset..offset + 58], 3500);
+                offset += 58;
+            }
+            0x02 => {
+                if offset + 4 > disk.len() { break; }
+                write_qd_block(&mut ret, &disk[offset..offset + 4], 120);
+                offset += 4;
+            }
+            0x03 => {
+                if offset + 18 > disk.len() { break; }
+                current_file_size = (disk[offset + 13] as usize) | ((disk[offset + 14] as usize) << 8);
+                write_qd_block(&mut ret, &disk[offset..offset + 18], 120);
+                offset += 18;
+            }
+            0x04 => {
+                let block_len = current_file_size + 3;
+                if offset + block_len > disk.len() { break; }
+                write_qd_block(&mut ret, &disk[offset..offset + block_len], 120);
+                offset += block_len;
+            }
+            _ => {
+                let remaining = &disk[offset..];
+                let end_pos = remaining.iter().rposition(|&b| b != 0).map(|i| i + 1).unwrap_or(0);
+                if end_pos > 0 {
+                    write_qd_block(&mut ret, &remaining[..end_pos], 120);
+                    offset += end_pos;
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    while ret.len() < 65536 {
+        ret.push(0);
+    }
+
     Ok(ret)
 }

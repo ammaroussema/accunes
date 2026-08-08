@@ -1,8 +1,6 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
 
-// Mapper 448 "830768C": VRC24 (VRC4) + data latch multicart + WRAM + CHR RAM.
-// See rf/Furbtendulator-main/src/src-mappers/src/iNES/VRC-based/mapper448.cpp
 pub struct Mapper448 {
     reg: u8,
     latch_data: u8,

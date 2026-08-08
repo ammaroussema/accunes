@@ -1,8 +1,6 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
 
-// Mapper 450 "晶太 YY841157C": VRC24 in VRC2 mode (vrc4=false) + optional "wires" register.
-// See rf/Furbtendulator-main/src/src-mappers/src/iNES/VRC-based/mapper450.cpp
 pub struct Mapper450 {
     prg: [u8; 2],
     chr: [u16; 8],

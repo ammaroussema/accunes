@@ -1,8 +1,6 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
 
-// Mapper 447 "KL-06": VRC24 (VRC4) + WRAM + DIP switch address intercept.
-// See rf/Furbtendulator-main/src/src-mappers/src/iNES/VRC-based/mapper447.cpp
 pub struct Mapper447 {
     reg: u8,
     prg: [u8; 2],

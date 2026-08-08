@@ -2,9 +2,6 @@ use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
 use crate::mappers::mmc3::{MapperMMC3, Mmc3Config};
 
-// Mapper 445 "DG574B": MMC3 + VRC24 (VRC4) + NROM/CNROM multi-ASIC.
-// Mode is set by $5003: bits 0-2 = PRG size/mode, bits 3-5 = CHR size/mode.
-// See rf/NintendulatorNRS-DBG-main/src-mappers/src/iNES/multi-ASIC/mapper445.cpp
 pub struct Mapper445 {
     mmc3: MapperMMC3,
     reg: [u8; 5],
