@@ -288,13 +288,16 @@ impl MapperMMC3 {
         } else {
             self.irq_counter = prev.wrapping_sub(1);
         }
-        if self.irq_counter == 0 && self.enable_irq {
+        let fire = if self.irq_counter == 0 && self.enable_irq {
             if self.config.irq_revision_b {
-                return true;
+                true
+            } else {
+                prev != 0 || reset_reload
             }
-            return prev != 0 || reset_reload;
-        }
-        false
+        } else {
+            false
+        };
+        fire
     }
 
     fn fixed_second_last_offset(cart: &Cartridge, address: u16) -> usize {
@@ -465,8 +468,7 @@ impl Mapper for MapperMMC3 {
         match address & 0xE001 {
             0x8000 => {
                 self.r8000 = data;
-            }
-            0x8001 => {
+            }            0x8001 => {
                 let mask = prg8_mask(cart);
                 let mode = self.r8000 & 0x07;
                 match mode {
@@ -614,9 +616,10 @@ impl Mapper for MapperMMC3 {
     }
 
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
-        let a12 = (ppu_address_bus & 0x1000) != 0;
-        if !a12 && self.m2_filter < 3 {
-            self.m2_filter += 1;
+        if (ppu_address_bus & 0x1000) == 0 {
+            if self.m2_filter < 3 {
+                self.m2_filter += 1;
+            }
         }
         false
     }

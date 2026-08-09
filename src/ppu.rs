@@ -681,7 +681,9 @@ impl Emulator {
         if self.ppu_dot == 0 {
             self.ppu_check_par();
             self.ppu_pattern_address_register_chr &= 0b1111111110111;
-            self.ppu_address_bus = self.ppu_pattern_address_register_chr;
+            if self.ppu_scanline != self.pre_render_scanline() {
+                self.ppu_address_bus = self.ppu_pattern_address_register_chr;
+            }
         } else {
             let cycle_tick = self.ppu_dot.wrapping_sub(337);
             match cycle_tick {

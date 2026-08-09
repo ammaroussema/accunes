@@ -344,7 +344,14 @@ pub use crate::mappers::mapper458::Mapper458;
 pub use crate::mappers::mapper459::Mapper459;
 pub use crate::mappers::mapper460::Mapper460;
 pub use crate::mappers::mapper461::Mapper461;
+pub use crate::mappers::mapper462::Mapper462;
+pub use crate::mappers::mapper463::Mapper463;
+pub use crate::mappers::mapper464::Mapper464;
+pub use crate::mappers::mapper465::Mapper465;
+pub use crate::mappers::mapper466::Mapper466;
+pub use crate::mappers::mapper467::Mapper467;
 pub use crate::mappers::mapper469::Mapper469;
+pub use crate::mappers::mapper470::Mapper470;
 pub use crate::mappers::mapper471::Mapper471;
 pub use crate::mappers::mapper522::Mapper522;
 pub use crate::mappers::mapper535::Mapper535;
@@ -606,13 +613,15 @@ pub fn create_mapper(
             if using_chr_ram { 0 } else { header[5] },
         ))),
         3 => Box::new(MapperCNROM::new(CnromConfig::for_ines(header, submapper_id))),
-        4 => Box::new(MapperMMC3::new(Mmc3Config::for_ines(
-            header,
-            submapper_id,
-            if using_chr_ram { 0 } else { header[5] },
-            rom,
-            rom_name,
-        ))),
+        4 => {
+            Box::new(MapperMMC3::new(Mmc3Config::for_ines(
+                header,
+                submapper_id,
+                if using_chr_ram { 0 } else { header[5] },
+                rom,
+                rom_name,
+            )))
+        }
         5 => Box::new(MapperMMC5::new(Mmc5Config::for_ines(
             header,
             rom,
@@ -1224,12 +1233,20 @@ pub fn create_mapper(
         459 => Box::new(Mapper459::new()),
         460 => Box::new(Mapper460::new()),
         461 => Box::new(Mapper461::new(header, rom, rom_name, using_chr_ram, has_battery)),
+        462 => Box::new(Mapper462::new()),
+        463 => Box::new(Mapper463::new()),
+        464 => Box::new(Mapper464::new()),
+        465 => Box::new(Mapper465::new()),
+        466 => Box::new(Mapper466::new()),
+        467 => Box::new(Mapper467::new(header, rom, rom_name)),
+    //  468 => Box::new(Mapper468::new()), (to be implemented in the future)
         469 => {
              let has_trainer = (header[6] & 4) != 0;
              let trainer_len = if has_trainer { 512 } else { 0 };
              let prg_start = 0x10 + trainer_len;
              Box::new(Mapper469::new(rom.to_vec(), prg_start))
         }
+        470 => Box::new(Mapper470::new()),
         471 => Box::new(Mapper471::new()),
         476 => Box::new(Mapper476::new()),
         483 => Box::new(Mapper483::new(header, rom, rom_name, using_chr_ram, has_battery)),
