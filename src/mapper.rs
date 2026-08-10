@@ -353,6 +353,13 @@ pub use crate::mappers::mapper467::Mapper467;
 pub use crate::mappers::mapper469::Mapper469;
 pub use crate::mappers::mapper470::Mapper470;
 pub use crate::mappers::mapper471::Mapper471;
+pub use crate::mappers::mapper472::Mapper472;
+pub use crate::mappers::mapper473::Mapper473;
+pub use crate::mappers::mapper474::Mapper474;
+pub use crate::mappers::mapper475::Mapper475;
+pub use crate::mappers::mapper478::Mapper478;
+pub use crate::mappers::mapper479::Mapper479;
+pub use crate::mappers::mapper480::Mapper480;
 pub use crate::mappers::mapper522::Mapper522;
 pub use crate::mappers::mapper535::Mapper535;
 pub use crate::mappers::mapper538::Mapper538;
@@ -1248,7 +1255,15 @@ pub fn create_mapper(
         }
         470 => Box::new(Mapper470::new()),
         471 => Box::new(Mapper471::new()),
+        472 => Box::new(Mapper472::new(header, rom, rom_name)),
+        473 => Box::new(Mapper473::new(header, rom, rom_name)),
+        474 => Box::new(Mapper474::new(header, rom, rom_name)),
+        475 => Box::new(Mapper475::new(header, rom, rom_name)),
         476 => Box::new(Mapper476::new()),
+    //  477 => Box::new(Mapper477::new()), (no public references found)
+        478 => Box::new(Mapper478::new(submapper_id, header, rom, rom_name)),
+        479 => Box::new(Mapper479::new(submapper_id, header, rom, rom_name)),
+        480 => Box::new(Mapper480::new(submapper_id, header, rom, rom_name)),
         483 => Box::new(Mapper483::new(header, rom, rom_name, using_chr_ram, has_battery)),
         486 => Box::new(Mapper486::new()),
         495 => Box::new(Mapper495::new()),
