@@ -1,7 +1,7 @@
 // the ppu of the nes console is probably for me the most complex component to emulate properly and accurately.
 // i hope this is accurate enough!
 
-use crate::emulator::Emulator;
+use crate::emulator::{Emulator, Vt369SpriteEntry};
 
 impl Emulator {
     /// ppu cycle
@@ -280,6 +280,10 @@ impl Emulator {
         if self.ppu_mask_show_background || self.ppu_mask_show_sprites {
             if self.ppu_scanline < 240 || self.ppu_scanline == self.pre_render_scanline() {
                 if self.ppu_dot == 256 {
+                    if self.vt369_enhanced_ppu() && self.ppu_scanline < 240 {
+                        self.vt369_tile_data.fill(0);
+                        self.vt369_process_sprites_enhanced();
+                    }
                     self.ppu_increment_scroll_y();
                 }
                 if self.ppu_dot == 257 {
@@ -365,6 +369,18 @@ impl Emulator {
                 self.ppu_v = (self.ppu_v.wrapping_add(
                     if self.ppu_control_increment_mode_32 { 32 } else { 1 }
                 )) & 0x7FFF;
+                let vt03_ppu = self
+                    .cart
+                    .as_ref()
+                    .map_or(false, |c| c.mapper_chip.onebus_vt03_ppu());
+                if vt03_ppu
+                    && self.do_oam_dma
+                    && !self.is_pal()
+                    && !self.is_dendy()
+                    && self.ppu_v == 0x4000
+                {
+                    self.ppu_v = 0x3F00;
+                }
             }
         }
 
@@ -406,7 +422,7 @@ impl Emulator {
         let addr = (self.ppu_address_bus & 0x7F00) | self.ppu_octal_latch as u16;
 
         let (data, new_addr_bus) = if let Some(cart) = self.cart.as_mut() {
-            cart.mapper_chip.fetch_ppu(
+            cart.mapper_chip.fetch_ppu_with_ctx(
                 &cart.prg_rom,
                 &cart.chr_rom,
                 &cart.prg_ram,
@@ -415,9 +431,10 @@ impl Emulator {
                 cart.using_chr_ram,
                 cart.nametable_horizontal_mirroring,
                 cart.alternative_nametable_arrangement,
-                addr,
+                self.ppu_address_bus,
                 self.ppu_octal_latch,
                 &self.vram,
+                self.ppu_onebus_chr,
             )
         } else {
             (0, addr)
@@ -427,8 +444,59 @@ impl Emulator {
         data
     }
 
+    fn onebus_chr_routing_ppu(&self) -> bool {
+        self.cart
+            .as_ref()
+            .map_or(false, |c| c.mapper_chip.onebus_chr_routing_ppu())
+    }
+
+    fn onebus_begin_bg_chr_fetch(&mut self) {
+        if !self.onebus_chr_routing_ppu() {
+            return;
+        }
+        self.ppu_onebus_chr = crate::mappers::one_bus::OneBusChrCtx {
+            eva: self.ppu_onebus_eva,
+            is_bg: true,
+            is_sprite: false,
+            active: true,
+        };
+    }
+
+    fn onebus_begin_sprite_chr_fetch(&mut self, slot: usize) {
+        if !self.onebus_chr_routing_ppu() {
+            return;
+        }
+        let reg2000_10 = self
+            .cart
+            .as_ref()
+            .map_or(0, |c| c.mapper_chip.vt03_reg2000_10());
+        let eva = if (reg2000_10 & 0x08) != 0 && slot < 8 {
+            ((self.ppu_sprite_attribute[slot] & 3) as u16) << 10
+        } else {
+            0
+        };
+        self.ppu_onebus_chr = crate::mappers::one_bus::OneBusChrCtx {
+            eva,
+            is_bg: false,
+            is_sprite: true,
+            active: true,
+        };
+    }
+
+    fn onebus_clear_chr_fetch(&mut self) {
+        self.ppu_onebus_chr.active = false;
+    }
+
     // ppu register writes
     pub fn store_ppu_registers(&mut self, addr: u16, input: u8) {
+        if self.vt369_enhanced_ppu() && (addr & 0x200F) == 0x2008 {
+            self.ppu_bus = input;
+            for i in 0..8 {
+                self.ppu_bus_decay[i] = 1786830;
+            }
+            self.vt369_spr_addr_high = input & 1;
+            return;
+        }
         let reg = addr & 0x2007;
         match reg {
             0x2000 => {
@@ -504,9 +572,22 @@ impl Emulator {
                     || (!self.ppu_mask_show_background && !self.ppu_mask_show_sprites);
                 if can_write {
                     let mut val = input;
-                    if (self.ppu_oam_address & 3) == 2 { val &= 0xE3; }
-                    self.oam[self.ppu_oam_address as usize] = val;
-                    self.ppu_oam_address = self.ppu_oam_address.wrapping_add(1);
+                    if self.vt369_enhanced_ppu() {
+                        if (self.vt369_reg2000(0x1D) & 0x01) == 0 {
+                            self.vt369_spr_addr_high = 0;
+                        }
+                        let idx = (self.ppu_oam_address as usize)
+                            | ((self.vt369_spr_addr_high as usize) << 8);
+                        self.vt369_write_sprite_byte(idx, val);
+                        self.ppu_oam_address = self.ppu_oam_address.wrapping_add(1);
+                        if self.ppu_oam_address == 0 {
+                            self.vt369_spr_addr_high ^= 1;
+                        }
+                    } else {
+                        if (self.ppu_oam_address & 3) == 2 { val &= 0xE3; }
+                        self.oam[self.ppu_oam_address as usize] = val;
+                        self.ppu_oam_address = self.ppu_oam_address.wrapping_add(1);
+                    }
                 } else {
                     self.ppu_oam_address = self.ppu_oam_address.wrapping_add(4) & 0xFC;
                 }
@@ -610,6 +691,329 @@ impl Emulator {
         self.cart.as_ref().map_or(false, |c| c.mapper_chip.vt03_4bpp_sp())
     }
 
+    fn vt369_enhanced_ppu(&self) -> bool {
+        self.cart
+            .as_ref()
+            .map_or(false, |c| c.mapper_chip.onebus_vt369_enhanced_ppu())
+    }
+
+    fn vt369_reg2000(&self, idx: usize) -> u8 {
+        self.cart
+            .as_ref()
+            .map_or(0, |c| c.mapper_chip.vt369_reg2000(idx))
+    }
+
+    fn vt369_read_prg(&self, addr: usize) -> u8 {
+        self.cart.as_ref().map_or(0, |c| {
+            if c.prg_rom.is_empty() {
+                0
+            } else {
+                c.prg_rom[addr % c.prg_rom.len()]
+            }
+        })
+    }
+
+    fn vt369_prg_len(&self) -> usize {
+        self.cart.as_ref().map_or(0, |c| c.prg_rom.len())
+    }
+
+    fn vt369_fill_tile_row(&mut self, dest: usize) {
+        if dest + 8 > self.vt369_tile_data.len() {
+            return;
+        }
+        let reg2000_1c = self.vt369_reg2000(0x1C);
+        let reg2000_1e = self.vt369_reg2000(0x1E);
+        let mut pat_addr = self.vt369_pat_addr;
+        if reg2000_1e & 0x01 != 0 {
+            pat_addr += self
+                .cart
+                .as_ref()
+                .map_or(0, |c| c.mapper_chip.vt369_bg_data());
+        } else {
+            let bank_reg = if self.ppu_pattern_select_background {
+                self.vt369_reg2000(0x12)
+            } else {
+                self.vt369_reg2000(0x16)
+            };
+            let shift1 = if reg2000_1c & 0x08 != 0 { 10 } else { 13 };
+            let shift2 = (reg2000_1c & 3) as u32;
+            pat_addr += self.cart.as_ref().map_or(0, |c| c.mapper_chip.vt369_relative())
+                + ((bank_reg as usize) << shift1 << shift2);
+        }
+        let prg_len = self.vt369_prg_len();
+        if prg_len == 0 {
+            return;
+        }
+        pat_addr &= prg_len - 1;
+        if (reg2000_1c & 3) == 2 {
+            return;
+        }
+        let b0 = self.vt369_read_prg(pat_addr);
+        let b1 = self.vt369_read_prg(pat_addr + 1);
+        let b2 = self.vt369_read_prg(pat_addr + 2);
+        let b3 = self.vt369_read_prg(pat_addr + 3);
+        self.vt369_tile_data[dest] = b0 & 0x0F;
+        self.vt369_tile_data[dest + 1] = b0 >> 4;
+        self.vt369_tile_data[dest + 2] = b1 & 0x0F;
+        self.vt369_tile_data[dest + 3] = b1 >> 4;
+        self.vt369_tile_data[dest + 4] = b2 & 0x0F;
+        self.vt369_tile_data[dest + 5] = b2 >> 4;
+        self.vt369_tile_data[dest + 6] = b3 & 0x0F;
+        self.vt369_tile_data[dest + 7] = b3 >> 4;
+    }
+
+    fn vt369_compute_pat_addr(&mut self) {
+        let reg2000_1c = self.vt369_reg2000(0x1C);
+        let tile = self.vt369_nt_byte as usize;
+        let fine_bits = ((self.ppu_v >> 11) & 0x0E) as usize;
+        if reg2000_1c & 0x08 != 0 {
+            self.vt369_pat_addr = ((tile << 4) | fine_bits) << (reg2000_1c & 3);
+        } else {
+            let attr = self.ppu_attribute as usize;
+            self.vt369_pat_addr =
+                ((attr << 12) | (tile << 4) | fine_bits) << (reg2000_1c & 3);
+        }
+    }
+
+    fn vt369_enhanced_bg_tick(&mut self) {
+        let dot = self.ppu_dot;
+        let tick = (dot.wrapping_add(7)) & 7;
+        if tick == 3
+            && ((dot % 8 == 3 && dot <= 251) || dot == 323 || dot == 331)
+        {
+            self.vt369_compute_pat_addr();
+        } else if (dot % 8 == 5 && dot <= 253) || dot == 325 || dot == 333 {
+            let dest = if dot == 325 || dot == 333 {
+                dot - 325
+            } else {
+                dot + 10
+            };
+            self.vt369_fill_tile_row(dest as usize);
+        }
+    }
+
+    fn vt369_get_pal_index(&self, tc: u16) -> usize {
+        if self.vt369_enhanced_ppu() {
+            let lo = self.palette_ram[((tc << 1) & 0xFF) as usize] as usize;
+            let hi = self.palette_ram[(((tc << 1) | 1) & 0xFF) as usize] as usize;
+            (hi << 8 | lo) & 0xFFF
+        } else {
+            let tc = tc as u8;
+            let tc = if (tc & 0x63) == 0 { 0 } else { tc };
+            if (self.vt369_reg2000(0x10) & 0x80) != 0 {
+                let hi = self.palette_ram[(tc | 0x80) as usize] as usize;
+                let lo = self.palette_ram[(tc | 0x00) as usize] as usize;
+                (hi << 8 | lo) & 0xFFF
+            } else {
+                (self.palette_ram[tc as usize] & 0x3F) as usize
+            }
+        }
+    }
+
+    fn vt369_sprite_byte(&self, idx: usize) -> u8 {
+        self.vt369_sprite_ram
+            .get(idx)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    fn vt369_write_sprite_byte(&mut self, idx: usize, val: u8) {
+        if idx < self.vt369_sprite_ram.len() {
+            self.vt369_sprite_ram[idx] = val;
+        }
+        if idx < self.oam.len() {
+            self.oam[idx] = val;
+        }
+    }
+
+    fn vt369_process_sprites_enhanced(&mut self) {
+        self.vt369_sprite_count = 0;
+        if !self.vt369_enhanced_ppu() {
+            return;
+        }
+        let reg2000_1c = self.vt369_reg2000(0x1C);
+        let reg2000_1d = self.vt369_reg2000(0x1D);
+        let reg2000_1e = self.vt369_reg2000(0x1E);
+        let max_sprite = if reg2000_1d & 0x01 != 0 { 127 } else { 63 };
+        let use_new_oam = reg2000_1e & 0x04 != 0;
+        let prg_len = self.vt369_prg_len();
+        if prg_len == 0 {
+            return;
+        }
+
+        for sprite_num in (0..=max_sprite).rev() {
+            let (sprite_x, sprite_y, mut sprite_tile, palette, flip_x, flip_y, priority) =
+                if !use_new_oam {
+                    let base = (sprite_num as usize) << 2;
+                    if base + 3 >= self.oam.len() {
+                        continue;
+                    }
+                    let oam = &self.oam[base..base + 4];
+                    let pal = oam[2] << 4 & 0x30;
+                    let fx = (oam[2] & 0x40) != 0;
+                    let fy = (oam[2] & 0x80) != 0;
+                    let pri = (oam[2] & 0x20) == 0;
+                    (
+                        oam[3] as i16,
+                        oam[0] as i16,
+                        (oam[1] as u16) | ((oam[2] as u16) << 6 & 0x700),
+                        pal,
+                        fx,
+                        fy,
+                        pri,
+                    )
+                } else {
+                    let sn = sprite_num as usize;
+                    if sn >= 128 {
+                        continue;
+                    }
+                    let sy = self.vt369_sprite_byte(sn);
+                    let sx = self.vt369_sprite_byte(0x180 | sn);
+                    let st = self.vt369_sprite_byte(0x080 | sn) as u16
+                        | ((self.vt369_sprite_byte(0x100 | sn) as u16) << 6 & 0x700);
+                    let attr = self.vt369_sprite_byte(0x100 | sn);
+                    let pal = attr << 4 & 0x30;
+                    let fx = (attr & 0x40) != 0;
+                    let fy = (attr & 0x80) != 0;
+                    let pri = (attr & 0x20) == 0;
+                    (sx as i16, sy as i16, st, pal, fx, fy, pri)
+                };
+
+            let sprite_height = if reg2000_1d & 0x04 != 0 || self.ppu_sprite_x16 {
+                15
+            } else {
+                7
+            };
+            let mut sprite_sl = self.ppu_scanline as i16 - sprite_y;
+            if sprite_sl < 0 || sprite_sl > sprite_height {
+                continue;
+            }
+            if flip_y {
+                sprite_sl = sprite_height - sprite_sl;
+            }
+            if reg2000_1c & 0x80 != 0 {
+                sprite_tile &= 0xFF;
+            }
+
+            let mut pattern_addr = (sprite_tile as usize) << 6;
+            if reg2000_1d & 0x04 != 0 {
+                pattern_addr <<= 1;
+            }
+            pattern_addr += (sprite_sl as usize) << 3;
+            if reg2000_1d & 0x02 == 0 && reg2000_1d & 0x04 == 0 && reg2000_1c & 0x20 == 0 {
+                pattern_addr >>= 1;
+            }
+
+            let right_table = if reg2000_1e & 0x01 == 0 {
+                if self.ppu_sprite_x16 {
+                    (sprite_tile & 1) != 0
+                } else {
+                    self.ppu_pattern_select_sprites
+                }
+            } else {
+                false
+            };
+
+            if reg2000_1e & 0x01 != 0 {
+                pattern_addr += self
+                    .cart
+                    .as_ref()
+                    .map_or(0, |c| c.mapper_chip.vt369_spr_data());
+            } else {
+                let bank_reg = if right_table {
+                    self.vt369_reg2000(0x12)
+                } else {
+                    self.vt369_reg2000(0x16)
+                };
+                let shift1 = if reg2000_1c & 0x80 != 0 { 10 } else { 13 };
+                let shift2 = (reg2000_1c >> 4) & 3;
+                pattern_addr += self.cart.as_ref().map_or(0, |c| c.mapper_chip.vt369_relative())
+                    + ((bank_reg as usize) << shift1 << shift2);
+            }
+            pattern_addr &= prg_len - 1;
+
+            let count = self.vt369_sprite_count as usize;
+            if count >= self.vt369_sprite_buf.len() {
+                break;
+            }
+            let mut entry = Vt369SpriteEntry {
+                start_x: sprite_x,
+                priority,
+                sprite0: sprite_num == 0,
+                ..Default::default()
+            };
+
+            if reg2000_1d & 0x02 != 0 {
+                let width = 16usize;
+                if flip_x {
+                    for i in 0..width {
+                        let b = self.vt369_read_prg(pattern_addr + (width - 1 - i) / 2);
+                        entry.data[i] = if i & 1 == 0 {
+                            palette | (b & 0x0F)
+                        } else {
+                            palette | (b >> 4)
+                        };
+                    }
+                } else {
+                    for i in 0..width {
+                        let b = self.vt369_read_prg(pattern_addr + i / 2);
+                        entry.data[i] = if i & 1 == 0 {
+                            palette | (b & 0x0F)
+                        } else {
+                            palette | (b >> 4)
+                        };
+                    }
+                }
+                for d in &mut entry.data {
+                    if *d == palette {
+                        *d = 0;
+                    }
+                }
+            } else if reg2000_1d & 0x02 == 0
+                && reg2000_1d & 0x04 == 0
+                && reg2000_1c & 0x20 == 0
+            {
+                if flip_x {
+                    entry.data[7] = palette | (self.vt369_read_prg(pattern_addr) & 0x0F);
+                    entry.data[6] = palette | (self.vt369_read_prg(pattern_addr) >> 4);
+                    entry.data[5] = palette | (self.vt369_read_prg(pattern_addr + 1) & 0x0F);
+                    entry.data[4] = palette | (self.vt369_read_prg(pattern_addr + 1) >> 4);
+                    entry.data[3] = palette | (self.vt369_read_prg(pattern_addr + 2) & 0x0F);
+                    entry.data[2] = palette | (self.vt369_read_prg(pattern_addr + 2) >> 4);
+                    entry.data[1] = palette | (self.vt369_read_prg(pattern_addr + 3) & 0x0F);
+                    entry.data[0] = palette | (self.vt369_read_prg(pattern_addr + 3) >> 4);
+                } else {
+                    entry.data[0] = palette | (self.vt369_read_prg(pattern_addr) & 0x0F);
+                    entry.data[1] = palette | (self.vt369_read_prg(pattern_addr) >> 4);
+                    entry.data[2] = palette | (self.vt369_read_prg(pattern_addr + 1) & 0x0F);
+                    entry.data[3] = palette | (self.vt369_read_prg(pattern_addr + 1) >> 4);
+                    entry.data[4] = palette | (self.vt369_read_prg(pattern_addr + 2) & 0x0F);
+                    entry.data[5] = palette | (self.vt369_read_prg(pattern_addr + 2) >> 4);
+                    entry.data[6] = palette | (self.vt369_read_prg(pattern_addr + 3) & 0x0F);
+                    entry.data[7] = palette | (self.vt369_read_prg(pattern_addr + 3) >> 4);
+                }
+                for d in &mut entry.data[..8] {
+                    if *d == palette {
+                        *d = 0;
+                    }
+                }
+            } else {
+                if flip_x {
+                    for i in 0..8 {
+                        entry.data[i] = self.vt369_read_prg(pattern_addr + (7 - i));
+                    }
+                } else {
+                    for i in 0..8 {
+                        entry.data[i] = self.vt369_read_prg(pattern_addr + i);
+                    }
+                }
+            }
+
+            self.vt369_sprite_buf[count] = entry;
+            self.vt369_sprite_count += 1;
+        }
+    }
+
     // background tile fetching
 
     pub(crate) fn ppu_render_bg_fetches(&mut self) {
@@ -643,11 +1047,15 @@ impl Emulator {
             5 => {
                 let base_addr = (self.ppu_pattern_address_register_chr & 0xFF00) | self.ppu_octal_latch as u16;
                 self.ppu_address_bus = base_addr;
+                self.onebus_begin_bg_chr_fetch();
                 self.ppu_render_temp = self.fetch_ppu();
+                self.onebus_clear_chr_fetch();
                 self.ppu_commit_pattern_low_fetch = true;
                 if self.vt03_4bpp_bg_enabled() {
                     self.ppu_address_bus = base_addr | 0x4000;
+                    self.onebus_begin_bg_chr_fetch();
                     self.ppu_low_bit_plane_hi = self.fetch_ppu();
+                    self.onebus_clear_chr_fetch();
                 }
             }
             6 => {
@@ -658,14 +1066,22 @@ impl Emulator {
             7 => {
                 let base_addr = (self.ppu_pattern_address_register_chr & 0xFF00) | self.ppu_octal_latch as u16;
                 self.ppu_address_bus = base_addr;
+                self.onebus_begin_bg_chr_fetch();
                 self.ppu_render_temp = self.fetch_ppu();
+                self.onebus_clear_chr_fetch();
                 self.ppu_commit_pattern_high_fetch = true;
                 if self.vt03_4bpp_bg_enabled() {
                     self.ppu_address_bus = base_addr | 0x4000;
+                    self.onebus_begin_bg_chr_fetch();
                     self.ppu_high_bit_plane_hi = self.fetch_ppu();
+                    self.onebus_clear_chr_fetch();
                 }
             }
             _ => {}
+        }
+
+        if self.vt369_enhanced_ppu() {
+            self.vt369_enhanced_bg_tick();
         }
 
         if self.ppu_ale && !self.ppu_read {
@@ -716,6 +1132,9 @@ impl Emulator {
             self.ppu_pattern_address_register_chr &= 0b1000000001111;
             if self.ppu_dot < 256 || self.ppu_dot > 320 {
                 self.ppu_pattern_address_register_chr |= (self.ppu_address_bus & 0xFF) << 4;
+                if self.vt369_enhanced_ppu() {
+                    self.vt369_nt_byte = (self.ppu_address_bus & 0xFF) as u8;
+                }
             } else {
                 let idx = ((self.oam2_address & 0x1C) + 1) as usize;
                 self.ppu_pattern_address_register_chr |= (self.oam2[idx] as u16) << 4;
@@ -731,6 +1150,17 @@ impl Emulator {
                 self.ppu_attribute >>= 4;
             }
             self.ppu_attribute &= 3;
+            if self.onebus_chr_routing_ppu() {
+                let reg2000_10 = self
+                    .cart
+                    .as_ref()
+                    .map_or(0, |c| c.mapper_chip.vt03_reg2000_10());
+                self.ppu_onebus_eva = if (reg2000_10 & 0x10) != 0 {
+                    (self.ppu_attribute as u16) << 10
+                } else {
+                    0
+                };
+            }
         }
         if self.ppu_commit_pattern_low_fetch {
             self.ppu_commit_pattern_low_fetch = false;
@@ -807,7 +1237,77 @@ impl Emulator {
         b
     }
 
+    fn ppu_render_calculate_pixel_vt369_enhanced(&mut self) {
+        let mut displayed_tc: u16 = 0;
+        let show_bg = self.ppu_mask_show_background
+            && (self.ppu_dot > 8 || self.ppu_mask_8px_show_background);
+        let show_sp = self.ppu_mask_show_sprites
+            && (self.ppu_dot > 8 || self.ppu_mask_8px_show_sprites);
+
+        if show_bg {
+            let idx = self.ppu_dot as usize + self.ppu_fine_x_scroll as usize;
+            if idx < self.vt369_tile_data.len() {
+                displayed_tc = self.vt369_tile_data[idx] as u16;
+            }
+        }
+
+        if show_sp {
+            let sp_mask = if (self.vt369_reg2000(0x1D) & 0x02) != 0 {
+                15
+            } else {
+                7
+            };
+            for i in 0..self.vt369_sprite_count as usize {
+                let sprite = &self.vt369_sprite_buf[i];
+                let sprite_pixel = self.ppu_dot as i16 - sprite.start_x;
+                if sprite_pixel < 0 || sprite_pixel > sp_mask {
+                    continue;
+                }
+                let sp_data = sprite.data[sprite_pixel as usize];
+                if sp_data == 0 {
+                    continue;
+                }
+                if sprite.sprite0
+                    && self.ppu_can_detect_sprite_zero_hit
+                    && self.ppu_current_scanline_contains_sprite_zero
+                    && show_bg
+                    && displayed_tc != 0
+                    && self.ppu_dot < 256
+                {
+                    self.ppu_status_pending_sprite_zero_hit = true;
+                    self.ppu_can_detect_sprite_zero_hit = false;
+                }
+                if !(displayed_tc != 0 && sprite.priority) {
+                    displayed_tc = sp_data as u16 | 0x100;
+                }
+            }
+        }
+
+        if (self.ppu_mask_show_background || self.ppu_mask_show_sprites)
+            && self.ppu_scanline < 240
+        {
+            let pal_idx = self.vt369_get_pal_index(displayed_tc);
+            self.dot_color_rgb = crate::vt03_palette::get_vt03_palette()[pal_idx];
+            self.palette_ram_address = (displayed_tc & 0xFF) as u8;
+        } else if (self.ppu_v & 0x3F1F) >= 0x3F00 {
+            self.palette_ram_address = (self.ppu_v & 0x1F) as u8;
+            if (self.palette_ram_address & 3) == 0 {
+                self.palette_ram_address &= 0x0F;
+            }
+            let pal_idx = (self.palette_ram[self.palette_ram_address as usize & 0x1F] & 0x3F) as usize;
+            self.dot_color_rgb = NES_PALETTE[pal_idx];
+        } else {
+            self.palette_ram_address = 0;
+            self.dot_color_rgb = NES_PALETTE[0];
+        }
+    }
+
     fn ppu_render_calculate_pixel(&mut self) {
+        if self.vt369_enhanced_ppu() {
+            self.ppu_render_calculate_pixel_vt369_enhanced();
+            return;
+        }
+
         let mut palette: u8 = 0;
         let mut color: u8 = 0;
 
@@ -1537,6 +2037,9 @@ impl Emulator {
             let tick = self.sprite_evaluation_tick;
             match tick {
                 0 => {
+                    if self.onebus_chr_routing_ppu() {
+                        self.ppu_onebus_eva = 0;
+                    }
                     if self.ppu_mask_show_background_delayed || self.ppu_mask_show_sprites_delayed {
                         self.ppu_oam_latch = self.oam2[self.oam2_address as usize];
                         let slot = (self.oam2_address / 4) as usize;
@@ -1596,7 +2099,9 @@ impl Emulator {
                         self.ppu_sprite_get_address((self.oam2_address / 4) as usize);
                         let base_addr = (self.ppu_address_bus & 0xFF00) | self.ppu_octal_latch as u16;
                         self.ppu_address_bus = base_addr;
+                        self.onebus_begin_sprite_chr_fetch(slot);
                         self.ppu_sprite_pattern_l = self.fetch_ppu();
+                        self.onebus_clear_chr_fetch();
                         if slot < 8 && ((self.ppu_sprite_attribute[slot] >> 6) & 1) == 1 {
                             self.ppu_sprite_pattern_l = Self::flip_byte(self.ppu_sprite_pattern_l);
                         }
@@ -1607,7 +2112,9 @@ impl Emulator {
                         }
                         if self.vt03_4bpp_sp_enabled() {
                             self.ppu_address_bus = base_addr | 0x4000;
+                            self.onebus_begin_sprite_chr_fetch(slot);
                             self.ppu_sprite_pattern_l2 = self.fetch_ppu();
+                            self.onebus_clear_chr_fetch();
                             if slot < 8 && ((self.ppu_sprite_attribute[slot] >> 6) & 1) == 1 {
                                 self.ppu_sprite_pattern_l2 = Self::flip_byte(self.ppu_sprite_pattern_l2);
                             }
@@ -1637,7 +2144,9 @@ impl Emulator {
                         self.ppu_sprite_get_address((self.oam2_address / 4) as usize);
                         let base_addr = (self.ppu_address_bus & 0xFF00) | self.ppu_octal_latch as u16;
                         self.ppu_address_bus = base_addr;
+                        self.onebus_begin_sprite_chr_fetch(slot);
                         self.ppu_sprite_pattern_h = self.fetch_ppu();
+                        self.onebus_clear_chr_fetch();
                         if slot < 8 && ((self.ppu_sprite_attribute[slot] >> 6) & 1) == 1 {
                             self.ppu_sprite_pattern_h = Self::flip_byte(self.ppu_sprite_pattern_h);
                         }
@@ -1648,7 +2157,9 @@ impl Emulator {
                         }
                         if self.vt03_4bpp_sp_enabled() {
                             self.ppu_address_bus = base_addr | 0x4000;
+                            self.onebus_begin_sprite_chr_fetch(slot);
                             self.ppu_sprite_pattern_h2 = self.fetch_ppu();
+                            self.onebus_clear_chr_fetch();
                             if slot < 8 && ((self.ppu_sprite_attribute[slot] >> 6) & 1) == 1 {
                                 self.ppu_sprite_pattern_h2 = Self::flip_byte(self.ppu_sprite_pattern_h2);
                             }

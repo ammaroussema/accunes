@@ -288,6 +288,7 @@ impl Mapper for Mapper296 {
                 self.chrram,
                 false,
                 false,
+                0,
             );
             if descramble {
                 byte = descramble_chr_byte(byte);

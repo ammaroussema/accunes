@@ -1,7 +1,7 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
 use crate::mappers::mmc3::Mmc3Config;
-use crate::mappers::one_bus::{OneBus, OneBusBanking, OneBusMangle};
+use crate::mappers::one_bus::{OneBus, OneBusBanking, OneBusChrCtx, OneBusMangle};
 
 const PPU_MANGLE: [[u8; 6]; 16] = [
     [0, 1, 2, 3, 4, 5],
@@ -69,14 +69,26 @@ pub struct Mapper256 {
 impl Mapper256 {
     pub fn new(_config: Mmc3Config, submapper: u8, header: &[u8]) -> Self {
         let is_nes20 = header.len() >= 16 && (header[7] & 0x0C) == 0x08;
-        let is_vt369 = is_nes20 && (header[7] & 0x03) == 3 && (header[13] & 0x0F) == 0x0A;
-        let is_vt09 = (is_nes20 && (header[7] & 0x03) == 3 && (header[13] & 0x0F) == 0x08) || submapper == 15;
+        let extended_console = is_nes20 && (header[7] & 0x03) == 3;
+        let console_id = if extended_console {
+            header[13] & 0x0F
+        } else {
+            0x08
+        };
+        let is_vt369 = console_id == 0x0A;
+        let is_vt09 = console_id == 0x08;
+        let is_vt03 = console_id == 0x07;
         let mut core = OneBus::new(&[], &[], OneBusBanking::MAPPER256);
+        core.submapper = submapper;
+        core.opcode_encryption = submapper >= 12;
         if is_vt369 {
             core.console_type_vt369 = true;
         }
         if is_vt09 {
             core.console_type_vt09 = true;
+        }
+        if is_vt03 {
+            core.console_type_vt03 = true;
         }
         Self {
             core,
@@ -103,16 +115,18 @@ impl Mapper for Mapper256 {
     fn reset(&mut self) {
         let is_vt369 = self.core.console_type_vt369;
         let is_vt09 = self.core.console_type_vt09;
+        let is_vt03 = self.core.console_type_vt03;
         self.core.reset();
         self.core.console_type_vt369 = is_vt369;
         self.core.console_type_vt09 = is_vt09;
+        self.core.console_type_vt03 = is_vt03;
     }
 
     fn handle_cpu_write(&mut self, address: u16, data: u8) {
         let mangle = self.mangle();
         if (0x2000..0x2100).contains(&address) {
             self.core.write_ppu(address, data, &mangle);
-        } else if (0x4100..0x4200).contains(&address) {
+        } else if (0x4020..=0x403F).contains(&address) || (0x4100..0x4200).contains(&address) {
             self.core.write_apu(address, data, &mangle);
         } else if self.core.console_type_vt369 && (0x3000..0x4000).contains(&address) {
             let ppu_addr = (address & 0xFFF) | 0x2000;
@@ -124,6 +138,13 @@ impl Mapper for Mapper256 {
 
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address < 0x8000 {
+            if self.core.console_type_vt369
+                && address >= 0x1000
+                && address < 0x2000
+                && !cart.misc_rom.is_empty()
+            {
+                return;
+            }
             if address >= 0x6000 && !cart.prg_ram.is_empty() && self.prg_ram_writable() {
                 cart.prg_ram[(address - 0x6000) as usize] = data;
             }
@@ -139,10 +160,22 @@ impl Mapper for Mapper256 {
     }
 
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
-        if address >= 0x4100 && address < 0x4200 {
+        if (0x4020..0x4040).contains(&address) || (address >= 0x4100 && address < 0x4200) {
             if let Some(data) = self.core.read_apu(address) {
                 return FetchResult { data, driven: true };
             }
+        }
+        if self.core.console_type_vt369 && address >= 0x1000 && address < 0x2000 {
+            if !cart.misc_rom.is_empty() {
+                let off = (address - 0x1000) as usize;
+                if off < cart.misc_rom.len() {
+                    return FetchResult {
+                        data: cart.misc_rom[off],
+                        driven: true,
+                    };
+                }
+            }
+            return FetchResult { data: 0, driven: false };
         }
         if address >= 0x2010 && address < 0x2100 {
             let idx = (address & 0xFF) as usize;
@@ -167,8 +200,6 @@ impl Mapper for Mapper256 {
             return FetchResult { data, driven: true };
         }
         if address >= 0x6000 && address < 0x8000 {
-            // Furbtendulator syncPRG(): on VT369, reg4100[0x1C] bit 6 switches $6000-$7FFF
-            // from PRG-RAM to a banked PRG-ROM window using reg4100[0x12] as the bank number.
             if self.core.console_type_vt369 && (self.core.reg4100[0x1C] & 0x40) != 0 {
                 let ps = self.core.ps();
                 let prg_and = if ps == 7 { 0xFFu16 } else { 0x3Fu16 >> ps };
@@ -219,6 +250,36 @@ impl Mapper for Mapper256 {
         &mut self,
         prg_rom: &[u8],
         chr_rom: &[u8],
+        prg_ram: &[u8],
+        chr_ram: &[u8],
+        prg_vram: &[u8],
+        using_chr_ram: bool,
+        nametable_horizontal_mirroring: bool,
+        alternative_nametable_arrangement: bool,
+        ppu_address_bus: u16,
+        ppu_octal_latch: u8,
+        vram: &[u8],
+    ) -> (u8, u16) {
+        self.fetch_ppu_with_ctx(
+            prg_rom,
+            chr_rom,
+            prg_ram,
+            chr_ram,
+            prg_vram,
+            using_chr_ram,
+            nametable_horizontal_mirroring,
+            alternative_nametable_arrangement,
+            ppu_address_bus,
+            ppu_octal_latch,
+            vram,
+            OneBusChrCtx::default(),
+        )
+    }
+
+    fn fetch_ppu_with_ctx(
+        &mut self,
+        prg_rom: &[u8],
+        chr_rom: &[u8],
         _prg_ram: &[u8],
         chr_ram: &[u8],
         prg_vram: &[u8],
@@ -228,9 +289,8 @@ impl Mapper for Mapper256 {
         ppu_address_bus: u16,
         ppu_octal_latch: u8,
         vram: &[u8],
+        ctx: OneBusChrCtx,
     ) -> (u8, u16) {
-        // Preserve bit 14 (0x4000) so that 4bpp high-plane CHR fetches (ppu_address_bus | 0x4000)
-        // correctly route to the high CHR split (chr_high). Using 0x7FFF keeps bits 14:0.
         let raw_address = (ppu_address_bus & 0x7FFF) | (ppu_octal_latch as u16);
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
 
@@ -239,7 +299,31 @@ impl Mapper for Mapper256 {
         if is_chr_fetch {
             let high_plane = raw_address >= 0x4000 && raw_address < 0x6000;
             let chr_addr = raw_address & 0x1FFF;
-            let ext_address = if high_plane { 0x4000 | chr_addr } else { chr_addr };
+            let ext_address = if ctx.active
+                && (self.core.console_type_vt03
+                    || self.core.console_type_vt09
+                    || self.core.console_type_vt369)
+            {
+                ctx.map_chr_address(if high_plane {
+                    0x4000 | chr_addr
+                } else {
+                    chr_addr
+                })
+            } else if high_plane {
+                0x4000 | chr_addr
+            } else {
+                chr_addr
+            };
+
+            let (is_bg, is_sprite, chr_eva) = if ctx.active
+                && (self.core.console_type_vt03
+                    || self.core.console_type_vt09
+                    || self.core.console_type_vt369)
+            {
+                (ctx.is_bg, ctx.is_sprite, ctx.eva)
+            } else {
+                (false, false, 0)
+            };
 
             let byte = self.core.fetch_chr_byte_ext(
                 prg_rom,
@@ -247,8 +331,9 @@ impl Mapper for Mapper256 {
                 chr_ram,
                 ext_address,
                 false,
-                false,
-                false,
+                is_bg,
+                is_sprite,
+                chr_eva,
             );
             new_addr_bus |= byte as u16;
         } else {
@@ -344,6 +429,7 @@ impl Mapper for Mapper256 {
             self.submapper = state[p];
             p += 1;
         }
+        self.core.submapper = self.submapper;
         p
     }
 
@@ -356,6 +442,45 @@ impl Mapper for Mapper256 {
     fn vt03_4bpp_bg(&self) -> bool { (self.core.reg2000[0x10] & 0x02) != 0 }
     fn vt03_4bpp_sp(&self) -> bool { (self.core.reg2000[0x10] & 0x04) != 0 }
     fn vt03_reg2000_10(&self) -> u8 { self.core.reg2000[0x10] }
+    fn unscramble_opcode(&self, opcode: u8) -> u8 {
+        self.core.unscramble_opcode(opcode)
+    }
+    fn onebus_cpu_ram_4k(&self) -> bool {
+        self.core.console_type_vt09 || self.core.console_type_vt369
+    }
+    fn onebus_vt03_ppu(&self) -> bool {
+        self.core.console_type_vt03
+    }
+    fn onebus_vt369_ppu(&self) -> bool {
+        self.core.console_type_vt369
+    }
+    fn onebus_chr_routing_ppu(&self) -> bool {
+        self.core.console_type_vt03
+            || self.core.console_type_vt09
+            || (self.core.console_type_vt369 && self.core.reg2000[0x1E] == 0)
+    }
+    fn onebus_vt369_enhanced_ppu(&self) -> bool {
+        self.core.console_type_vt369 && self.core.reg2000[0x1E] != 0
+    }
+    fn vt369_reg2000(&self, idx: usize) -> u8 {
+        self.core.reg2000.get(idx).copied().unwrap_or(0)
+    }
+    fn vt369_relative(&self) -> usize {
+        self.core.vt369_relative
+    }
+    fn vt369_bg_data(&self) -> usize {
+        self.core.vt369_bg_data
+    }
+    fn vt369_spr_data(&self) -> usize {
+        self.core.vt369_spr_data
+    }
+    fn onebus_dma_config(&self) -> (u8, u16, u16) {
+        (
+            self.core.dma_middle_addr,
+            self.core.dma_length,
+            self.core.dma_target,
+        )
+    }
     fn battery_save_data(&self, _cart: &Cartridge) -> Option<Vec<u8>> {
         None
     }
