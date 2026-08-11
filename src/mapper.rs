@@ -1,6 +1,7 @@
 // the mapper factory and some mapper trait defs are all included in this file.
 
 use crate::cartridge::Cartridge;
+use crate::mappers::one_bus::OneBusChrCtx;
 pub use crate::mappers::axrom::MapperAxROM;
 pub use crate::mappers::bandai::{BandaiKind, MapperBandai};
 pub use crate::mappers::cnrom::{CnromConfig, MapperCNROM};
@@ -360,7 +361,17 @@ pub use crate::mappers::mapper475::Mapper475;
 pub use crate::mappers::mapper478::Mapper478;
 pub use crate::mappers::mapper479::Mapper479;
 pub use crate::mappers::mapper480::Mapper480;
+pub use crate::mappers::mapper481::Mapper481;
+pub use crate::mappers::mapper482::Mapper482;
+pub use crate::mappers::mapper483::Mapper483;
+pub use crate::mappers::mapper484::Mapper484;
+pub use crate::mappers::mapper485::Mapper485;
+pub use crate::mappers::mapper487::Mapper487;
+pub use crate::mappers::mapper488::Mapper488;
+pub use crate::mappers::mapper489::Mapper489;
+pub use crate::mappers::mapper490::Mapper490;
 pub use crate::mappers::mapper522::Mapper522;
+pub use crate::mappers::mapper486::Mapper486;
 pub use crate::mappers::mapper535::Mapper535;
 pub use crate::mappers::mapper538::Mapper538;
 pub use crate::mappers::mapper539::Mapper539;
@@ -372,8 +383,6 @@ pub use crate::mappers::mapper550::Mapper550;
 pub use crate::mappers::mapper554::Mapper554;
 pub use crate::mappers::mapper557::Mapper557;
 pub use crate::mappers::mapper476::Mapper476;
-pub use crate::mappers::mapper483::Mapper483;
-pub use crate::mappers::mapper486::Mapper486;
 pub use crate::mappers::mapper495::Mapper495;
 pub use crate::mappers::mapper497::Mapper497;
 pub use crate::mappers::mapper498::Mapper498;
@@ -486,6 +495,37 @@ pub trait Mapper: Send {
         _vram: &[u8],
     ) -> (u8, u16);
 
+    /// VT03 OneBus CHR fetch with EVA / BG-sprite routing. Default ignores `ctx`.
+    fn fetch_ppu_with_ctx(
+        &mut self,
+        prg_rom: &[u8],
+        chr_rom: &[u8],
+        prg_ram: &[u8],
+        chr_ram: &[u8],
+        prg_vram: &[u8],
+        using_chr_ram: bool,
+        nametable_horizontal_mirroring: bool,
+        alternative_nametable_arrangement: bool,
+        ppu_address_bus: u16,
+        ppu_octal_latch: u8,
+        vram: &[u8],
+        _ctx: OneBusChrCtx,
+    ) -> (u8, u16) {
+        self.fetch_ppu(
+            prg_rom,
+            chr_rom,
+            prg_ram,
+            chr_ram,
+            prg_vram,
+            using_chr_ram,
+            nametable_horizontal_mirroring,
+            alternative_nametable_arrangement,
+            ppu_address_bus,
+            ppu_octal_latch,
+            vram,
+        )
+    }
+
     // ppu data storing by bus through mapper
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if address < 0x2000 && cart.using_chr_ram {
@@ -534,6 +574,22 @@ pub trait Mapper: Send {
     fn vt03_4bpp_bg(&self) -> bool { false }
     fn vt03_4bpp_sp(&self) -> bool { false }
     fn vt03_reg2000_10(&self) -> u8 { 0 }
+
+    // OneBus CPU opcode encryption (mapper 256 submapper 12-15)
+    fn unscramble_opcode(&self, opcode: u8) -> u8 { opcode }
+    fn onebus_cpu_ram_4k(&self) -> bool { false }
+    fn onebus_vt03_ppu(&self) -> bool { false }
+    fn onebus_vt369_ppu(&self) -> bool { false }
+    /// OneBus BG/sprite CHR routing ($8000/$A000/EVA). VT03 and VT09 both use PPU_VT03 in Nintendulator.
+    fn onebus_chr_routing_ppu(&self) -> bool { false }
+    /// VT369 enhanced PPU (reg2000[0x1E] != 0): tiles fetched directly from PRG ROM.
+    fn onebus_vt369_enhanced_ppu(&self) -> bool { false }
+    fn vt369_reg2000(&self, _idx: usize) -> u8 { 0 }
+    fn vt369_relative(&self) -> usize { 0 }
+    fn vt369_bg_data(&self) -> usize { 0 }
+    fn vt369_spr_data(&self) -> usize { 0 }
+    fn onebus_dma_config(&self) -> (u8, u16, u16) { (0, 0x100, 0x2004) }
+
     fn set_dip_switches(&mut self, _value: u8) {}
 
     // controller read adjustment for vs system mappers
@@ -1264,8 +1320,16 @@ pub fn create_mapper(
         478 => Box::new(Mapper478::new(submapper_id, header, rom, rom_name)),
         479 => Box::new(Mapper479::new(submapper_id, header, rom, rom_name)),
         480 => Box::new(Mapper480::new(submapper_id, header, rom, rom_name)),
+        481 => Box::new(Mapper481::new()),
+        482 => Box::new(Mapper482::new()),
         483 => Box::new(Mapper483::new(header, rom, rom_name, using_chr_ram, has_battery)),
+        484 => Box::new(Mapper484::new(header, rom, rom_name)),
+        485 => Box::new(Mapper485::new()),
         486 => Box::new(Mapper486::new()),
+        487 => Box::new(Mapper487::new()),
+        488 => Box::new(Mapper488::new()),
+        489 => Box::new(Mapper489::new()),
+        490 => Box::new(Mapper490::new(header, rom, rom_name)),
         495 => Box::new(Mapper495::new()),
         496 => Box::new(Mapper496::new()),
         497 => Box::new(Mapper497::new()),

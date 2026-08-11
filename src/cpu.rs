@@ -93,7 +93,12 @@ impl Emulator {
         // in cycle 0, we fetch the opcode
         if self.operation_cycle == 0 {
             self.address_bus = self.program_counter;
-            self.op_code = self.fetch(self.address_bus);
+            let mut opcode = self.fetch(self.address_bus);
+            if let Some(cart) = self.cart.as_ref() {
+                opcode = cart.mapper_chip.unscramble_opcode(opcode);
+            }
+
+            self.op_code = opcode;
 
             if self.do_nmi {
                 self.op_code = 0x00;
@@ -135,8 +140,26 @@ impl Emulator {
 
     // the dma handling helper function thingies
 
+    fn onebus_dma_config(&self) -> (u8, u16, u16) {
+        self.cart
+            .as_ref()
+            .map(|c| c.mapper_chip.onebus_dma_config())
+            .unwrap_or((0, 0x100, 0x2004))
+    }
+
+    fn onebus_cart(&self) -> bool {
+        self.cart
+            .as_ref()
+            .map_or(false, |c| crate::mappers::one_bus::is_onebus_mapper(c.memory_mapper))
+    }
+
     fn oam_dma_get(&mut self) {
-        let addr = ((self.dma_page as u16) << 8) | (self.dma_address as u16);
+        let (middle, _, _) = self.onebus_dma_config();
+        let addr = if self.onebus_cart() {
+            ((self.dma_page as u16) << 8) | (middle as u16) | (self.dma_address as u16)
+        } else {
+            ((self.dma_page as u16) << 8) | (self.dma_address as u16)
+        };
         self.oam_dma_aligned = true;
         self.oam_internal_bus = self.fetch(addr);
     }
@@ -147,9 +170,24 @@ impl Emulator {
 
     fn oam_dma_put(&mut self) {
         if self.oam_dma_aligned {
-            self.store(self.oam_internal_bus, 0x2004);
+            let (_, length, target) = self.onebus_dma_config();
+            let store_addr = if self.onebus_cart() {
+                target
+            } else {
+                0x2004
+            };
+            self.store(self.oam_internal_bus, store_addr);
             self.dma_address = self.dma_address.wrapping_add(1);
-            if self.dma_address == 0 {
+            let done = if self.onebus_cart() {
+                if length == 0x100 {
+                    self.dma_address == 0
+                } else {
+                    (self.dma_address as u16) >= length
+                }
+            } else {
+                self.dma_address == 0
+            };
+            if done {
                 self.do_oam_dma = false;
                 self.oam_dma_aligned = false;
                 return;

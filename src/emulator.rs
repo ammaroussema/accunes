@@ -6,6 +6,14 @@ use crate::region::{Region, TvSystem};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
+#[derive(Clone, Copy, Default)]
+pub struct Vt369SpriteEntry {
+    pub data: [u8; 16],
+    pub start_x: i16,
+    pub priority: bool,
+    pub sprite0: bool,
+}
+
 // so of course it'd only make sense for this to start with a massive struct with like thousands of public variable declarations!!
 
 pub struct Emulator {
@@ -63,7 +71,8 @@ pub struct Emulator {
     pub nmi_line: bool,
     pub irq_line: bool,
 
-    pub ram: [u8; 0x800],
+    pub ram: [u8; 0x1000],
+    pub cpu_ram_mask: u16,
     pub vram: [u8; 0x800],
     pub oam: [u8; 0x100],
     pub oam2: [u8; 32],
@@ -129,6 +138,15 @@ pub struct Emulator {
     pub ppu_low_bit_plane_hi: u8,
     pub ppu_high_bit_plane_hi: u8,
     pub ppu_attribute: u8,
+    pub ppu_onebus_eva: u16,
+    pub ppu_onebus_chr: crate::mappers::one_bus::OneBusChrCtx,
+    pub vt369_tile_data: [u8; 264],
+    pub vt369_pat_addr: usize,
+    pub vt369_nt_byte: u8,
+    pub vt369_sprite_buf: [Vt369SpriteEntry; 64],
+    pub vt369_sprite_count: u8,
+    pub vt369_sprite_ram: [u8; 512],
+    pub vt369_spr_addr_high: u8,
 
     pub ppu_sprite_sr_l: [u8; 8],
     pub ppu_sprite_sr_h: [u8; 8],
@@ -386,17 +404,21 @@ pub struct Emulator {
 }
 
 impl Emulator {
-    pub fn init_ram(ram: &mut [u8; 0x800], vram: &mut [u8; 0x800], mode: config::InitialRam) {
+    pub fn init_ram(ram: &mut [u8; 0x1000], vram: &mut [u8; 0x800], mode: config::InitialRam) {
         match mode {
             config::InitialRam::Default => {
-                for i in 0..0x800usize {
+                for i in 0..0x1000usize {
                     let j = i & 0x2;
                     let swap = (i & 0x1F) >= 0x10;
                     if (j < 0x2) != swap {
-                        vram[i] = 0xF0;
+                        if i < 0x800 {
+                            vram[i] = 0xF0;
+                        }
                         ram[i] = 0xF0;
                     } else {
-                        vram[i] = 0x0F;
+                        if i < 0x800 {
+                            vram[i] = 0x0F;
+                        }
                         ram[i] = 0x0F;
                     }
                 }
@@ -415,18 +437,20 @@ impl Emulator {
                     .unwrap_or_default()
                     .as_nanos();
                 let mut state = seed as u32;
-                for i in 0..0x800usize {
+                for i in 0..0x1000usize {
                     state = state.wrapping_mul(1103515245).wrapping_add(12345);
                     ram[i] = (state >> 16) as u8;
-                    state = state.wrapping_mul(1103515245).wrapping_add(12345);
-                    vram[i] = (state >> 16) as u8;
+                    if i < 0x800 {
+                        state = state.wrapping_mul(1103515245).wrapping_add(12345);
+                        vram[i] = (state >> 16) as u8;
+                    }
                 }
             }
         }
     }
 
     pub fn new() -> Self {
-        let mut ram = [0u8; 0x800];
+        let mut ram = [0u8; 0x1000];
         let mut vram = [0u8; 0x800];
 
         Self::init_ram(&mut ram, &mut vram, config::InitialRam::Default);
@@ -460,7 +484,7 @@ impl Emulator {
             oam_internal_bus: 0,
             nmi_pins_signal: false, nmi_previous_pins_signal: false,
             irq_level_detector: false, nmi_line: false, irq_line: false,
-            ram, vram, oam: [0u8; 0x100], oam2, palette_ram,
+            ram, cpu_ram_mask: 0x7FF, vram, oam: [0u8; 0x100], oam2, palette_ram,
             ppu_bus: 0, ppu_bus_decay: [0i32; 8], ppu_oam_address: 0,
             ppu_status_vblank: false, ppu_status_sprite_zero_hit: false,
             ppu_status_sprite_zero_hit_delayed: false,
@@ -492,6 +516,15 @@ impl Emulator {
             ppu_low_bit_plane: 0, ppu_high_bit_plane: 0,
             ppu_low_bit_plane_hi: 0, ppu_high_bit_plane_hi: 0,
             ppu_attribute: 0,
+            ppu_onebus_eva: 0,
+            ppu_onebus_chr: crate::mappers::one_bus::OneBusChrCtx::default(),
+            vt369_tile_data: [0; 264],
+            vt369_pat_addr: 0,
+            vt369_nt_byte: 0,
+            vt369_sprite_buf: [Vt369SpriteEntry::default(); 64],
+            vt369_sprite_count: 0,
+            vt369_sprite_ram: [0; 512],
+            vt369_spr_addr_high: 0,
             ppu_sprite_sr_l: [0; 8], ppu_sprite_sr_h: [0; 8],
             ppu_sprite_sr_l2: [0; 8], ppu_sprite_sr_h2: [0; 8],
             ppu_sprite_attribute: [0; 8], ppu_sprite_pattern: [0; 8],
@@ -657,6 +690,11 @@ impl Emulator {
     pub fn load_cartridge(&mut self, cart: Cartridge) {
         self.resolved_region = self.compute_region(&cart.tv_system, &cart.name);
         let cpu_clock = self.cpu_clock();
+        self.cpu_ram_mask = if cart.mapper_chip.onebus_cpu_ram_4k() {
+            0xFFF
+        } else {
+            0x7FF
+        };
         self.cart = Some(cart);
         if let Some(ref mut cart) = self.cart {
             cart.mapper_chip.set_cpu_clock(cpu_clock);
@@ -1211,6 +1249,7 @@ impl Emulator {
         out.push(if self.irq_level_detector { 1 } else { 0 });
         out.push(if self.nmi_line { 1 } else { 0 });
         out.push(if self.irq_line { 1 } else { 0 });
+        out.extend_from_slice(&self.cpu_ram_mask.to_le_bytes());
         out.extend_from_slice(&self.ram);
         out.extend_from_slice(&self.vram);
         out.extend_from_slice(&self.oam);
@@ -1515,6 +1554,7 @@ impl Emulator {
         self.irq_level_detector = read_u8()? != 0;
         self.nmi_line = read_u8()? != 0;
         self.irq_line = read_u8()? != 0;
+        self.cpu_ram_mask = u16::from_le_bytes([read_u8()?, read_u8()?]);
         for i in 0..self.ram.len() { self.ram[i] = read_u8()?; }
         for i in 0..self.vram.len() { self.vram[i] = read_u8()?; }
         for i in 0..self.oam.len() { self.oam[i] = read_u8()?; }

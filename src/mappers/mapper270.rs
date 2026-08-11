@@ -148,6 +148,7 @@ impl Mapper for Mapper270 {
                 self.chr_ram_flat(),
                 false,
                 false,
+                0,
             );
             new_addr_bus |= byte as u16;
         } else {

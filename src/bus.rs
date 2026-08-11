@@ -27,7 +27,7 @@ impl Emulator {
                 }
             }
         } else if address < 0x2000 {
-            self.data_bus = self.ram[(address & 0x7FF) as usize];
+            self.data_bus = self.ram[(address & self.cpu_ram_mask) as usize];
             self.data_pins_are_not_floating = true;        } else if address >= 0x2000 && address < 0x4000 {
             let is_onebus = self
                 .cart
@@ -345,7 +345,7 @@ impl Emulator {
             cart.mapper_chip.handle_cpu_write(address, input);
         }
         if address < 0x2000 {
-            self.ram[(address & 0x7FF) as usize] = input;
+            self.ram[(address & self.cpu_ram_mask) as usize] = input;
         } else if address < 0x4000 {
             let is_onebus = self
                 .cart
@@ -422,11 +422,27 @@ impl Emulator {
             }
             self.apu_frame_counter_reset = if self.apu_put_cycle { 3 } else { 4 };
         } else if address >= 0x4020 && self.cart.is_some() {
+            if address >= 0x5000 && address < 0x6000 {
+                let vt369 = self
+                    .cart
+                    .as_ref()
+                    .map_or(false, |c| c.mapper_chip.onebus_vt369_ppu());
+                if vt369 {
+                    let reg2000_1e = self
+                        .cart
+                        .as_ref()
+                        .map_or(0, |c| c.mapper_chip.vt369_reg2000(0x1E));
+                    let mask = if reg2000_1e == 0 { 0x0FF } else { 0x3FF };
+                    let pal_addr = ((address & 0x3FF) as usize) & mask;
+                    self.palette_ram[pal_addr] = input;
+                    return;
+                }
+            }
             let is_onebus = self
                 .cart
                 .as_ref()
                 .map_or(false, |c| crate::mappers::one_bus::is_onebus_mapper(c.memory_mapper));
-            if is_onebus && address <= 0x402F {
+            if !is_onebus && address <= 0x402F {
                 let apu_addr = 0x4000 + (address & 0x0F);
                 self.store_apu_registers(apu_addr, input);
             }
@@ -446,7 +462,7 @@ impl Emulator {
                 self.irq_level_detector = false;
             }
 
-              if               (address & 0xE001) == 0xE000 && matches!(cart.memory_mapper, 4 | 12 | 37 | 44 | 45 | 47 | 49 | 52 | 64 | 74 | 100 | 114 | 115 | 116 | 118 | 119 | 121 | 123 | 126 | 131 | 134 | 142 | 165 | 169 | 182 | 187 | 189 | 191 | 192 | 194 | 195 | 196 | 197 | 198 | 199 | 205 | 208 | 215 | 219 | 224 | 238 | 245 | 248 | 249 | 254 | 256 | 259 | 260 | 262 | 263 | 267 | 268 | 269 | 287 | 291 | 292 | 296 | 307 | 313 | 315 | 321 | 322 | 325 | 327 | 333 | 334 | 339 | 344 | 345 | 348 | 353 | 356 | 359 | 361 | 362 | 364 | 366 | 367 | 368 | 369 | 370 | 372 | 373 | 377 | 383 | 391 | 392 | 393 | 394 | 395 | 422 | 441 | 443 | 444 | 445 | 455 | 456 | 457 | 458 | 460 | 467 | 472 | 473 | 474 | 475 | 478 | 479 | 480 | 531 | 534) {
+              if               (address & 0xE001) == 0xE000 && matches!(cart.memory_mapper, 4 | 12 | 37 | 44 | 45 | 47 | 49 | 52 | 64 | 74 | 100 | 114 | 115 | 116 | 118 | 119 | 121 | 123 | 126 | 131 | 134 | 142 | 165 | 169 | 182 | 187 | 189 | 191 | 192 | 194 | 195 | 196 | 197 | 198 | 199 | 205 | 208 | 215 | 219 | 224 | 238 | 245 | 248 | 249 | 254 | 256 | 259 | 260 | 262 | 263 | 267 | 268 | 269 | 287 | 291 | 292 | 296 | 307 | 313 | 315 | 321 | 322 | 325 | 327 | 333 | 334 | 339 | 344 | 345 | 348 | 353 | 356 | 359 | 361 | 362 | 364 | 366 | 367 | 368 | 369 | 370 | 372 | 373 | 377 | 383 | 391 | 392 | 393 | 394 | 395 | 422 | 441 | 443 | 444 | 445 | 455 | 456 | 457 | 458 | 460 | 467 | 472 | 473 | 474 | 475 | 478 | 479 | 480 | 481 | 482 | 483 | 484 | 486 | 490 | 531 | 534) {
                 self.irq_level_detector = false;
             } else if cart.memory_mapper == 5 && address == 0x5204 {
                 self.irq_level_detector = false;
@@ -661,15 +677,26 @@ impl Emulator {
                 .cart
                 .as_ref()
                 .map_or(false, |c| crate::mappers::one_bus::is_onebus_mapper(c.memory_mapper));
-            let pal_addr = if is_onebus {
+            let vt03_ppu = self
+                .cart
+                .as_ref()
+                .map_or(false, |c| c.mapper_chip.onebus_vt03_ppu());
+            let mut pal_addr = if is_onebus {
                 (address & 0xFF) as usize
             } else {
                 let mirrored = self.ppu_address_with_mirroring(address);
                 (mirrored & 0x1F) as usize
             };
+            if vt03_ppu && self.do_oam_dma && !self.is_pal() && !self.is_dendy() {
+                pal_addr = pal_addr.wrapping_sub(1) & 0xFF;
+            }
             self.palette_ram[pal_addr] = input;
-            
-            // palette mirrors (standard NES 2bpp only; VT03 palette RAM is 256 independent bytes)
+
+            if vt03_ppu && (pal_addr as u8 & 0x63) == 0 {
+                self.palette_ram[pal_addr ^ 0x10] = input;
+            }
+
+            // palette mirrors
             if !is_onebus && (pal_addr & 3) == 0 {
                 self.palette_ram[pal_addr ^ 0x10] = input;
             }

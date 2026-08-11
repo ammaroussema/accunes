@@ -1,4 +1,39 @@
 use crate::mappers::one_bus_gpio::GpioPort;
+
+/// Per-fetch context for VT03 OneBus CHR reads (EVA + BG/sprite routing).
+#[derive(Clone, Copy, Default)]
+pub struct OneBusChrCtx {
+    pub eva: u16,
+    pub is_bg: bool,
+    pub is_sprite: bool,
+    pub active: bool,
+}
+
+impl OneBusChrCtx {
+    pub fn map_chr_address(&self, raw_address: u16) -> u16 {
+        if !self.active {
+            return raw_address;
+        }
+        let pat = raw_address & 0x1FFF;
+        let high_4bpp = raw_address >= 0x4000 && raw_address < 0x6000;
+        if self.is_sprite {
+            if high_4bpp {
+                0xE000 | pat
+            } else {
+                0xA000 | pat
+            }
+        } else if self.is_bg {
+            if high_4bpp {
+                0xC000 | pat
+            } else {
+                0x8000 | pat
+            }
+        } else {
+            raw_address
+        }
+    }
+}
+
 pub const VB0S_TABLE: [u8; 8] = [0, 1, 2, 0, 3, 4, 5, 0];
 pub fn is_onebus_mapper(mapper: u16) -> bool {
     matches!(
@@ -117,6 +152,9 @@ pub struct OneBus {
     pub reg2000: [u8; 0x100],
     pub reg4100: [u8; 0x100],
     pub relative_8k: usize,
+    pub vt369_relative: usize,
+    pub vt369_bg_data: usize,
+    pub vt369_spr_data: usize,
     chr_low: Vec<u8>,
     chr_high: Vec<u8>,
     chr_low16: Vec<u8>,
@@ -135,6 +173,12 @@ pub struct OneBus {
     pub gpio: [GpioPort; 4],
     pub console_type_vt369: bool,
     pub console_type_vt09: bool,
+    pub console_type_vt03: bool,
+    pub submapper: u8,
+    pub opcode_encryption: bool,
+    pub dma_middle_addr: u8,
+    pub dma_length: u16,
+    pub dma_target: u16,
     pub alu_operand14: u32,
     pub alu_operand56: u16,
     pub alu_operand67: u16,
@@ -173,6 +217,9 @@ impl OneBus {
             reg2000: [0; 0x100],
             reg4100: [0; 0x100],
             relative_8k: 0,
+            vt369_relative: 0,
+            vt369_bg_data: 0,
+            vt369_spr_data: 0,
             chr_low,
             chr_high,
             chr_low16,
@@ -191,6 +238,12 @@ impl OneBus {
             gpio: [GpioPort::new(), GpioPort::new(), GpioPort::new(), GpioPort::new()],
             console_type_vt369: false,
             console_type_vt09: false,
+            console_type_vt03: false,
+            submapper: 0,
+            opcode_encryption: false,
+            dma_middle_addr: 0,
+            dma_length: 0x100,
+            dma_target: 0x2004,
             alu_operand14: 0,
             alu_operand56: 0,
             alu_operand67: 0,
@@ -207,6 +260,9 @@ impl OneBus {
         self.alu_operand67 = 0;
         self.alu_busy = 0;
         self.relative_8k = 0;
+        self.vt369_relative = 0;
+        self.vt369_bg_data = 0;
+        self.vt369_spr_data = 0;
         self.irq_counter = 0;
         self.irq_reload = 0;
         self.irq_enabled = false;
@@ -241,7 +297,70 @@ impl OneBus {
         for g in &mut self.gpio {
             g.reset();
         }
+        self.opcode_encryption = self.submapper >= 12;
+        self.dma_middle_addr = 0;
+        self.dma_length = 0x100;
+        self.dma_target = 0x2004;
+        self.update_vt369_offsets();
     }
+
+    pub fn update_vt369_offsets(&mut self) {
+        if !self.console_type_vt369 {
+            return;
+        }
+        let rel = self.relative_8k & 0xFFF;
+        let prg_and = self.banking.prg_and as usize;
+        let prg_or = self.banking.prg_or as usize;
+        self.vt369_relative = (rel & prg_and | prg_or) << 13;
+
+        let chr_and3 = self.banking.chr_and >> 3;
+        let chr_or3 = self.banking.chr_or >> 3;
+        let bg_reg =
+            (self.reg2000[0x20] as usize) | ((self.reg2000[0x21] as usize) << 8);
+        self.vt369_bg_data = (((bg_reg + self.relative_8k) & 0xFFF & chr_and3) | chr_or3) << 13;
+        let spr_reg =
+            (self.reg2000[0x22] as usize) | ((self.reg2000[0x23] as usize) << 8);
+        self.vt369_spr_data = (((spr_reg + self.relative_8k) & 0xFFF & chr_and3) | chr_or3) << 13;
+    }
+
+    pub fn ppu_reg_mask_bit6(&self) -> bool {
+        self.console_type_vt03 || self.console_type_vt09
+    }
+
+    pub fn unscramble_opcode(&self, opcode: u8) -> u8 {
+        if !self.opcode_encryption {
+            return opcode;
+        }
+        match self.submapper {
+            12 => {
+                let mut r = opcode & !0xC6;
+                r |= if opcode & 0x40 != 0 { 0x80 } else { 0 };
+                r |= if opcode & 0x80 != 0 { 0x40 } else { 0 };
+                r |= if opcode & 0x02 != 0 { 0x04 } else { 0 };
+                r |= if opcode & 0x04 != 0 { 0x02 } else { 0 };
+                r
+            }
+            13 => {
+                let mut r = opcode & !0x12;
+                r |= if opcode & 0x10 != 0 { 0x02 } else { 0 };
+                r |= if opcode & 0x02 != 0 { 0x10 } else { 0 };
+                r
+            }
+            14 => {
+                let mut r = opcode & !0xC0;
+                r |= if opcode & 0x80 != 0 { 0x40 } else { 0 };
+                r |= if opcode & 0x40 != 0 { 0x80 } else { 0 };
+                r
+            }
+            _ => {
+                let mut r = opcode & !0x60;
+                r |= if opcode & 0x40 != 0 { 0x20 } else { 0 };
+                r |= if opcode & 0x20 != 0 { 0x40 } else { 0 };
+                r
+            }
+        }
+    }
+
     pub fn ps(&self) -> u8 {
         self.reg4100[0x0B] & 7
     }
@@ -460,6 +579,7 @@ impl OneBus {
         chr_ram_flat: bool,
         is_bg: bool,
         is_sprite: bool,
+        chr_eva: u16,
     ) -> u8 {
         self.ensure_chr_planes(prg_rom, chr_rom);
         let in_low_plane  = address < 0x2000;
@@ -506,7 +626,7 @@ impl OneBus {
             || self.reg4100[0x2B] == 0x61;
         if is_4bpp_window {
             let bank_full = self.chr_bank_1k_ext(slot, eff_is_bg, eff_is_sprite);
-            let within_1k = (address as usize) & 0x3FF;
+            let within_1k = (address as usize & 0x3FF) | (chr_eva as usize);
             let plane = if fetch_high_plane {
                 if use_16bit_planes {
                     &self.chr_high16
@@ -526,7 +646,7 @@ impl OneBus {
             }
         } else {
             let bank = self.chr_bank_1k_ext(slot, eff_is_bg, eff_is_sprite);
-            let offset = bank * 0x400 + ((address as usize) & 0x3FF);
+            let offset = bank * 0x400 + ((address as usize & 0x3FF) | (chr_eva as usize));
             let raw = if !chr_rom.is_empty() { chr_rom } else { prg_rom };
             rom_read(raw, offset)
         }
@@ -539,10 +659,14 @@ impl OneBus {
         address: u16,
         chr_ram_flat: bool,
     ) -> u8 {
-        self.fetch_chr_byte_ext(prg_rom, chr_rom, chr_ram, address, chr_ram_flat, false, false)
+        self.fetch_chr_byte_ext(prg_rom, chr_rom, chr_ram, address, chr_ram_flat, false, false, 0)
     }
     pub fn read_apu(&mut self, address: u16) -> Option<u8> {
         let idx = (address & 0xFF) as usize;
+        if address >= 0x4020 && address < 0x4040 && idx == 0x35 {
+            // Second APU status ($4035): length-counter bits for square2/3, triangle2, noise2.
+            return Some(0);
+        }
         if address >= 0x4100 && address < 0x4200 {
             if self.console_type_vt369 {
                 match idx {
@@ -591,21 +715,42 @@ impl OneBus {
         None
     }
     pub fn write_ppu(&mut self, addr: u16, val: u8, mangle: &OneBusMangle) {
+        // PPU_OneBus mirrors every CPU write in the $2000-$20FF page to reg2000[].
+        self.reg2000[(addr & 0xFF) as usize] = val;
+
         let mut a = (addr & 0xFF) as u8;
         if (0x12..=0x17).contains(&a) {
             a = 0x12 + mangle.ppu[(a - 0x12) as usize];
         }
-        if self.console_type_vt09 && a >= 8 {
+        if self.ppu_reg_mask_bit6() && a >= 8 {
             a &= !0x40;
         }
         if a >= 8 {
             self.reg2000[a as usize] = val;
+        }
+        if self.console_type_vt369 && (0x20..=0x23).contains(&(addr & 0xFF)) {
+            self.update_vt369_offsets();
         }
     }
     pub fn write_apu(&mut self, addr: u16, val: u8, mangle: &OneBusMangle) {
         let mut idx = (addr & 0xFF) as usize;
         if (0x07..=0x0A).contains(&idx) {
             idx = 0x07 + mangle.cpu[(idx - 0x07) as usize] as usize;
+        }
+        if idx == 0x1C && (self.submapper == 12 || self.submapper == 14) {
+            self.opcode_encryption = (val & 0x40) != 0;
+        }
+        if idx == 0x69 && (self.submapper == 13 || self.submapper == 15) {
+            self.opcode_encryption = (val & 1) == 0;
+        }
+        if idx == 0x34 {
+            let mut shift = (val >> 1) & 7;
+            if shift == 0 {
+                shift = 8;
+            }
+            self.dma_middle_addr = val & 0xF0;
+            self.dma_length = 1u16 << shift;
+            self.dma_target = if val & 1 != 0 { 0x2007 } else { 0x2004 };
         }
         if (0x40..=0x5F).contains(&idx) && self.console_type_vt369 {
             let port_idx = (idx >> 3) & 3;
@@ -654,6 +799,7 @@ impl OneBus {
                     self.reg4100[idx] = val;
                     self.relative_8k = (self.reg4100[0x60] as usize)
                         | (((self.reg4100[0x61] as usize) << 8) & 0xF00);
+                    self.update_vt369_offsets();
                     return;
                 }
             }
@@ -776,6 +922,10 @@ impl OneBus {
         state.push(self.irq_delay);
         state.push(self.prg_ram_protect);
         state.push(if self.pending_irq { 1 } else { 0 });
+        state.push(if self.opcode_encryption { 1 } else { 0 });
+        state.push(self.dma_middle_addr);
+        state.extend_from_slice(&self.dma_length.to_le_bytes());
+        state.extend_from_slice(&self.dma_target.to_le_bytes());
         state
     }
     pub fn load_core(&mut self, state: &[u8], start: usize) -> usize {
@@ -816,9 +966,26 @@ impl OneBus {
             self.pending_irq = state[p] != 0;
             p += 1;
         }
+        if p < state.len() {
+            self.opcode_encryption = state[p] != 0;
+            p += 1;
+        }
+        if p < state.len() {
+            self.dma_middle_addr = state[p];
+            p += 1;
+        }
+        if p + 2 <= state.len() {
+            self.dma_length = u16::from_le_bytes([state[p], state[p + 1]]);
+            p += 2;
+        }
+        if p + 2 <= state.len() {
+            self.dma_target = u16::from_le_bytes([state[p], state[p + 1]]);
+            p += 2;
+        }
         if self.console_type_vt369 {
             self.relative_8k = (self.reg4100[0x60] as usize)
                 | (((self.reg4100[0x61] as usize) << 8) & 0xF00);
+            self.update_vt369_offsets();
         }
         p
     }

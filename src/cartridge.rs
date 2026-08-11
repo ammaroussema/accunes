@@ -588,7 +588,9 @@ impl Cartridge {
         let chr_rom_len = chr_size_val * 0x2000;
         let after_header = 0x10 + trainer_len;
         let file_prg_avail = rom.len().saturating_sub(after_header + chr_rom_len);
-        if file_prg_avail > prg_rom_len {
+        // NES 2.0: trailing data after PRG+CHR is misc ROM (byte 14 low 2 bits), not extra PRG.
+        let header_has_misc = is_nes20 && (rom[14] & 0x03) != 0;
+        if file_prg_avail > prg_rom_len && !header_has_misc {
             prg_rom_len = file_prg_avail;
             prg_size = (prg_rom_len / 0x4000).min(0xFF) as u8;
         }
@@ -749,7 +751,7 @@ impl Cartridge {
             let battery_bytes = if battery_shift == 0 { 0 } else { 64usize << battery_shift };
             let total_ram = vram_bytes + battery_bytes;
             vec![0u8; total_ram]
-        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             vec![0u8; 0x2000]
         } else if using_chr_ram {
             vec![0u8; 0x2000]
@@ -763,7 +765,7 @@ impl Cartridge {
         if memory_mapper == 77 {
             using_chr_ram = true;
         }
-        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             using_chr_ram = true;
         }
         if memory_mapper == 314 && chr_size == 0 {
