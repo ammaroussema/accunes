@@ -4,11 +4,12 @@ use crate::mapper::{FetchResult, Mapper, mirror_h_or_v};
 pub struct Mapper332 {
     reg: [u8; 2],
     latch_data: u8,
+    dip_switches: u8,
 }
 
 impl Mapper332 {
     pub fn new(_header: &[u8], _rom: &[u8], _rom_name: &str) -> Self {
-        Self { reg: [0; 2], latch_data: 0 }
+        Self { reg: [0; 2], latch_data: 0, dip_switches: 0 }
     }
 }
 
@@ -16,6 +17,7 @@ impl Mapper for Mapper332 {
     fn reset(&mut self) {
         self.reg = [0; 2];
         self.latch_data = 0;
+        self.dip_switches = 0;
     }
 
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
@@ -114,10 +116,19 @@ impl Mapper for Mapper332 {
         }
     }
 
+    fn get_dip_switches(&self) -> u8 {
+        self.dip_switches
+    }
+
+    fn set_dip_switches(&mut self, value: u8) {
+        self.dip_switches = value;
+    }
+
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
-        let mut state = Vec::with_capacity(3);
+        let mut state = Vec::with_capacity(4);
         state.extend_from_slice(&self.reg);
         state.push(self.latch_data);
+        state.push(self.dip_switches);
         state
     }
 
@@ -128,7 +139,12 @@ impl Mapper for Mapper332 {
         p += 2;
         if p < state.len() {
             self.latch_data = state[p];
-            p + 1
-        } else { p }
+            p += 1;
+        }
+        if p < state.len() {
+            self.dip_switches = state[p];
+            p += 1;
+        }
+        p
     }
 }

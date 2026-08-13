@@ -726,6 +726,8 @@ impl Cartridge {
             vec![0u8; 4 * 1024]
         } else if memory_mapper == 119 {
             vec![0u8; 8 * 1024]
+        } else if memory_mapper == 342 {
+            vec![0u8; 512 * 1024]
         } else if matches!(memory_mapper, 306 | 307 | 309 | 310 | 312) {
             vec![0u8; 8 * 1024]
         } else if memory_mapper == 314 && chr_size == 0 {
@@ -750,7 +752,7 @@ impl Cartridge {
             let battery_bytes = if battery_shift == 0 { 0 } else { 64usize << battery_shift };
             let total_ram = vram_bytes + battery_bytes;
             vec![0u8; total_ram]
-        } else if matches!(memory_mapper, 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        } else if matches!(memory_mapper, 124 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 342 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             vec![0u8; 0x2000]
         } else if using_chr_ram {
             vec![0u8; 0x2000]
@@ -764,7 +766,7 @@ impl Cartridge {
         if memory_mapper == 77 {
             using_chr_ram = true;
         }
-        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 124 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 342 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             using_chr_ram = true;
         }
         if memory_mapper == 314 && chr_size == 0 {
@@ -778,6 +780,9 @@ impl Cartridge {
         if memory_mapper == 262 {
             alternative_nametable_arrangement = true;
         }
+        if memory_mapper == 342 {
+            alternative_nametable_arrangement = true;
+        }
 
         let prg_vram = if alternative_nametable_arrangement {
             vec![0u8; 0x800]
@@ -786,7 +791,7 @@ impl Cartridge {
         };
 
         let mut has_battery = (rom[6] & 2) != 0;
-        if memory_mapper == 16 || memory_mapper == 159 || memory_mapper == 157 {
+        if memory_mapper == 16 || memory_mapper == 159 || memory_mapper == 157 || memory_mapper == 342 {
             has_battery = true;
         }
 
@@ -853,6 +858,8 @@ impl Cartridge {
                 has_battery,
             );
             vec![0u8; cfg.wram_size]
+        } else if memory_mapper == 342 {
+            vec![0u8; 32 * 1024]
         } else {
             vec![0u8; 0x2000]
         };
@@ -865,7 +872,7 @@ impl Cartridge {
             None
         };
 
-        if has_battery && bandai_sav.is_none() {
+        if has_battery && bandai_sav.is_none() && memory_mapper != 342 {
             let sav_path = crate::config::save_file_path(filepath);
             if let Ok(sav_data) = fs::read(&sav_path) {
                 let save_len = if let Some(ref cfg) = mmc5_cfg {
@@ -945,6 +952,19 @@ impl Cartridge {
             mapper.load_battery_save(&mut cartridge, &sav_data);
             cartridge.mapper_chip = mapper;
             println!("Loaded Bandai save from {:?}", sav_path);
+        } else if memory_mapper == 342 {
+            let sav_path = crate::config::save_file_path(filepath);
+            if let Ok(sav_data) = fs::read(&sav_path) {
+                let mut mapper = std::mem::replace(
+                    &mut cartridge.mapper_chip,
+                    Box::new(crate::mapper::MapperNROM::new(
+                        crate::mapper::NromConfig::default(),
+                    )),
+                );
+                mapper.load_battery_save(&mut cartridge, &sav_data);
+                cartridge.mapper_chip = mapper;
+                println!("Loaded COOLGIRL flash save from {:?}", sav_path);
+            }
         }
 
         println!("Loaded ROM: {} (Mapper {}, Sub-mapper {})", cartridge.name, cartridge.memory_mapper, cartridge.sub_mapper);

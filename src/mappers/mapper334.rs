@@ -5,6 +5,7 @@ use crate::mappers::mmc3::{MapperMMC3, Mmc3Config, mmc3_chr_bank};
 pub struct Mapper334 {
     mmc3: MapperMMC3,
     reg: [u8; 2],
+    dip_switches: u8,
 }
 
 impl Mapper334 {
@@ -19,13 +20,14 @@ impl Mapper334 {
             irq_hack: crate::mappers::mmc3::Mmc3IrqHack::None,
             header_horizontal_mirror: (header.get(6).copied().unwrap_or(0) & 1) == 0,
         };
-        Self { mmc3: MapperMMC3::new(config), reg: [0; 2] }
+        Self { mmc3: MapperMMC3::new(config), reg: [0; 2], dip_switches: 0 }
     }
 }
 
 impl Mapper for Mapper334 {
     fn reset(&mut self) {
         self.reg = [0; 2];
+        self.dip_switches = 0;
         self.mmc3.reset();
     }
 
@@ -137,17 +139,32 @@ impl Mapper for Mapper334 {
         self.mmc3.take_irq_ack()
     }
 
+    fn get_dip_switches(&self) -> u8 {
+        self.dip_switches
+    }
+
+    fn set_dip_switches(&mut self, value: u8) {
+        self.dip_switches = value;
+    }
+
     fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8> {
         let mut state = self.mmc3.save_mapper_registers(cart);
         state.extend_from_slice(&self.reg);
+        state.push(self.dip_switches);
         state
     }
 
     fn load_mapper_registers(&mut self, cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let p = self.mmc3.load_mapper_registers(cart, state, start);
+        let mut p = p;
         if p + 2 <= state.len() {
             self.reg.copy_from_slice(&state[p..p+2]);
-            p + 2
-        } else { p }
+            p += 2;
+        }
+        if p < state.len() {
+            self.dip_switches = state[p];
+            p += 1;
+        }
+        p
     }
 }

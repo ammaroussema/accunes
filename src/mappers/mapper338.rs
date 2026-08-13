@@ -3,29 +3,31 @@ use crate::mapper::{FetchResult, Mapper, mirror_h_or_v};
 
 pub struct Mapper338 {
     latch_addr: u16,
+    dip_switches: u16,
 }
 
 impl Mapper338 {
     pub fn new(_header: &[u8], _rom: &[u8], _rom_name: &str) -> Self {
-        Self { latch_addr: 0 }
+        Self { latch_addr: 0, dip_switches: 0 }
     }
 }
 
 impl Mapper for Mapper338 {
     fn reset(&mut self) {
         self.latch_addr = 0;
+        self.dip_switches = 0;
     }
 
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let masked = self.latch_addr & 0xFF0F;
-            let dip = self.get_dip_switches();
+            let dip = self.dip_switches;
             match masked {
                 0xF004 if cart.prg_rom.len() <= 0x10000 => {
-                    return FetchResult { data: dip & 0xFF, driven: true };
+                    return FetchResult { data: (dip & 0xFF) as u8, driven: true };
                 }
                 0xF008 => {
-                    return FetchResult { data: (dip as u16 >> 8) as u8, driven: true };
+                    return FetchResult { data: (dip >> 8) as u8, driven: true };
                 }
                 _ => {}
             }
@@ -95,14 +97,30 @@ impl Mapper for Mapper338 {
         }
     }
 
+    fn get_dip_switches(&self) -> u8 {
+        self.dip_switches as u8
+    }
+
+    fn set_dip_switches(&mut self, value: u8) {
+        self.dip_switches = (self.dip_switches & 0xFF00) | value as u16;
+    }
+
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
-        self.latch_addr.to_le_bytes().to_vec()
+        let mut state = self.latch_addr.to_le_bytes().to_vec();
+        state.extend_from_slice(&self.dip_switches.to_le_bytes());
+        state
     }
 
     fn load_mapper_registers(&mut self, _cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
-        if start + 2 <= state.len() {
-            self.latch_addr = u16::from_le_bytes([state[start], state[start+1]]);
-            start + 2
-        } else { start }
+        let mut p = start;
+        if p + 2 <= state.len() {
+            self.latch_addr = u16::from_le_bytes([state[p], state[p + 1]]);
+            p += 2;
+        }
+        if p + 2 <= state.len() {
+            self.dip_switches = u16::from_le_bytes([state[p], state[p + 1]]);
+            p += 2;
+        }
+        p
     }
 }

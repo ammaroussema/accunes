@@ -969,19 +969,13 @@ impl Emulator {
     pub fn has_dip_switches(&self) -> bool {
         if let Some(ref cart) = self.cart {
             cart.is_vs_system
-                || cart.memory_mapper == 45
-                || cart.memory_mapper == 59
-                || cart.memory_mapper == 83
-                || cart.memory_mapper == 90
-                || cart.memory_mapper == 262
-                || cart.memory_mapper == 264
-                || cart.memory_mapper == 242
-                || cart.memory_mapper == 286
-                || cart.memory_mapper == 360
-                || cart.memory_mapper == 401
-                || cart.memory_mapper == 445
-                || cart.memory_mapper == 447
-                || cart.memory_mapper == 449
+                || matches!(
+                    cart.memory_mapper,
+                    45 | 59 | 67 | 68 | 75 | 83 | 90 | 99 | 124 | 151 | 176 | 206 | 242 | 260 | 262 | 264
+                        | 270 | 286 | 287 | 288 | 289 | 296 | 319 | 332 | 334 | 338 | 344 | 351 | 357
+                        | 360 | 367 | 370 | 380 | 390 | 401 | 411 | 412 | 414 | 421 | 428 | 432 | 435
+                        | 443 | 444 | 445 | 447 | 449 | 458 | 460 | 472 | 482 | 488 | 490 | 494
+                )
         } else {
             false
         }

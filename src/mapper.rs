@@ -113,6 +113,7 @@ pub use crate::mappers::mapper120::Mapper120;
 pub use crate::mappers::mapper121::Mapper121;
 pub use crate::mappers::mapper122::Mapper122;
 pub use crate::mappers::mapper123::Mapper123;
+pub use crate::mappers::mapper124::Mapper124;
 pub use crate::mappers::mapper125::Mapper125;
 pub use crate::mappers::mapper127::Mapper127;
 pub use crate::mappers::mapper128::Mapper128;
@@ -370,6 +371,10 @@ pub use crate::mappers::mapper487::Mapper487;
 pub use crate::mappers::mapper488::Mapper488;
 pub use crate::mappers::mapper489::Mapper489;
 pub use crate::mappers::mapper490::Mapper490;
+pub use crate::mappers::mapper491::Mapper491;
+pub use crate::mappers::mapper492::Mapper492;
+pub use crate::mappers::mapper493::Mapper493;
+pub use crate::mappers::mapper494::Mapper494;
 pub use crate::mappers::mapper522::Mapper522;
 pub use crate::mappers::mapper486::Mapper486;
 pub use crate::mappers::mapper535::Mapper535;
@@ -387,6 +392,7 @@ pub use crate::mappers::mapper495::Mapper495;
 pub use crate::mappers::mapper497::Mapper497;
 pub use crate::mappers::mapper498::Mapper498;
 pub use crate::mappers::mapper499::Mapper499;
+pub use crate::mappers::mapper500::Mapper500;
 pub use crate::mappers::mapper514::Mapper514;
 pub use crate::mappers::mapper521::Mapper521;
 pub use crate::mappers::mapper525::Mapper525;
@@ -415,6 +421,7 @@ pub use crate::mappers::mapper338::Mapper338;
 pub use crate::mappers::mapper339::Mapper339;
 pub use crate::mappers::mapper340::Mapper340;
 pub use crate::mappers::mapper341::Mapper341;
+pub use crate::mappers::mapper342::Mapper342;
 pub use crate::mappers::mapper343::Mapper343;
 pub use crate::mappers::mapper344::Mapper344;
 pub use crate::mappers::mapper345::Mapper345;
@@ -616,6 +623,16 @@ pub trait Mapper: Send {
     // hook for CPU writes below $4020 (CPU RAM, APU, etc.)
     fn handle_cpu_write(&mut self, _address: u16, _data: u8) {}
 
+    fn cpu_ram_override(&self, address: u16) -> Option<u8> {
+        let _ = address;
+        None
+    }
+
+    fn cpu_ram_override_store(&mut self, address: u16, data: u8) -> bool {
+        let _ = (address, data);
+        false
+    }
+
     // and finally mapper reset handling
     fn reset(&mut self) {}
 
@@ -714,7 +731,7 @@ pub fn create_mapper(
         17 => Box::new(MapperFfe::new(FfeConfig::mapper17(header, has_battery))),
         18 => Box::new(Mapper18::new()),
         19 => Box::new(Mapper19::new()),
-//      20 => Box::new(MapperFDS::new()),
+//      20 => Box::new(MapperFDS::new()),  (FDS assignment)
         21 => Box::new(Vrc2And4::new(VrcVariant::Mapper21)),
         22 => Box::new(Vrc2And4::new(VrcVariant::Mapper22)),
         23 => Box::new(Vrc2And4::new(VrcVariant::Mapper23)),
@@ -807,7 +824,7 @@ pub fn create_mapper(
         81 => Box::new(Mapper81::new()),
         82 => Box::new(Mapper82::new()),
         83 => Box::new(Mapper83::new(83, submapper_id)),
-//      84 => Box::new(Mapper40::new()),
+//      84 => Box::new(Mapper40::new()), (no public references found)
         85 => Box::new(Vrc7::new(submapper_id)),
         86 => {
             let has_trainer = (header[6] & 4) != 0;
@@ -847,7 +864,7 @@ pub fn create_mapper(
         95 => Box::new(Mapper95::mapper95()),
         96 => Box::new(Mapper96::new(header)),
         97 => Box::new(Mapper97::new()),
-//      98 => Box::new(Mapper40::new()),
+//      98 => Box::new(Mapper40::new()), (no public references found)
         99 => Box::new(Mapper99::new()),
         100 => Box::new(Mapper100::new()),
         101 => Box::new(Mapper101::new()),
@@ -903,7 +920,7 @@ pub fn create_mapper(
         )),
         122 => Box::new(Mapper122::new()),
         123 => Box::new(Mapper123::new(prg_size)),
-    //  124 => Box::new(Mapper124::new()), (UNSUPPORTED)
+        124 => Box::new(Mapper124::new(header, rom, rom_name)),
         125 => Box::new(Mapper125::new()),
         126 => Box::new(MapperAx5202p::new(Ax5202pVariant::Mapper126)),
         127 => Box::new(Mapper127::new()),
@@ -1037,7 +1054,7 @@ pub fn create_mapper(
         217 => Box::new(Mapper217::new()),
         218 => Box::new(Mapper218::new()),
         219 => Box::new(Mapper219::new(header, rom, rom_name)),
-//      220 => Box::new(Mapper220::new()),
+//      220 => Box::new(Mapper220::new()), (fceux debug assignment)
         221 => Box::new(Mapper221::new()),
         222 => Box::new(Mapper222::new()),
         223 => Box::new(Mapper199::new()),
@@ -1064,7 +1081,7 @@ pub fn create_mapper(
         244 => Box::new(Mapper244::new()),
         245 => Box::new(Mapper245::new()),
         246 => Box::new(Mapper246::new()),
-//      247 => Box::new(Mapper247::new()),
+//      247 => Box::new(Mapper247::new()), (unassigned)
         248 => Box::new(Mapper248::new(prg_size)),
         249 => Box::new(Mapper249::new()),
         250 => Box::new(Mapper250::new()),
@@ -1147,9 +1164,9 @@ pub fn create_mapper(
         313 => Box::new(Mapper313::new(header, rom, rom_name, submapper_id)),
         314 => Box::new(Mapper314::new(!using_chr_ram)),
         315 => Box::new(Mapper315::new(header, rom, rom_name)),
-    //  316 => Box::new(Mapper316::new()),
-    //  317 => Box::new(Mapper317::new()),
-    //  318 => Box::new(Mapper318::new()),
+    //  316 => Box::new(Mapper316::new()), (no public references found)
+    //  317 => Box::new(Mapper317::new()), (no public references found)
+    //  318 => Box::new(Mapper318::new()), (no public references found)
         319 => Box::new(Mapper319::new()),
         320 => Box::new(Mapper320::new()),
         321 => Box::new(Mapper321::new(header, rom, rom_name)),
@@ -1173,7 +1190,7 @@ pub fn create_mapper(
         339 => Box::new(Mapper339::new(header, rom, rom_name)),
         340 => Box::new(Mapper340::new(header, rom, rom_name)),
         341 => Box::new(Mapper341::new(header, rom, rom_name)),
-     // 342 => Box::new(Mapper342::new(header, rom, rom_name)), (too complex for now!!)
+        342 => Box::new(Mapper342::new(header, rom, rom_name)),
         343 => Box::new(Mapper343::new(header, rom, rom_name)),
         344 => Box::new(Mapper344::new(header, rom, rom_name)),
         345 => Box::new(Mapper345::new(header, rom, rom_name)),
@@ -1329,11 +1346,16 @@ pub fn create_mapper(
         488 => Box::new(Mapper488::new()),
         489 => Box::new(Mapper489::new()),
         490 => Box::new(Mapper490::new(header, rom, rom_name)),
+        491 => Box::new(Mapper491::new()),
+        492 => Box::new(Mapper492::new()),
+        493 => Box::new(Mapper493::new()),
+        494 => Box::new(Mapper494::new()),
         495 => Box::new(Mapper495::new()),
         496 => Box::new(Mapper496::new()),
         497 => Box::new(Mapper497::new()),
         498 => Box::new(Mapper498::new(header, rom, rom_name, using_chr_ram, has_battery)),
         499 => Box::new(Mapper499::new(header, rom, rom_name, using_chr_ram, has_battery)),
+        500 => Box::new(Mapper500::new()),
         514 => Box::new(Mapper514::new()),
         521 => Box::new(Mapper521::new(prg_size)),
         522 => Box::new(Mapper522::new()),

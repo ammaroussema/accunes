@@ -26,7 +26,14 @@ impl Emulator {
                     self.data_bus = result.data;
                 }
             }
-        } else if address < 0x2000 {
+        } else         if address < 0x2000 {
+            if let Some(ref cart) = self.cart {
+                if let Some(data) = cart.mapper_chip.cpu_ram_override(address) {
+                    self.data_bus = data;
+                    self.data_pins_are_not_floating = true;
+                    return data;
+                }
+            }
             self.data_bus = self.ram[(address & self.cpu_ram_mask) as usize];
             self.data_pins_are_not_floating = true;        } else if address >= 0x2000 && address < 0x4000 {
             let is_onebus = self
@@ -345,7 +352,14 @@ impl Emulator {
             cart.mapper_chip.handle_cpu_write(address, input);
         }
         if address < 0x2000 {
-            self.ram[(address & self.cpu_ram_mask) as usize] = input;
+            let overridden = if let Some(ref mut cart) = self.cart {
+                cart.mapper_chip.cpu_ram_override_store(address, input)
+            } else {
+                false
+            };
+            if !overridden {
+                self.ram[(address & self.cpu_ram_mask) as usize] = input;
+            }
         } else if address < 0x4000 {
             let is_onebus = self
                 .cart
@@ -462,7 +476,7 @@ impl Emulator {
                 self.irq_level_detector = false;
             }
 
-              if               (address & 0xE001) == 0xE000 && matches!(cart.memory_mapper, 4 | 12 | 37 | 44 | 45 | 47 | 49 | 52 | 64 | 74 | 100 | 114 | 115 | 116 | 118 | 119 | 121 | 123 | 126 | 131 | 134 | 142 | 165 | 169 | 182 | 187 | 189 | 191 | 192 | 194 | 195 | 196 | 197 | 198 | 199 | 205 | 208 | 215 | 219 | 224 | 238 | 245 | 248 | 249 | 254 | 256 | 259 | 260 | 262 | 263 | 267 | 268 | 269 | 287 | 291 | 292 | 296 | 307 | 313 | 315 | 321 | 322 | 325 | 327 | 333 | 334 | 339 | 344 | 345 | 348 | 353 | 356 | 359 | 361 | 362 | 364 | 366 | 367 | 368 | 369 | 370 | 372 | 373 | 377 | 383 | 391 | 392 | 393 | 394 | 395 | 422 | 441 | 443 | 444 | 445 | 455 | 456 | 457 | 458 | 460 | 467 | 472 | 473 | 474 | 475 | 478 | 479 | 480 | 481 | 482 | 483 | 484 | 486 | 490 | 531 | 534) {
+              if               (address & 0xE001) == 0xE000 && matches!(cart.memory_mapper, 4 | 12 | 37 | 44 | 45 | 47 | 49 | 52 | 64 | 74 | 100 | 114 | 115 | 116 | 118 | 119 | 121 | 123 | 124 | 126 | 131 | 134 | 142 | 165 | 169 | 182 | 187 | 189 | 191 | 192 | 194 | 195 | 196 | 197 | 198 | 199 | 205 | 208 | 215 | 219 | 224 | 238 | 245 | 248 | 249 | 254 | 256 | 259 | 260 | 262 | 263 | 267 | 268 | 269 | 287 | 291 | 292 | 296 | 307 | 313 | 315 | 321 | 322 | 325 | 327 | 333 | 334 | 339 | 344 | 345 | 348 | 351 | 353 | 356 | 359 | 361 | 362 | 364 | 366 | 367 | 368 | 369 | 370 | 372 | 373 | 377 | 383 | 391 | 392 | 393 | 394 | 395 | 422 | 441 | 443 | 444 | 445 | 455 | 456 | 457 | 458 | 460 | 467 | 472 | 473 | 474 | 475 | 478 | 479 | 480 | 481 | 482 | 483 | 484 | 486 | 490 | 531 | 534) {
                 self.irq_level_detector = false;
             } else if cart.memory_mapper == 5 && address == 0x5204 {
                 self.irq_level_detector = false;
