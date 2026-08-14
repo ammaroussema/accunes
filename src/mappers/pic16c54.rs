@@ -489,7 +489,7 @@ impl Pic16C54 {
 
     fn write_io(&self, port: i32, val: u16, irq_out: &mut bool) {
         if port == PORT_A {
-            *irq_out = val & 1 != 0;
+            *irq_out = val & 0x1001 != 0;
         }
     }
 

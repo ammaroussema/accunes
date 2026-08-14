@@ -320,6 +320,7 @@ impl Cartridge {
                 "411120-C" => 287,
                 "42in1ResetSwitch" => 226,
                 "43272" => 227,
+                "5426757A-Y2-230630" => 505,
                 "603-5052" => 238,
                 "64in1NoRepeat" => 314,
                 "70in1" | "70in1B" => 236,
@@ -328,6 +329,7 @@ impl Cartridge {
                 "8157" => 242,
                 "8237" => 215,
                 "830118C" => 348,
+                "A018" => 507,
                 "A65AS" | "JY-066" => 285,
                 "ANROM" => 7,
                 "AX5705" => 530,
@@ -342,18 +344,24 @@ impl Cartridge {
                 "Dreamtech" | "DREAMTECH01" => 521,
                 "EDU2000" => 329,
                 "EKROM" | "ELROM" | "ETROM" | "EWROM" => 5,
+                "ET-170" | "ET170" => 503,
                 "FARID_SLROM_8-IN-1" => 323,
                 "FARID_UNROM_8-IN-1" => 324,
+                "FC-53A" => 510,
                 "FK23C" | "FK23CA" => 176,
                 "FS304" => 162,
                 "G-146" => 349,
+                "GA-009" => 506,
                 "GK-192" => 58,
                 "GS-2004" => 283,
                 "H2288" => 123,
                 "HKROM" => 4,
+                "JY-014" => 508,
                 "KOF97" => 263,
                 "KONAMI-QTAI" => 190,
+                "K-3022" => 509,
                 "K-3046" => 336,
+                "K-3054" => 504,
                 "KS7012" => 346,
                 "KS7013B" => 312,
                 "KS7016" => 306,
@@ -753,7 +761,7 @@ impl Cartridge {
             let battery_bytes = if battery_shift == 0 { 0 } else { 64usize << battery_shift };
             let total_ram = vram_bytes + battery_bytes;
             vec![0u8; total_ram]
-        } else if matches!(memory_mapper, 124 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 342 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        } else if matches!(memory_mapper, 124 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 342 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 501 | 502 | 508 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             vec![0u8; 0x2000]
         } else if using_chr_ram {
             vec![0u8; 0x2000]
@@ -767,7 +775,7 @@ impl Cartridge {
         if memory_mapper == 77 {
             using_chr_ram = true;
         }
-        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 124 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 342 | 355 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 124 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 342 | 355 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 501 | 502 | 508 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             using_chr_ram = true;
         }
         if memory_mapper == 314 && chr_size == 0 {
