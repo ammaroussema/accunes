@@ -1032,7 +1032,10 @@ impl Emulator {
         if self.cpu_clock == 12 {
             self.cpu_clock = 0;
             if let Some(cart) = self.cart.as_mut() {
-                if cart.mapper_chip.cpu_clock(1) {
+                let irq = cart.mapper_chip.cpu_clock(1);
+                if cart.mapper_chip.cpu_clock_irq_level() {
+                    self.irq_level_detector = irq;
+                } else if irq {
                     self.irq_level_detector = true;
                 }
             }
@@ -1082,7 +1085,10 @@ impl Emulator {
         if self.cpu_clock == 16 {
             self.cpu_clock = 0;
             if let Some(cart) = self.cart.as_mut() {
-                if cart.mapper_chip.cpu_clock(1) {
+                let irq = cart.mapper_chip.cpu_clock(1);
+                if cart.mapper_chip.cpu_clock_irq_level() {
+                    self.irq_level_detector = irq;
+                } else if irq {
                     self.irq_level_detector = true;
                 }
             }
@@ -1132,7 +1138,10 @@ impl Emulator {
         if self.cpu_clock == 15 {
             self.cpu_clock = 0;
             if let Some(cart) = self.cart.as_mut() {
-                if cart.mapper_chip.cpu_clock(1) {
+                let irq = cart.mapper_chip.cpu_clock(1);
+                if cart.mapper_chip.cpu_clock_irq_level() {
+                    self.irq_level_detector = irq;
+                } else if irq {
                     self.irq_level_detector = true;
                 }
             }
@@ -1803,7 +1812,7 @@ impl Emulator {
             if let Some(cart) = &mut self.cart {
                 let mut real_mapper = std::mem::replace(
                     &mut cart.mapper_chip,
-                    crate::mapper::create_mapper(0, 0, &[0; 16], &[], 0, false, false, "").unwrap(),
+                    crate::mapper::create_mapper(0, 0, &[0; 16], &[], 0, false, false, "", &[]).unwrap(),
                 );
                 real_mapper.load_mapper_registers(cart, &mapper_state, 0);
                 cart.mapper_chip = real_mapper;

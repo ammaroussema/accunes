@@ -485,6 +485,7 @@ impl Cartridge {
                 using_chr_ram,
                 has_battery,
                 filepath,
+                &[],
             ).map_err(|e| format!("Error: {}", e))?;
 
             let unif_overall_crc = crc32(&rom);
@@ -728,7 +729,7 @@ impl Cartridge {
             vec![0u8; 8 * 1024]
         } else if memory_mapper == 342 {
             vec![0u8; 512 * 1024]
-        } else if matches!(memory_mapper, 306 | 307 | 309 | 310 | 312) {
+        } else if matches!(memory_mapper, 306 | 307 | 309 | 310 | 312 | 355) {
             vec![0u8; 8 * 1024]
         } else if memory_mapper == 314 && chr_size == 0 {
             vec![0u8; 8 * 1024]
@@ -766,7 +767,7 @@ impl Cartridge {
         if memory_mapper == 77 {
             using_chr_ram = true;
         }
-        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 124 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 342 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 124 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 342 | 355 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             using_chr_ram = true;
         }
         if memory_mapper == 314 && chr_size == 0 {
@@ -899,6 +900,7 @@ impl Cartridge {
             using_chr_ram,
             has_battery,
             filepath,
+            &misc_rom,
         ).map_err(|e| format!("Error: {}", e))?;
 
         if (memory_mapper == 6 || memory_mapper == 17) && !trainer.is_empty() {

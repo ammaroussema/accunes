@@ -108,15 +108,6 @@ fn nes20_ram_kb(shift: u8) -> usize {
     }
 }
 
-fn prg8_mask(cart: &Cartridge) -> u8 {
-    let banks = cart.prg_rom.len() / 0x2000;
-    if banks == 0 {
-        0
-    } else {
-        (banks - 1) as u8
-    }
-}
-
 fn prg_rom_read(cart: &Cartridge, offset: usize) -> u8 {
     let len = cart.prg_rom.len();
     if len == 0 {
@@ -469,7 +460,6 @@ impl Mapper for MapperMMC3 {
             0x8000 => {
                 self.r8000 = data;
             }            0x8001 => {
-                let mask = prg8_mask(cart);
                 let mode = self.r8000 & 0x07;
                 match mode {
                     0 => self.chr_2k0 = data & 0xFE,
@@ -478,8 +468,8 @@ impl Mapper for MapperMMC3 {
                     3 => self.chr_1k4 = data,
                     4 => self.chr_1k8 = data,
                     5 => self.chr_1kc = data,
-                    6 => self.bank_8c = data & mask,
-                    7 => self.bank_a = data & mask,
+                    6 => self.bank_8c = data,
+                    7 => self.bank_a = data,
                     _ => {}
                 }
             }

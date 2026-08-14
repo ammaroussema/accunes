@@ -310,6 +310,8 @@ pub mod mapper351;
 pub mod mapper352;
 pub mod mapper353;
 pub mod mapper354;
+pub mod pic16c54;
+pub mod mapper355;
 pub mod mapper356;
 pub mod mapper357;
 pub mod mapper359;

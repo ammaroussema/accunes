@@ -85,7 +85,6 @@ impl Mapper124 {
         let chr_size = if header.len() > 5 { header[5] } else { 0 };
         let mut mmc3_config = Mmc3Config::for_ines(header, 0, chr_size, rom, rom_name);
         mmc3_config.prg_ram_size = mmc3_config.prg_ram_size.max(0x2000);
-        mmc3_config.ax5202p = true;
         let mut mmc3 = MapperMMC3::new(mmc3_config);
         mmc3.reset();
         let mut mmc1 = Mmc1Core::new(mmc1_config);
@@ -133,23 +132,23 @@ impl Mapper124 {
         (self.rega & 0x40) == 0
     }
 
-    fn read_full(&self, offset: usize) -> u8 {
-        if self.combined.is_empty() {
-            0
-        } else {
+    fn read_full(&self, cart: &Cartridge, offset: usize) -> u8 {
+        if !cart.prg_rom.is_empty() {
+            cart.prg_rom[offset % cart.prg_rom.len()]
+        } else if !self.combined.is_empty() {
             self.combined[offset % self.combined.len()]
+        } else {
+            0
         }
     }
 
     fn read_prg(&self, cart: &Cartridge, offset: usize) -> u8 {
-        if cart.prg_rom.is_empty() {
-            if self.prg_len == 0 {
-                0
-            } else {
-                self.combined[offset % self.prg_len]
-            }
-        } else {
+        if !cart.prg_rom.is_empty() {
             cart.prg_rom[offset % cart.prg_rom.len()]
+        } else if self.prg_len > 0 && !self.combined.is_empty() {
+            self.combined[offset % self.prg_len]
+        } else {
+            0
         }
     }
 
@@ -182,7 +181,8 @@ impl Mapper124 {
         } else {
             0x1F
         };
-        (self.mmc3_inner_bank(page) as usize & prg_and) | self.prg_or()
+        let prg_or = self.prg_or();
+        (self.mmc3_inner_bank(page) as usize & prg_and) | (prg_or & !prg_and)
     }
 
     fn read_chr(&self, offset: usize) -> u8 {
@@ -286,7 +286,7 @@ impl Mapper124 {
             self.mmc3.chr_1kc,
             address,
         ) as usize;
-        (raw & chr_and) | chr_or
+        (raw & chr_and) | (chr_or & !chr_and)
     }
 
     fn coin_dip_read(&self) -> u8 {
@@ -297,29 +297,15 @@ impl Mapper124 {
         data
     }
 
-    fn write_asic(&mut self, cart: &mut Cartridge, address: u16, val: u8) {
-        if (address & 0x10) != 0 {
+    fn write_asic(&mut self, _cart: &mut Cartridge, address: u16, val: u8) {
+        let offset = address & 0x0FFF;
+        if (offset & 0x10) != 0 {
             let _ = val;
-        } else if (address & 1) != 0 {
-            if self.rega != val {
-                self.rega = val;
-                self.on_mode_registers_changed(cart);
-            }
+        } else if (offset & 1) != 0 {
+            self.rega = val;
         } else {
-            let regb = val & 0x7F;
-            if self.regb != regb {
-                self.regb = regb;
-                self.on_mode_registers_changed(cart);
-            }
+            self.regb = val;
         }
-    }
-
-    fn on_mode_registers_changed(&mut self, cart: &mut Cartridge) {
-        self.latch_data = 0;
-        self.mmc1.reset();
-        self.mmc3.reset();
-        self.irq_ack_pulse = false;
-        cart.mapper_cpu_cycle = 0;
     }
 
     fn latch_write(&mut self, cart: &Cartridge, address: u16, val: u8) {
@@ -330,7 +316,7 @@ impl Mapper124 {
         };
         self.latch_data = val
             & if self.rom8() {
-                self.read_full(offset)
+                self.read_full(cart, offset)
             } else {
                 self.read_prg(cart, offset)
             };
@@ -390,14 +376,14 @@ impl Mapper for Mapper124 {
         }
         if address >= 0x5000 && address < 0x6000 {
             return FetchResult {
-                data: self.read_full(OVERLAY_4K + (address as usize & 0xFFF)),
+                data: self.read_full(cart, OVERLAY_4K + (address as usize & 0xFFF)),
                 driven: true,
             };
         }
         if address >= 0x6000 && address < 0x8000 {
             if self.rom6() {
                 return FetchResult {
-                    data: self.read_full(OVERLAY_8K + (address as usize & 0x1FFF)),
+                    data: self.read_full(cart, OVERLAY_8K + (address as usize & 0x1FFF)),
                     driven: true,
                 };
             }
@@ -419,7 +405,7 @@ impl Mapper for Mapper124 {
                 self.game_prg_offset(address)
             };
             let data = if self.rom8() {
-                self.read_full(offset)
+                self.read_full(cart, offset)
             } else {
                 self.read_prg(cart, offset)
             };
@@ -501,14 +487,21 @@ impl Mapper for Mapper124 {
             let byte = if self.chrram() && !chr_ram.is_empty() {
                 chr_ram[(address as usize) % chr_ram.len()]
             } else {
-                let offset = match self.mapper() {
-                    MAPPER_MMC1 => self.mmc1_chr_offset(address),
-                    MAPPER_MMC3 => {
-                        self.mmc3_chr_bank_index(address) * 0x400 + (address as usize & 0x3FF)
+                match self.mapper() {
+                    MAPPER_MMC1 => {
+                        let offset = self.mmc1_chr_offset(address);
+                        self.read_chr(offset)
                     }
-                    _ => address as usize & 0x1FFF,
-                };
-                self.read_chr(offset)
+                    MAPPER_MMC3 => {
+                        let bank = self.mmc3_chr_bank_index(address);
+                        let offset = bank * 0x400 + (address as usize & 0x3FF);
+                        self.read_chr(offset)
+                    }
+                    _ => {
+                        let offset = self.chr_or() | (address as usize & 0x1FFF);
+                        self.read_chr(offset)
+                    }
+                }
             };
             new_addr_bus |= byte as u16;
         } else {

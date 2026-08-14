@@ -434,6 +434,7 @@ pub use crate::mappers::mapper351::Mapper351;
 pub use crate::mappers::mapper352::Mapper352;
 pub use crate::mappers::mapper353::Mapper353;
 pub use crate::mappers::mapper354::Mapper354;
+pub use crate::mappers::mapper355::Mapper355;
 pub use crate::mappers::mapper356::Mapper356;
 pub use crate::mappers::mapper357::Mapper357;
 pub use crate::mappers::mapper359::Mapper359;
@@ -556,6 +557,7 @@ pub trait Mapper: Send {
         false
     }
     fn cpu_clock(&mut self, _cycles: u8) -> bool { false }
+    fn cpu_clock_irq_level(&self) -> bool { false }
     fn cpu_clock_rise(&mut self, _ppu_address_bus: u16) -> bool { false }
 
     // save state and load state
@@ -623,6 +625,8 @@ pub trait Mapper: Send {
     // hook for CPU writes below $4020 (CPU RAM, APU, etc.)
     fn handle_cpu_write(&mut self, _address: u16, _data: u8) {}
 
+    fn handle_cpu_read(&mut self, _address: u16) {}
+
     fn cpu_ram_override(&self, address: u16) -> Option<u8> {
         let _ = address;
         None
@@ -670,6 +674,7 @@ pub fn create_mapper(
     using_chr_ram: bool,
     has_battery: bool,
     rom_name: &str,
+    misc_rom: &[u8],
 ) -> Result<Box<dyn Mapper>, String> {
     let mapper: Box<dyn Mapper> = match mapper_id {
         // plane 0
@@ -1203,7 +1208,10 @@ pub fn create_mapper(
         352 => Box::new(Mapper352::new(header, rom, rom_name)),
         353 => Box::new(Mapper353::new(header, rom, rom_name)),
         354 => Box::new(Mapper354::new(header, rom, rom_name)),
-     // 355 => Box::new(Mapper355::new(header, rom, rom_name)), (too complex for now!!)
+        355 => Box::new(Mapper355::new(
+            misc_rom.to_vec(),
+            NromConfig::for_ines(header, if using_chr_ram { 0 } else { header[5] }),
+        )),
         356 => Box::new(Mapper356::new(header, rom, rom_name)),
         357 => Box::new(Mapper357::new(header, rom, rom_name)),
         358 => Box::new(Mapper90::new(Mapper90Variant::Mapper358)),

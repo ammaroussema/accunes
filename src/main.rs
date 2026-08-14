@@ -662,7 +662,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.4.4";
+const APP_VERSION: &str = "1.4.5";
 
 fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     let a = a.trim_start_matches('v');
@@ -1010,7 +1010,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.4.4")
+        .with_title("AccuNES 1.4.5")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -1917,6 +1917,19 @@ fn main() {
                             let mut sb = subor_mouse_buttons_clone.lock().unwrap();
                             if pressed { sb[1] |= 1 << i; } else { sb[1] &= !(1 << i); }
                         }
+                    }
+                }
+                if pressed {
+                    match keycode {
+                        winit::event::VirtualKeyCode::P => {
+                            paused_clone.store(!paused_clone.load(Ordering::Relaxed), Ordering::Relaxed);
+                        }
+                        winit::event::VirtualKeyCode::R => {
+                            if *rom_loaded_clone.borrow() {
+                                emu_clone.lock().unwrap().reset();
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 }
@@ -3877,24 +3890,6 @@ fn main() {
                     menu_state_clone.borrow_mut().dragging_audio_slider = None;
                 }
             }
-            WinitEvent::WindowEvent {
-                event: WindowEvent::KeyboardInput { input, .. },
-                ..
-            } => {
-                if let Some(virtual_keycode) = input.virtual_keycode {
-                    match virtual_keycode {
-                        winit::event::VirtualKeyCode::P => {
-                            paused_clone.store(!paused_clone.load(Ordering::Relaxed), Ordering::Relaxed);
-                        }
-                        winit::event::VirtualKeyCode::R => {
-                            if *rom_loaded_clone.borrow() {
-                                emu_clone.lock().unwrap().reset();
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
 
             WinitEvent::MainEventsCleared => {
                 let (mx, my) = menu_state_clone.borrow().mouse_pos;
@@ -4175,9 +4170,9 @@ fn main() {
                         } else if lower.ends_with(".fds") || lower.ends_with(".qd") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.4.4: {}", filename)
+                        format!("AccuNES 1.4.5: {}", filename)
                     } else {
-                        "AccuNES 1.4.4".to_string()
+                        "AccuNES 1.4.5".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -4597,7 +4592,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.4.4",
+                        "Version: 1.4.5",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };

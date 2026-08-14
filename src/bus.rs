@@ -13,6 +13,10 @@ impl Emulator {
     pub fn fetch(&mut self, address: u16) -> u8 {
         self.data_pins_are_not_floating = false;
 
+        if let Some(cart) = self.cart.as_mut() {
+            cart.mapper_chip.handle_cpu_read(address);
+        }
+
         if address >= 0x8000 {
             // rom — go through mapper
             if self.cart.is_some() {
