@@ -313,6 +313,7 @@ impl Cartridge {
             };
 
             let memory_mapper = match normalized_name.as_str() {
+                "1n4148" | "1N4148" => 511,
                 "11160" => 299,
                 "12-IN-1" => 331,
                 "190in1" => 300,
@@ -420,7 +421,7 @@ impl Cartridge {
                 "YOKO" => 264,
                 "158B" => 258,
                 "DRAGONFIGHTER" => 292,
-                "EH8813A" => 519,
+                "EH8813A" | "UNL-EH8813A" | "840348C" | "43-163" => 519,
                 "HP898F" => 319,
                 "F-15" => 259,
                 "RT-01" => 328,
@@ -431,6 +432,11 @@ impl Cartridge {
                 "HPxx" | "HP2018A" => 260,
                 "DRIPGAME" => 284,
                 "60311C" => 289,
+                "FAMILY-NORAEBANG" | "FAMILYNORAEBANG" => 515,
+                "COCOMA" => 516,
+                "KKACHI" | "KKACHI-WA-NOLAE-CHINGU" | "Kkachi-wa Nolae Chingu" => 517,
+                "SB97" | "SB-97" | "小霸王 SB97" | "小霸王-SB97" => 518,
+                "YuYuHakusho+DatachDragonBallZ" | "Yu Yu Hakusho+Datach Dragon Ball Z multicart" => 520,
                 _ => return Err(format!("UNIF Board not supported: {}", mapper_name)),
             };
 
@@ -754,6 +760,9 @@ impl Cartridge {
             vec![0u8; 32 * 1024]
         } else if memory_mapper == 442 {
             vec![0u8; 8 * 1024]
+        } else if memory_mapper == 513 {
+            // SA-9602B: syncCHR_RAM(0x3F, 0) = 64 × 1 KB pages = 64 KB
+            vec![0u8; 64 * 1024]
         } else if is_nes20 && rom.len() > 11 && (rom[11] & 0xFF) != 0 {
             let vram_shift = rom[11] & 0x0F;
             let battery_shift = (rom[11] >> 4) & 0x0F;
@@ -761,7 +770,7 @@ impl Cartridge {
             let battery_bytes = if battery_shift == 0 { 0 } else { 64usize << battery_shift };
             let total_ram = vram_bytes + battery_bytes;
             vec![0u8; total_ram]
-        } else if matches!(memory_mapper, 124 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 342 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 501 | 502 | 508 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        } else if matches!(memory_mapper, 124 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 342 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 501 | 502 | 508 | 512 | 515 | 517 | 518 | 520 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             vec![0u8; 0x2000]
         } else if using_chr_ram {
             vec![0u8; 0x2000]
@@ -775,7 +784,7 @@ impl Cartridge {
         if memory_mapper == 77 {
             using_chr_ram = true;
         }
-        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 124 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 342 | 355 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 501 | 502 | 508 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 124 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 342 | 355 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 501 | 502 | 508 | 512 | 513 | 515 | 517 | 518 | 520 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             using_chr_ram = true;
         }
         if memory_mapper == 314 && chr_size == 0 {

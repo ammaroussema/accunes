@@ -358,6 +358,22 @@ impl Vrc7 {
         }
     }
 
+    pub fn write_sound(&mut self, addr_select: bool, data: u8) {
+        if addr_select {
+            self.write_audio_reg(self.reg_addr, data);
+        } else {
+            self.reg_addr = data;
+        }
+    }
+
+    pub fn clock_audio(&mut self, cycles: u8) {
+        self.audio_cycles += cycles as u32;
+        while self.audio_cycles >= self.cycles_per_audio_step {
+            self.audio_cycles -= self.cycles_per_audio_step;
+            self.step_audio();
+        }
+    }
+
     fn mirror_address(&self, address: u16) -> u16 {
         match self.misc & 3 {
             0 => address & 0x37FF, 
@@ -366,6 +382,14 @@ impl Vrc7 {
             3 => (address & 0x3FFF) | 0x0400, 
             _ => address,
         }
+    }
+
+    pub fn set_audio_clock(&mut self, clock: f64) {
+        self.cycles_per_audio_step = (clock / 49716.0).round() as u32;
+    }
+
+    pub fn get_audio_sample(&self) -> f32 {
+        self.current_sample
     }
 }
 

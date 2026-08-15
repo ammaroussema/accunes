@@ -403,7 +403,16 @@ pub use crate::mappers::mapper507::Mapper507;
 pub use crate::mappers::mapper508::Mapper508;
 pub use crate::mappers::mapper509::Mapper509;
 pub use crate::mappers::mapper510::Mapper510;
+pub use crate::mappers::mapper511::Mapper511;
+pub use crate::mappers::mapper512::Mapper512;
+pub use crate::mappers::mapper513::Mapper513;
 pub use crate::mappers::mapper514::Mapper514;
+pub use crate::mappers::mapper515::Mapper515;
+pub use crate::mappers::mapper516::Mapper516;
+pub use crate::mappers::mapper517::Mapper517;
+pub use crate::mappers::mapper518::Mapper518;
+pub use crate::mappers::mapper519::Mapper519;
+pub use crate::mappers::mapper520::Mapper520;
 pub use crate::mappers::mapper521::Mapper521;
 pub use crate::mappers::mapper525::Mapper525;
 pub use crate::mappers::mapper531::Mapper531;
@@ -1105,7 +1114,7 @@ pub fn create_mapper(
         253 => Box::new(Mapper253::new()),
         254 => Box::new(Mapper254::new()),
         255 => Box::new(Mapper255::new()),
-        // plane 1 (wip!)
+        // plane 1
         256 => Box::new(Mapper256::new(
              Mmc3Config::for_ines(
                  header,
@@ -1384,7 +1393,17 @@ pub fn create_mapper(
         508 => Box::new(Mapper508::new(header, rom, rom_name)),
         509 => Box::new(Mapper509::new(header, rom, rom_name)),
         510 => Box::new(Mapper510::new(header, rom, rom_name)),
+        511 => Box::new(Mapper511::new(header, rom, rom_name)),
+        // plane 3 (wip!)
+        512 => Box::new(Mapper512::new(header, rom, rom_name)),
+        513 => Box::new(Mapper513::new(header, rom, rom_name)),
         514 => Box::new(Mapper514::new()),
+        515 => Box::new(Mapper515::new(header, rom, rom_name)),
+        516 => Box::new(Mapper516::new(header, rom, rom_name)),
+        517 => Box::new(Mapper517::new(header, rom, rom_name)),
+        518 => Box::new(Mapper518::new(header, rom, rom_name)),
+        519 => Box::new(Mapper519::new(header, rom, rom_name)),
+        520 => Box::new(Mapper520::new(header, rom, rom_name)),
         521 => Box::new(Mapper521::new(prg_size)),
         522 => Box::new(Mapper522::new()),
         525 => Box::new(Mapper525::new()),
