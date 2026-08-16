@@ -116,6 +116,7 @@ const OPCODE_MAIN: [(u8, Op); 256] = [
     (2, Op::Goto), (2, Op::Goto), (2, Op::Goto), (2, Op::Goto),
     (2, Op::Goto), (2, Op::Goto), (2, Op::Goto), (2, Op::Goto),
     (2, Op::Goto), (2, Op::Goto), (2, Op::Goto), (2, Op::Goto),
+    (2, Op::Goto), (2, Op::Goto), (2, Op::Goto), (2, Op::Goto),
     (1, Op::Movlw), (1, Op::Movlw), (1, Op::Movlw), (1, Op::Movlw),
     (1, Op::Movlw), (1, Op::Movlw), (1, Op::Movlw), (1, Op::Movlw),
     (1, Op::Movlw), (1, Op::Movlw), (1, Op::Movlw), (1, Op::Movlw),
@@ -128,7 +129,6 @@ const OPCODE_MAIN: [(u8, Op); 256] = [
     (1, Op::Andlw), (1, Op::Andlw), (1, Op::Andlw), (1, Op::Andlw),
     (1, Op::Andlw), (1, Op::Andlw), (1, Op::Andlw), (1, Op::Andlw),
     (1, Op::Andlw), (1, Op::Andlw), (1, Op::Andlw), (1, Op::Andlw),
-    (1, Op::Xorlw), (1, Op::Xorlw), (1, Op::Xorlw), (1, Op::Xorlw),
     (1, Op::Xorlw), (1, Op::Xorlw), (1, Op::Xorlw), (1, Op::Xorlw),
     (1, Op::Xorlw), (1, Op::Xorlw), (1, Op::Xorlw), (1, Op::Xorlw),
     (1, Op::Xorlw), (1, Op::Xorlw), (1, Op::Xorlw), (1, Op::Xorlw),
@@ -489,12 +489,12 @@ impl Pic16C54 {
 
     fn write_io(&self, port: i32, val: u16, irq_out: &mut bool) {
         if port == PORT_A {
-            *irq_out = val & 0x1001 != 0;
+            *irq_out = (val & 0x1001) == 0;
         }
     }
 
     pub fn irq_level(&self) -> bool {
-        (self.internal_ram[PORTA] & !self.trisa & 1) != 0
+        (!self.trisa & 1 != 0) && (self.internal_ram[PORTA] & 1 == 0)
     }
 
     fn get_regfile(&self, mut addr: u32) -> u8 {

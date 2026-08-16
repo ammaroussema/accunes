@@ -333,7 +333,6 @@ impl Cartridge {
                 "A018" => 507,
                 "A65AS" | "JY-066" => 285,
                 "ANROM" => 7,
-                "AX5705" => 530,
                 "BB" => 108,
                 "BS-5" => 286,
                 "CITYFIGHT" => 266,
@@ -409,7 +408,6 @@ impl Cartridge {
                 "Super24in1SC03" => 176,
                 "SuperHIK8in1" => 45,
                 "Supervision16in1" => 53,
-                "T-230" => 529,
                 "T-262" => 265,
                 "TBROM" | "TEROM" | "TFROM" | "TGROM" | "TKROM" | "TKSROM" | "TLROM" | "TLSROM" | "TQROM" | "TR1ROM" | "TSROM" | "TVROM" => 4,
                 "TC-U01-1.5M" => 147,
@@ -437,6 +435,13 @@ impl Cartridge {
                 "KKACHI" | "KKACHI-WA-NOLAE-CHINGU" | "Kkachi-wa Nolae Chingu" => 517,
                 "SB97" | "SB-97" | "小霸王 SB97" | "小霸王-SB97" => 518,
                 "YuYuHakusho+DatachDragonBallZ" | "Yu Yu Hakusho+Datach Dragon Ball Z multicart" => 520,
+                "JNCOTA" | "KT-XXX" | "晶科泰 封神榜" => 523,
+                "900218" | "UNL-900218" => 524,
+                "BJ-56" => 526,
+                "AX-40G" | "AX40G" => 527,
+                "831128C" | "UNL-831128C" => 528,
+                "YY0807" | "J-2148" | "T-230" | "UNL-YY0807" | "UNL-J-2148" | "UNL-T-230" => 529,
+                "AX5705" | "UNL-AX5705" => 530,
                 _ => return Err(format!("UNIF Board not supported: {}", mapper_name)),
             };
 
@@ -761,7 +766,6 @@ impl Cartridge {
         } else if memory_mapper == 442 {
             vec![0u8; 8 * 1024]
         } else if memory_mapper == 513 {
-            // SA-9602B: syncCHR_RAM(0x3F, 0) = 64 × 1 KB pages = 64 KB
             vec![0u8; 64 * 1024]
         } else if is_nes20 && rom.len() > 11 && (rom[11] & 0xFF) != 0 {
             let vram_shift = rom[11] & 0x0F;

@@ -414,7 +414,14 @@ pub use crate::mappers::mapper518::Mapper518;
 pub use crate::mappers::mapper519::Mapper519;
 pub use crate::mappers::mapper520::Mapper520;
 pub use crate::mappers::mapper521::Mapper521;
+pub use crate::mappers::mapper523::Mapper523;
+pub use crate::mappers::mapper524::Mapper524;
 pub use crate::mappers::mapper525::Mapper525;
+pub use crate::mappers::mapper526::Mapper526;
+pub use crate::mappers::mapper527::Mapper527;
+pub use crate::mappers::mapper528::Mapper528;
+pub use crate::mappers::mapper529::Mapper529;
+pub use crate::mappers::mapper530::Mapper530;
 pub use crate::mappers::mapper531::Mapper531;
 pub use crate::mappers::mapper533::Mapper533;
 pub use crate::mappers::mapper534::{MapperAx5202p, Ax5202pVariant};
@@ -1406,7 +1413,14 @@ pub fn create_mapper(
         520 => Box::new(Mapper520::new(header, rom, rom_name)),
         521 => Box::new(Mapper521::new(prg_size)),
         522 => Box::new(Mapper522::new()),
+        523 => Box::new(Mapper523::new(header, rom, prg_size, using_chr_ram, has_battery)),
+        524 => Box::new(Mapper524::new(header, rom, rom_name)),
         525 => Box::new(Mapper525::new()),
+        526 => Box::new(Mapper526::new(header, rom, rom_name)),
+        527 => Box::new(Mapper527::new(header, rom, rom_name)),
+        528 => Box::new(Mapper528::new(header, rom, rom_name)),
+        529 => Box::new(Mapper529::new(header, rom, rom_name)),
+        530 => Box::new(Mapper530::new(header, rom, rom_name)),
         531 => Box::new(Mapper531::new(header, rom, rom_name)),
         532 => Box::new(Mapper19::new()),
         533 => Box::new(Mapper533::new()),

@@ -7,6 +7,8 @@ pub struct Mapper176Config {
     pub chr_ram_size: usize,
     pub has_battery: bool,
     pub dip_value: u16,
+    pub is_523: bool,
+    pub header_horizontal_mirroring: bool,
 }
 
 impl Mapper176Config {
@@ -73,12 +75,20 @@ impl Mapper176Config {
             }
         };
 
+        let header_horizontal_mirroring = if header.len() > 6 {
+            (header[6] & 1) == 0
+        } else {
+            false
+        };
+
         Self {
             submapper,
             prg_ram_size,
             chr_ram_size,
             has_battery,
             dip_value: 0x010,
+            is_523: false,
+            header_horizontal_mirroring,
         }
     }
 }
@@ -103,6 +113,8 @@ pub struct Mapper176 {
     has_battery: bool,
     dip_switches: u8,
     dip_value: u16,
+    is_523: bool,
+    header_horizontal_mirroring: bool,
 
     prg_ram: Vec<u8>,
     chr_ram: Vec<u8>,
@@ -119,7 +131,7 @@ impl Mapper176 {
             0x00, 0x02, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01, 0xFE, 0xFF, 0x01, 0x03, 0, 0, 0, 0,
         ];
 
-        Self {
+        let mut m = Self {
             pointer: 0,
             mmc3_reg: initial_mmc3,
             fk23_reg,
@@ -137,13 +149,19 @@ impl Mapper176 {
             has_battery: config.has_battery,
             dip_switches: 0,
             dip_value: config.dip_value,
+            is_523: config.is_523,
+            header_horizontal_mirroring: config.header_horizontal_mirroring,
             prg_ram: vec![0; config.prg_ram_size],
             chr_ram: vec![0; config.chr_ram_size],
+        };
+        if config.is_523 {
+            m.mirroring = if config.header_horizontal_mirroring { 1 } else { 0 };
         }
+        m
     }
 
     fn mmc3_extended(&self) -> bool {
-        (self.fk23_reg[3] & 0x02) != 0 && (self.submapper == 1 || self.submapper == 2)
+        (self.fk23_reg[3] & 0x02) != 0 && (self.submapper == 1 || self.submapper == 2 || self.is_523)
     }
 
     fn get_prg_bank(&self, bank: usize) -> usize {
@@ -260,6 +278,13 @@ impl Mapper176 {
     }
 
     fn mirror_nametable_addr(&self, address: u16) -> u16 {
+        if self.is_523 {
+            return if self.header_horizontal_mirroring {
+                (address & 0x33FF) | ((address & 0x0800) >> 1)
+            } else {
+                address & 0x37FF
+            };
+        }
         let mode = self.mirroring & if self.submapper == 2 { 3 } else { 1 };
         match mode {
             // Vertical: A,B side-by-side; $2800/$2C00 mirror $2000/$2400
@@ -285,7 +310,11 @@ impl Mapper for Mapper176 {
         if self.submapper == 1 {
             self.fk23_reg[1] = 0xFF;
         }
-        self.mirroring = 0;
+        self.mirroring = if self.is_523 {
+            if self.header_horizontal_mirroring { 1 } else { 0 }
+        } else {
+            0
+        };
         self.wram = if self.submapper == 2 { 0xC0 } else { 0x80 };
         self.latch = 0;
         self.reg4800 = 0;
@@ -472,7 +501,12 @@ impl Mapper for Mapper176 {
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
         if address < 0x2000 {
             let bank_1k_idx = (address / 0x0400) as usize;
-            let bank = self.get_chr_bank(bank_1k_idx, chr_rom.len());
+            let bank = if self.is_523 {
+                let base = self.get_chr_bank(bank_1k_idx & !1, chr_rom.len());
+                base * 2 + (bank_1k_idx & 1)
+            } else {
+                self.get_chr_bank(bank_1k_idx, chr_rom.len())
+            };
 
             let chr_ram_mode = (self.fk23_reg[0] & 0x20) != 0
                 && (self.fk23_reg[0] & 0x40) == 0
@@ -502,7 +536,12 @@ impl Mapper for Mapper176 {
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if address < 0x2000 {
             let bank_1k_idx = (address / 0x0400) as usize;
-            let bank = self.get_chr_bank(bank_1k_idx, cart.chr_rom.len());
+            let bank = if self.is_523 {
+                let base = self.get_chr_bank(bank_1k_idx & !1, cart.chr_rom.len());
+                base * 2 + (bank_1k_idx & 1)
+            } else {
+                self.get_chr_bank(bank_1k_idx, cart.chr_rom.len())
+            };
 
             let chr_ram_mode = (self.fk23_reg[0] & 0x20) != 0
                 && (self.fk23_reg[0] & 0x40) == 0
