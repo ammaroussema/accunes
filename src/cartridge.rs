@@ -442,6 +442,13 @@ impl Cartridge {
                 "831128C" | "UNL-831128C" => 528,
                 "YY0807" | "J-2148" | "T-230" | "UNL-YY0807" | "UNL-J-2148" | "UNL-T-230" => 529,
                 "AX5705" | "UNL-AX5705" => 530,
+                "N42S-2" | "UNL-N42S-2" => 536,
+                "JY4M4" | "UNL-JY4M4" => 537,
+                "82112C" | "UNL-82112C" => 540,
+                "LittleCom 160" | "UNL-LittleCom 160" | "LittleCom-160" | "LittleCom 160-in-1" => 541,
+                "JYV610 830626C" | "UNL-JYV610 830626C" | "JYV610" | "830626C" | "UNL-830626C" => 542,
+                "FS306" | "UNL-FS306" => 544,
+                "ST-80" | "ST80" | "UNL-ST-80" => 545,
                 _ => return Err(format!("UNIF Board not supported: {}", mapper_name)),
             };
 
@@ -451,8 +458,8 @@ impl Cartridge {
                 _ => 0,
             };
 
-            let using_chr_ram = chr_rom.is_empty() || matches!(memory_mapper, 268 | 286 | 522);
-            let chr_ram = if using_chr_ram || matches!(memory_mapper, 268 | 286 | 522) {
+            let using_chr_ram = chr_rom.is_empty() || matches!(memory_mapper, 268 | 286 | 522 | 536 | 541 | 544 | 547);
+            let chr_ram = if using_chr_ram || matches!(memory_mapper, 268 | 286 | 522 | 536 | 541 | 544 | 547) {
                 if memory_mapper == 268 {
                     let vram_shift = match rom.get(11) {
                         Some(&b) => b & 0x0F,
@@ -774,7 +781,7 @@ impl Cartridge {
             let battery_bytes = if battery_shift == 0 { 0 } else { 64usize << battery_shift };
             let total_ram = vram_bytes + battery_bytes;
             vec![0u8; total_ram]
-        } else if matches!(memory_mapper, 124 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 342 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 501 | 502 | 508 | 512 | 515 | 517 | 518 | 520 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        } else if matches!(memory_mapper, 124 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 342 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 501 | 502 | 508 | 512 | 515 | 517 | 518 | 520 | 522 | 536 | 541 | 544 | 547) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             vec![0u8; 0x2000]
         } else if using_chr_ram {
             vec![0u8; 0x2000]
@@ -788,7 +795,7 @@ impl Cartridge {
         if memory_mapper == 77 {
             using_chr_ram = true;
         }
-        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 124 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 342 | 355 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 501 | 502 | 508 | 512 | 513 | 515 | 517 | 518 | 520 | 522) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 124 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 342 | 355 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 501 | 502 | 508 | 512 | 513 | 515 | 517 | 518 | 520 | 522 | 536 | 541 | 544 | 547) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             using_chr_ram = true;
         }
         if memory_mapper == 314 && chr_size == 0 {
