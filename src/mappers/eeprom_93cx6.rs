@@ -174,6 +174,15 @@ impl Eeprom93Cx6 {
         self.output
     }
 
+    pub fn storage(&self) -> &[u8] {
+        &self.storage
+    }
+
+    pub fn load_storage(&mut self, data: &[u8]) {
+        let n = data.len().min(self.storage.len());
+        self.storage[..n].copy_from_slice(&data[..n]);
+    }
+
     pub fn save(&self) -> Vec<u8> {
         let mut state = Vec::new();
         state.push(self.opcode);

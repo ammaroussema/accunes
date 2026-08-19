@@ -889,6 +889,8 @@ impl Cartridge {
             vec![0u8; cfg.wram_size]
         } else if memory_mapper == 342 {
             vec![0u8; 32 * 1024]
+        } else if memory_mapper == 555 {
+            vec![0u8; 0x4000]
         } else {
             vec![0u8; 0x2000]
         };
@@ -901,7 +903,7 @@ impl Cartridge {
             None
         };
 
-        if has_battery && bandai_sav.is_none() && memory_mapper != 342 {
+        if has_battery && bandai_sav.is_none() && memory_mapper != 342 && memory_mapper != 558 {
             let sav_path = crate::config::save_file_path(filepath);
             if let Ok(sav_data) = fs::read(&sav_path) {
                 let save_len = if let Some(ref cfg) = mmc5_cfg {
@@ -994,6 +996,19 @@ impl Cartridge {
                 mapper.load_battery_save(&mut cartridge, &sav_data);
                 cartridge.mapper_chip = mapper;
                 println!("Loaded COOLGIRL flash save from {:?}", sav_path);
+            }
+        } else if memory_mapper == 558 {
+            let sav_path = crate::config::save_file_path(filepath);
+            if let Ok(sav_data) = fs::read(&sav_path) {
+                let mut mapper = std::mem::replace(
+                    &mut cartridge.mapper_chip,
+                    Box::new(crate::mapper::MapperNROM::new(
+                        crate::mapper::NromConfig::default(),
+                    )),
+                );
+                mapper.load_battery_save(&mut cartridge, &sav_data);
+                cartridge.mapper_chip = mapper;
+                println!("Loaded Waixing FSxxx save from {:?}", sav_path);
             }
         }
 

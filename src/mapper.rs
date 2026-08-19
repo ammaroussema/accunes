@@ -387,7 +387,12 @@ pub use crate::mappers::mapper549::Mapper549;
 pub use crate::mappers::mapper550::Mapper550;
 pub use crate::mappers::mapper551::Mapper551;
 pub use crate::mappers::mapper554::Mapper554;
+pub use crate::mappers::mapper555::Mapper555;
+pub use crate::mappers::mapper556::Mapper556;
 pub use crate::mappers::mapper557::Mapper557;
+pub use crate::mappers::mapper558::Mapper558;
+pub use crate::mappers::mapper559::Mapper559;
+pub use crate::mappers::mapper560::Mapper560;
 pub use crate::mappers::mapper476::Mapper476;
 pub use crate::mappers::mapper495::Mapper495;
 pub use crate::mappers::mapper497::Mapper497;
@@ -1454,8 +1459,27 @@ pub fn create_mapper(
         552 => Box::new(Mapper552::new()),
         553 => Box::new(Mapper553::new()),
         554 => Box::new(Mapper554::new()),
-        557 => Box::new(Mapper557::new()),
-        582 => Box::new(Mapper582::new()),
+        555 => Box::new(Mapper555::new(
+            header,
+            submapper_id,
+            if using_chr_ram { 0 } else { header[5] },
+            rom,
+            rom_name,
+            has_battery,
+        )),
+        556 => Box::new(Mapper556::new(
+            header,
+            submapper_id,
+            if using_chr_ram { 0 } else { header[5] },
+            rom,
+            rom_name,
+            has_battery,
+        )),
+557 => Box::new(Mapper557::new()),
+         558 => Box::new(Mapper558::new(header, prg_size)),
+         559 => Box::new(Mapper559::new()),
+         560 => Box::new(Mapper560::new(submapper_id)),
+         582 => Box::new(Mapper582::new()),
         _ => {
             return Err(format!("Mapper {} is currently unsupported", mapper_id));
         }
