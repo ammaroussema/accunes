@@ -385,6 +385,7 @@ pub use crate::mappers::mapper546::Mapper546;
 pub use crate::mappers::mapper548::Mapper548;
 pub use crate::mappers::mapper549::Mapper549;
 pub use crate::mappers::mapper550::Mapper550;
+pub use crate::mappers::mapper551::Mapper551;
 pub use crate::mappers::mapper554::Mapper554;
 pub use crate::mappers::mapper557::Mapper557;
 pub use crate::mappers::mapper476::Mapper476;
@@ -1449,6 +1450,7 @@ pub fn create_mapper(
         548 => Box::new(Mapper548::new()),
         549 => Box::new(Mapper549::new()),
         550 => Box::new(Mapper550::new()),
+        551 => Box::new(Mapper551::new()),
         552 => Box::new(Mapper552::new()),
         553 => Box::new(Mapper553::new()),
         554 => Box::new(Mapper554::new()),

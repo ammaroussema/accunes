@@ -8,7 +8,7 @@ a cycle-accurate NES/Famicom emulator for windows, written in rust and focused o
 - **scanline accurate ppu at half cycle level accuracy**!!! (sprite/bg rendering, accurate vblank and nmi timing, sprite eval, open bus and oam dma edge cases all handled!!!)
 - **accurate apu at cycle at half cycle level accuracy**!!! (all channels implemented, irqs, dmc, controller strobing, clocking and dmc dma edge cases are handled!!!)
 - passes **ALL ACCURACYCOIN tests!** (141/141 as of today!!) passes **all blargg tests** too!!
-- also as of today, a whopping **~456 mappers** are supported!!! (this was and still is very challenging to implement, some mappers may not be fully working yet but i think i'm making good progress on matching something like nintendulator's insane mapper counts!!!)
+- also as of today, a whopping **~512 mappers** are supported!!! (this was and still is very challenging to implement, some mappers may not be fully working yet but i think i'm making good progress on matching something like nintendulator's insane mapper counts!!!)
 - **saving/loading** save states, **per game slots** system + **quick save/quick load** systems!
 - **battery backed ram** saving for games that need it!
 - **nes gamepads, zappers, power pads, snes gamepads, snes mouse, subor mouse and four score** controller types supported!

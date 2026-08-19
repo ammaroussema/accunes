@@ -781,7 +781,7 @@ impl Cartridge {
             let battery_bytes = if battery_shift == 0 { 0 } else { 64usize << battery_shift };
             let total_ram = vram_bytes + battery_bytes;
             vec![0u8; total_ram]
-        } else if matches!(memory_mapper, 124 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 342 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 501 | 502 | 508 | 512 | 515 | 517 | 518 | 520 | 522 | 536 | 541 | 544 | 547) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        } else if matches!(memory_mapper, 124 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 342 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 501 | 502 | 508 | 512 | 515 | 517 | 518 | 520 | 522 | 536 | 541 | 544 | 547 | 555) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             vec![0u8; 0x2000]
         } else if using_chr_ram {
             vec![0u8; 0x2000]
@@ -795,7 +795,7 @@ impl Cartridge {
         if memory_mapper == 77 {
             using_chr_ram = true;
         }
-        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 124 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 342 | 355 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 501 | 502 | 508 | 512 | 513 | 515 | 517 | 518 | 520 | 522 | 536 | 541 | 544 | 547) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
+        if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 124 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 342 | 355 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 501 | 502 | 508 | 512 | 513 | 515 | 517 | 518 | 520 | 522 | 536 | 541 | 544 | 547 | 555) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             using_chr_ram = true;
         }
         if memory_mapper == 314 && chr_size == 0 {

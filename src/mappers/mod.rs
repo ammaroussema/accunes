@@ -497,6 +497,7 @@ pub mod mapper542;
 pub mod mapper544;
 pub mod mapper545;
 pub mod mapper547;
+pub mod mapper551;
 pub mod mapper552;
 pub mod mapper553;
 pub mod mapper582;
