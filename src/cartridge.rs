@@ -973,6 +973,14 @@ impl Cartridge {
             crate::mappers::mapper100::install_mapper100_trainer(&mut cartridge);
         }
 
+        if memory_mapper == 561 {
+            crate::mappers::mapper561::install_mapper561_trainer(&mut cartridge);
+        }
+
+        if memory_mapper == 562 {
+            crate::mappers::mapper562::install_mapper562_trainer(&mut cartridge);
+        }
+
         if let Some(sav_data) = bandai_sav {
             let sav_path = std::path::Path::new(filepath).with_extension("sav");
             let mut mapper = std::mem::replace(

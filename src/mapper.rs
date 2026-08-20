@@ -393,6 +393,16 @@ pub use crate::mappers::mapper557::Mapper557;
 pub use crate::mappers::mapper558::Mapper558;
 pub use crate::mappers::mapper559::Mapper559;
 pub use crate::mappers::mapper560::Mapper560;
+pub use crate::mappers::mapper561::Mapper561;
+pub use crate::mappers::mapper562::Mapper562;
+pub use crate::mappers::mapper563::Mapper563;
+pub use crate::mappers::mapper564::Mapper564;
+pub use crate::mappers::mapper565::Mapper565;
+pub use crate::mappers::mapper566::Mapper566;
+pub use crate::mappers::mapper567::Mapper567;
+pub use crate::mappers::mapper568::Mapper568;
+pub use crate::mappers::mapper569::Mapper569;
+pub use crate::mappers::mapper570::Mapper570;
 pub use crate::mappers::mapper476::Mapper476;
 pub use crate::mappers::mapper495::Mapper495;
 pub use crate::mappers::mapper497::Mapper497;
@@ -1475,11 +1485,35 @@ pub fn create_mapper(
             rom_name,
             has_battery,
         )),
-557 => Box::new(Mapper557::new()),
-         558 => Box::new(Mapper558::new(header, prg_size)),
-         559 => Box::new(Mapper559::new()),
-         560 => Box::new(Mapper560::new(submapper_id)),
-         582 => Box::new(Mapper582::new()),
+        557 => Box::new(Mapper557::new()),
+        558 => Box::new(Mapper558::new(header, prg_size)),
+        559 => Box::new(Mapper559::new()),
+        560 => Box::new(Mapper560::new(submapper_id)),
+        561 => {
+            let trainer_src: &[u8] = if (header[6] & 4) != 0 && rom.len() >= 0x10 + 512 {
+                &rom[0x10..0x10 + 512]
+            } else {
+                misc_rom
+            };
+            Box::new(Mapper561::new(submapper_id, (header[6] & 1) != 0, trainer_src))
+        }
+        562 => {
+            let trainer_src: &[u8] = if (header[6] & 4) != 0 && rom.len() >= 0x10 + 512 {
+                &rom[0x10..0x10 + 512]
+            } else {
+                misc_rom
+            };
+            Box::new(Mapper562::new(submapper_id, (header[6] & 1) != 0, trainer_src))
+        }
+        563 => Box::new(Mapper563::new()),
+        564 => Box::new(Mapper564::new()),
+        565 => Box::new(Mapper565::new()),
+        566 => Box::new(Mapper566::new()),
+        567 => Box::new(Mapper567::new()),
+        568 => Box::new(Mapper568::new()),
+        569 => Box::new(Mapper569::new()),
+        570 => Box::new(Mapper570::new()),
+        582 => Box::new(Mapper582::new()),
         _ => {
             return Err(format!("Mapper {} is currently unsupported", mapper_id));
         }
