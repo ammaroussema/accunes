@@ -71,6 +71,7 @@ impl Mapper for Mapper427 {
     }
 
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
+        self.core.ensure_prg_rom(&cart.prg_rom);
         if address >= 0x4100 && address < 0x4200 {
             if let Some(data) = self.core.read_apu(address) {
                 return FetchResult { data, driven: true };
@@ -159,4 +160,5 @@ impl Mapper for Mapper427 {
 
     fn vt03_4bpp_bg(&self) -> bool { (self.core.reg2000[0x10] & 0x02) != 0 }
     fn vt03_4bpp_sp(&self) -> bool { (self.core.reg2000[0x10] & 0x04) != 0 }
+    fn audio_sample(&self) -> f32 { self.core.audio_sample() }
 }

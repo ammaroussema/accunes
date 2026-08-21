@@ -14,6 +14,27 @@ pub struct Vt369SpriteEntry {
     pub sprite0: bool,
 }
 
+#[derive(Clone, Copy)]
+pub struct Vt369SpriteHiEntry {
+    pub data_even: [u8; 64],
+    pub data_odd: [u8; 64],
+    pub start_x: i16,
+    pub mask_x: i16,
+    pub sprite0: bool,
+}
+
+impl Default for Vt369SpriteHiEntry {
+    fn default() -> Self {
+        Self {
+            data_even: [0u8; 64],
+            data_odd: [0u8; 64],
+            start_x: 0,
+            mask_x: 0,
+            sprite0: false,
+        }
+    }
+}
+
 // so of course it'd only make sense for this to start with a massive struct with like thousands of public variable declarations!!
 
 pub struct Emulator {
@@ -76,7 +97,7 @@ pub struct Emulator {
     pub vram: [u8; 0x800],
     pub oam: [u8; 0x100],
     pub oam2: [u8; 32],
-    pub palette_ram: [u8; 0x100],
+    pub palette_ram: [u8; 0x400],
 
     pub ppu_bus: u8,
     pub ppu_bus_decay: [i32; 8],
@@ -140,11 +161,15 @@ pub struct Emulator {
     pub ppu_attribute: u8,
     pub ppu_onebus_eva: u16,
     pub ppu_onebus_chr: crate::mappers::one_bus::OneBusChrCtx,
-    pub vt369_tile_data: [u8; 264],
+    pub vt369_tile_data: [u8; 272],
+    pub vt369_tile_data_even: [u8; 272 * 2],
+    pub vt369_tile_data_odd: [u8; 272 * 2],
     pub vt369_pat_addr: usize,
     pub vt369_nt_byte: u8,
     pub vt369_sprite_buf: [Vt369SpriteEntry; 64],
+    pub vt369_sprite_buf_hi: [Vt369SpriteHiEntry; 64],
     pub vt369_sprite_count: u8,
+    pub vt369_sprite_count_hi: u8,
     pub vt369_sprite_ram: [u8; 512],
     pub vt369_spr_addr_high: u8,
 
@@ -456,7 +481,7 @@ impl Emulator {
         Self::init_ram(&mut ram, &mut vram, config::InitialRam::Default);
         let oam2 = [0xFFu8; 32];
 
-        let mut palette_ram = [0u8; 0x100];
+        let mut palette_ram = [0u8; 0x400];
         let pal_init: [u8; 0x20] = [
             0x00,0x00,0x28,0x00,0x00,0x08,0x00,0x00,
             0x00,0x01,0x01,0x20,0x00,0x08,0x00,0x02,
@@ -518,11 +543,15 @@ impl Emulator {
             ppu_attribute: 0,
             ppu_onebus_eva: 0,
             ppu_onebus_chr: crate::mappers::one_bus::OneBusChrCtx::default(),
-            vt369_tile_data: [0; 264],
+            vt369_tile_data: [0; 272],
+            vt369_tile_data_even: [0; 272 * 2],
+            vt369_tile_data_odd: [0; 272 * 2],
             vt369_pat_addr: 0,
             vt369_nt_byte: 0,
             vt369_sprite_buf: [Vt369SpriteEntry::default(); 64],
+            vt369_sprite_buf_hi: [Vt369SpriteHiEntry::default(); 64],
             vt369_sprite_count: 0,
+            vt369_sprite_count_hi: 0,
             vt369_sprite_ram: [0; 512],
             vt369_spr_addr_high: 0,
             ppu_sprite_sr_l: [0; 8], ppu_sprite_sr_h: [0; 8],

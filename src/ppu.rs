@@ -1,7 +1,7 @@
 // the ppu of the nes console is probably for me the most complex component to emulate properly and accurately.
 // i hope this is accurate enough!
 
-use crate::emulator::{Emulator, Vt369SpriteEntry};
+use crate::emulator::{Emulator, Vt369SpriteEntry, Vt369SpriteHiEntry};
 
 impl Emulator {
     /// ppu cycle
@@ -280,9 +280,15 @@ impl Emulator {
         if self.ppu_mask_show_background || self.ppu_mask_show_sprites {
             if self.ppu_scanline < 240 || self.ppu_scanline == self.pre_render_scanline() {
                 if self.ppu_dot == 256 {
-                    if self.vt369_enhanced_ppu() && self.ppu_scanline < 240 {
+                    if self.vt369_enhanced_ppu() && (self.ppu_scanline < 240 || self.ppu_scanline == self.pre_render_scanline()) {
                         self.vt369_tile_data.fill(0);
-                        self.vt369_process_sprites_enhanced();
+                        self.vt369_tile_data_even.fill(0);
+                        self.vt369_tile_data_odd.fill(0);
+                        if self.vt369_hires_ppu() {
+                            self.vt369_process_sprites_hires();
+                        } else {
+                            self.vt369_process_sprites_enhanced();
+                        }
                     }
                     self.ppu_increment_scroll_y();
                 }
@@ -697,10 +703,34 @@ impl Emulator {
             .map_or(false, |c| c.mapper_chip.onebus_vt369_enhanced_ppu())
     }
 
+    fn vt369_hires_ppu(&self) -> bool {
+        self.vt369_enhanced_ppu() && (self.vt369_reg2000(0x1C) & 0x04) != 0
+    }
+
+    fn vt369_ppu(&self) -> bool {
+        self.cart
+            .as_ref()
+            .map_or(false, |c| c.mapper_chip.onebus_vt369_ppu())
+    }
+
     fn vt369_reg2000(&self, idx: usize) -> u8 {
         self.cart
             .as_ref()
             .map_or(0, |c| c.mapper_chip.vt369_reg2000(idx))
+    }
+
+    fn vt369_reg4100(&self, idx: usize) -> u8 {
+        self.cart
+            .as_ref()
+            .map_or(0, |c| c.mapper_chip.vt369_reg4100(idx))
+    }
+
+    fn vt369_mask_vram_addr_for_nt(&self, v: u16) -> u16 {
+        if self.vt369_enhanced_ppu() && (self.vt369_reg4100(0x06) & 2) != 0 {
+            v & !0x0C00
+        } else {
+            v
+        }
     }
 
     fn vt369_read_prg(&self, addr: usize) -> u8 {
@@ -718,48 +748,69 @@ impl Emulator {
     }
 
     fn vt369_fill_tile_row(&mut self, dest: usize) {
-        if dest + 8 > self.vt369_tile_data.len() {
-            return;
-        }
         let reg2000_1c = self.vt369_reg2000(0x1C);
         let reg2000_1e = self.vt369_reg2000(0x1E);
+        let hires = self.vt369_hires_ppu();
+
+        if hires {
+            if dest + 8 > 272 { return; }
+            let mut pat_addr = self.vt369_pat_addr << 2;
+            if reg2000_1e & 0x01 != 0 {
+                pat_addr += self.cart.as_ref().map_or(0, |c| c.mapper_chip.vt369_bg_data());
+            } else {
+                let raw_bank = self.vt369_reg2000(if self.ppu_pattern_select_background { 0x12 } else { 0x16 });
+                let shift1 = if reg2000_1c & 0x08 != 0 { 10 } else { 13 };
+                let shift2 = (reg2000_1c & 3) as u32;
+                pat_addr += self.cart.as_ref().map_or(0, |c| c.mapper_chip.vt369_relative())
+                    + ((raw_bank as usize) << shift1 << shift2);
+            }
+            let prg_len = self.vt369_prg_len();
+            if prg_len == 0 { return; }
+            pat_addr &= prg_len - 1;
+            if (reg2000_1c & 3) == 2 {
+                let dest2 = dest * 2;
+                for i in 0..16 {
+                    self.vt369_tile_data_even[dest2 + i] = self.vt369_read_prg(pat_addr + i);
+                }
+                for i in 0..16 {
+                    self.vt369_tile_data_odd[dest2 + i] = self.vt369_read_prg(pat_addr + 16 + i);
+                }
+            }
+            return;
+        }
+
+        if dest + 8 > self.vt369_tile_data.len() { return; }
         let mut pat_addr = self.vt369_pat_addr;
         if reg2000_1e & 0x01 != 0 {
-            pat_addr += self
-                .cart
-                .as_ref()
-                .map_or(0, |c| c.mapper_chip.vt369_bg_data());
+            pat_addr += self.cart.as_ref().map_or(0, |c| c.mapper_chip.vt369_bg_data());
         } else {
-            let bank_reg = if self.ppu_pattern_select_background {
-                self.vt369_reg2000(0x12)
-            } else {
-                self.vt369_reg2000(0x16)
-            };
+            let raw_bank = self.vt369_reg2000(if self.ppu_pattern_select_background { 0x12 } else { 0x16 });
             let shift1 = if reg2000_1c & 0x08 != 0 { 10 } else { 13 };
             let shift2 = (reg2000_1c & 3) as u32;
             pat_addr += self.cart.as_ref().map_or(0, |c| c.mapper_chip.vt369_relative())
-                + ((bank_reg as usize) << shift1 << shift2);
+                + ((raw_bank as usize) << shift1 << shift2);
         }
         let prg_len = self.vt369_prg_len();
-        if prg_len == 0 {
-            return;
-        }
+        if prg_len == 0 { return; }
         pat_addr &= prg_len - 1;
         if (reg2000_1c & 3) == 2 {
-            return;
+            for i in 0..8 {
+                self.vt369_tile_data[dest + i] = self.vt369_read_prg(pat_addr + i);
+            }
+        } else {
+            let b0 = self.vt369_read_prg(pat_addr);
+            let b1 = self.vt369_read_prg(pat_addr + 1);
+            let b2 = self.vt369_read_prg(pat_addr + 2);
+            let b3 = self.vt369_read_prg(pat_addr + 3);
+            self.vt369_tile_data[dest] = b0 & 0x0F;
+            self.vt369_tile_data[dest + 1] = b0 >> 4;
+            self.vt369_tile_data[dest + 2] = b1 & 0x0F;
+            self.vt369_tile_data[dest + 3] = b1 >> 4;
+            self.vt369_tile_data[dest + 4] = b2 & 0x0F;
+            self.vt369_tile_data[dest + 5] = b2 >> 4;
+            self.vt369_tile_data[dest + 6] = b3 & 0x0F;
+            self.vt369_tile_data[dest + 7] = b3 >> 4;
         }
-        let b0 = self.vt369_read_prg(pat_addr);
-        let b1 = self.vt369_read_prg(pat_addr + 1);
-        let b2 = self.vt369_read_prg(pat_addr + 2);
-        let b3 = self.vt369_read_prg(pat_addr + 3);
-        self.vt369_tile_data[dest] = b0 & 0x0F;
-        self.vt369_tile_data[dest + 1] = b0 >> 4;
-        self.vt369_tile_data[dest + 2] = b1 & 0x0F;
-        self.vt369_tile_data[dest + 3] = b1 >> 4;
-        self.vt369_tile_data[dest + 4] = b2 & 0x0F;
-        self.vt369_tile_data[dest + 5] = b2 >> 4;
-        self.vt369_tile_data[dest + 6] = b3 & 0x0F;
-        self.vt369_tile_data[dest + 7] = b3 >> 4;
     }
 
     fn vt369_compute_pat_addr(&mut self) {
@@ -777,35 +828,40 @@ impl Emulator {
 
     fn vt369_enhanced_bg_tick(&mut self) {
         let dot = self.ppu_dot;
-        let tick = (dot.wrapping_add(7)) & 7;
-        if tick == 3
-            && ((dot % 8 == 3 && dot <= 251) || dot == 323 || dot == 331)
-        {
+        if (dot % 8 == 5 && dot <= 253) || dot == 325 || dot == 333 {
             self.vt369_compute_pat_addr();
-        } else if (dot % 8 == 5 && dot <= 253) || dot == 325 || dot == 333 {
             let dest = if dot == 325 || dot == 333 {
                 dot - 325
             } else {
-                dot + 10
+                dot + 11
             };
             self.vt369_fill_tile_row(dest as usize);
         }
     }
 
-    fn vt369_get_pal_index(&self, tc: u16) -> usize {
+    fn vt369_get_pal_index(&self, tc: u16) -> u32 {
         if self.vt369_enhanced_ppu() {
-            let lo = self.palette_ram[((tc << 1) & 0xFF) as usize] as usize;
-            let hi = self.palette_ram[(((tc << 1) | 1) & 0xFF) as usize] as usize;
-            (hi << 8 | lo) & 0xFFF
+            let lo = self.palette_ram[((tc << 1) & 0x3FF) as usize] as u16;
+            let hi = self.palette_ram[(((tc << 1) | 1) & 0x3FF) as usize] as u16;
+            let rgb555 = (hi << 8) | lo;
+            let r = (((rgb555 >> 10) & 0x1F) as u32) * 255 / 31;
+            let g = (((rgb555 >> 5) & 0x1F) as u32) * 255 / 31;
+            let b = ((rgb555 & 0x1F) as u32) * 255 / 31;
+            (r << 16) | (g << 8) | b
         } else {
             let tc = tc as u8;
             let tc = if (tc & 0x63) == 0 { 0 } else { tc };
             if (self.vt369_reg2000(0x10) & 0x80) != 0 {
-                let hi = self.palette_ram[(tc | 0x80) as usize] as usize;
-                let lo = self.palette_ram[(tc | 0x00) as usize] as usize;
-                (hi << 8 | lo) & 0xFFF
+                let hi = self.palette_ram[(tc | 0x80) as usize] as u16;
+                let lo = self.palette_ram[(tc | 0x00) as usize] as u16;
+                let rgb555 = (hi << 8) | lo;
+                let r = (((rgb555 >> 10) & 0x1F) as u32) * 255 / 31;
+                let g = (((rgb555 >> 5) & 0x1F) as u32) * 255 / 31;
+                let b = ((rgb555 & 0x1F) as u32) * 255 / 31;
+                (r << 16) | (g << 8) | b
             } else {
-                (self.palette_ram[tc as usize] & 0x3F) as usize
+                let pal_idx = (self.palette_ram[(tc & 0x1F) as usize] & 0x3F) as usize;
+                NES_PALETTE[pal_idx]
             }
         }
     }
@@ -834,6 +890,7 @@ impl Emulator {
         let reg2000_1c = self.vt369_reg2000(0x1C);
         let reg2000_1d = self.vt369_reg2000(0x1D);
         let reg2000_1e = self.vt369_reg2000(0x1E);
+        let reg2000_10 = self.vt369_reg2000(0x10);
         let max_sprite = if reg2000_1d & 0x01 != 0 { 127 } else { 63 };
         let use_new_oam = reg2000_1e & 0x04 != 0;
         let prg_len = self.vt369_prg_len();
@@ -849,59 +906,56 @@ impl Emulator {
                         continue;
                     }
                     let oam = &self.oam[base..base + 4];
-                    let pal = oam[2] << 4 & 0x30;
-                    let fx = (oam[2] & 0x40) != 0;
-                    let fy = (oam[2] & 0x80) != 0;
-                    let pri = (oam[2] & 0x20) == 0;
-                    (
-                        oam[3] as i16,
-                        oam[0] as i16,
-                        (oam[1] as u16) | ((oam[2] as u16) << 6 & 0x700),
-                        pal,
-                        fx,
-                        fy,
-                        pri,
-                    )
+                    let mut sx = oam[3] as i16;
+                    let mut sy = oam[0] as i16;
+                    let st = (oam[1] as u16) | (((oam[2] as u16) << 6) & 0x700);
+                    let (pal, fx, fy, pri) = if reg2000_1d & 0x08 != 0 {
+                        let neg_x = (oam[2] & 0x40) != 0;
+                        let neg_y = (oam[2] & 0x80) != 0;
+                        if neg_x { sx -= 256; }
+                        if neg_y { sy -= 256; }
+                        let p = (oam[2] << 4 & 0x30) | (oam[2] << 1 & 0x40);
+                        (p, false, false, false)
+                    } else {
+                        let p = oam[2] << 4 & 0x30;
+                        let fx = (oam[2] & 0x40) != 0;
+                        let fy = (oam[2] & 0x80) != 0;
+                        let pri = (oam[2] & 0x20) != 0;
+                        (p, fx, fy, pri)
+                    };
+                    (sx, sy, st, pal, fx, fy, pri)
                 } else {
                     let sn = sprite_num as usize;
                     if sn >= 128 {
                         continue;
                     }
-                    let sy = self.vt369_sprite_byte(sn);
-                    let sx = self.vt369_sprite_byte(0x180 | sn);
-                    let st = self.vt369_sprite_byte(0x080 | sn) as u16
-                        | ((self.vt369_sprite_byte(0x100 | sn) as u16) << 6 & 0x700);
+                    let mut sy = self.vt369_sprite_byte(sn) as i16;
+                    let mut sx = self.vt369_sprite_byte(0x180 | sn) as i16;
+                    let st = (self.vt369_sprite_byte(0x080 | sn) as u16)
+                        | (((self.vt369_sprite_byte(0x100 | sn) as u16) << 6) & 0x700);
                     let attr = self.vt369_sprite_byte(0x100 | sn);
-                    let pal = attr << 4 & 0x30;
-                    let fx = (attr & 0x40) != 0;
-                    let fy = (attr & 0x80) != 0;
-                    let pri = (attr & 0x20) == 0;
-                    (sx as i16, sy as i16, st, pal, fx, fy, pri)
+                    let (pal, fx, fy, pri) = if reg2000_1d & 0x08 != 0 {
+                        let neg_x = (attr & 0x40) != 0;
+                        let neg_y = (attr & 0x80) != 0;
+                        if neg_x { sx -= 256; }
+                        if neg_y { sy -= 256; }
+                        let p = (attr << 4 & 0x30) | (attr << 1 & 0x40);
+                        (p, false, false, false)
+                    } else {
+                        let p = attr << 4 & 0x30;
+                        let fx = (attr & 0x40) != 0;
+                        let fy = (attr & 0x80) != 0;
+                        let pri = (attr & 0x20) != 0;
+                        (p, fx, fy, pri)
+                    };
+                    (sx, sy, st, pal, fx, fy, pri)
                 };
 
-            let sprite_height = if reg2000_1d & 0x04 != 0 || self.ppu_sprite_x16 {
-                15
-            } else {
-                7
-            };
-            let mut sprite_sl = self.ppu_scanline as i16 - sprite_y;
-            if sprite_sl < 0 || sprite_sl > sprite_height {
-                continue;
-            }
-            if flip_y {
-                sprite_sl = sprite_height - sprite_sl;
-            }
             if reg2000_1c & 0x80 != 0 {
                 sprite_tile &= 0xFF;
             }
-
-            let mut pattern_addr = (sprite_tile as usize) << 6;
-            if reg2000_1d & 0x04 != 0 {
-                pattern_addr <<= 1;
-            }
-            pattern_addr += (sprite_sl as usize) << 3;
-            if reg2000_1d & 0x02 == 0 && reg2000_1d & 0x04 == 0 && reg2000_1c & 0x20 == 0 {
-                pattern_addr >>= 1;
+            if reg2000_1e == 0x0F && reg2000_1d == 0x0B && (reg2000_10 & 0x10) != 0 {
+                sprite_tile = (sprite_tile & 0x3F) | ((sprite_tile >> 2) & !0x3F);
             }
 
             let right_table = if reg2000_1e & 0x01 == 0 {
@@ -913,6 +967,37 @@ impl Emulator {
             } else {
                 false
             };
+
+            if self.ppu_sprite_x16 {
+                sprite_tile &= !1;
+            }
+
+            let sprite_height = if reg2000_1d & 0x04 != 0 || self.ppu_sprite_x16 {
+                15
+            } else {
+                7
+            };
+            let cur_sl = if self.ppu_scanline == self.pre_render_scanline() {
+                -1
+            } else {
+                self.ppu_scanline as i16
+            };
+            let mut sprite_sl = cur_sl - sprite_y;
+            if sprite_sl < 0 || sprite_sl > sprite_height {
+                continue;
+            }
+            if flip_y {
+                sprite_sl = sprite_height - sprite_sl;
+            }
+
+            let mut pattern_addr = (sprite_tile as usize) << 6;
+            if reg2000_1d & 0x04 != 0 {
+                pattern_addr <<= 1;
+            }
+            pattern_addr += (sprite_sl as usize) << 3;
+            if reg2000_1d & 0x02 == 0 && reg2000_1d & 0x04 == 0 && reg2000_1c & 0x20 == 0 {
+                pattern_addr >>= 1;
+            }
 
             if reg2000_1e & 0x01 != 0 {
                 pattern_addr += self
@@ -944,25 +1029,40 @@ impl Emulator {
             };
 
             if reg2000_1d & 0x02 != 0 {
-                let width = 16usize;
                 if flip_x {
-                    for i in 0..width {
-                        let b = self.vt369_read_prg(pattern_addr + (width - 1 - i) / 2);
-                        entry.data[i] = if i & 1 == 0 {
-                            palette | (b & 0x0F)
-                        } else {
-                            palette | (b >> 4)
-                        };
-                    }
+                    entry.data[15] = palette | (self.vt369_read_prg(pattern_addr + 0) & 0x0F);
+                    entry.data[14] = palette | (self.vt369_read_prg(pattern_addr + 0) >> 4);
+                    entry.data[13] = palette | (self.vt369_read_prg(pattern_addr + 1) & 0x0F);
+                    entry.data[12] = palette | (self.vt369_read_prg(pattern_addr + 1) >> 4);
+                    entry.data[11] = palette | (self.vt369_read_prg(pattern_addr + 2) & 0x0F);
+                    entry.data[10] = palette | (self.vt369_read_prg(pattern_addr + 2) >> 4);
+                    entry.data[9] = palette | (self.vt369_read_prg(pattern_addr + 3) & 0x0F);
+                    entry.data[8] = palette | (self.vt369_read_prg(pattern_addr + 3) >> 4);
+                    entry.data[7] = palette | (self.vt369_read_prg(pattern_addr + 4) & 0x0F);
+                    entry.data[6] = palette | (self.vt369_read_prg(pattern_addr + 4) >> 4);
+                    entry.data[5] = palette | (self.vt369_read_prg(pattern_addr + 5) & 0x0F);
+                    entry.data[4] = palette | (self.vt369_read_prg(pattern_addr + 5) >> 4);
+                    entry.data[3] = palette | (self.vt369_read_prg(pattern_addr + 6) & 0x0F);
+                    entry.data[2] = palette | (self.vt369_read_prg(pattern_addr + 6) >> 4);
+                    entry.data[1] = palette | (self.vt369_read_prg(pattern_addr + 7) & 0x0F);
+                    entry.data[0] = palette | (self.vt369_read_prg(pattern_addr + 7) >> 4);
                 } else {
-                    for i in 0..width {
-                        let b = self.vt369_read_prg(pattern_addr + i / 2);
-                        entry.data[i] = if i & 1 == 0 {
-                            palette | (b & 0x0F)
-                        } else {
-                            palette | (b >> 4)
-                        };
-                    }
+                    entry.data[0] = palette | (self.vt369_read_prg(pattern_addr + 0) & 0x0F);
+                    entry.data[1] = palette | (self.vt369_read_prg(pattern_addr + 0) >> 4);
+                    entry.data[2] = palette | (self.vt369_read_prg(pattern_addr + 1) & 0x0F);
+                    entry.data[3] = palette | (self.vt369_read_prg(pattern_addr + 1) >> 4);
+                    entry.data[4] = palette | (self.vt369_read_prg(pattern_addr + 2) & 0x0F);
+                    entry.data[5] = palette | (self.vt369_read_prg(pattern_addr + 2) >> 4);
+                    entry.data[6] = palette | (self.vt369_read_prg(pattern_addr + 3) & 0x0F);
+                    entry.data[7] = palette | (self.vt369_read_prg(pattern_addr + 3) >> 4);
+                    entry.data[8] = palette | (self.vt369_read_prg(pattern_addr + 4) & 0x0F);
+                    entry.data[9] = palette | (self.vt369_read_prg(pattern_addr + 4) >> 4);
+                    entry.data[10] = palette | (self.vt369_read_prg(pattern_addr + 5) & 0x0F);
+                    entry.data[11] = palette | (self.vt369_read_prg(pattern_addr + 5) >> 4);
+                    entry.data[12] = palette | (self.vt369_read_prg(pattern_addr + 6) & 0x0F);
+                    entry.data[13] = palette | (self.vt369_read_prg(pattern_addr + 6) >> 4);
+                    entry.data[14] = palette | (self.vt369_read_prg(pattern_addr + 7) & 0x0F);
+                    entry.data[15] = palette | (self.vt369_read_prg(pattern_addr + 7) >> 4);
                 }
                 for d in &mut entry.data {
                     if *d == palette {
@@ -1014,6 +1114,109 @@ impl Emulator {
         }
     }
 
+    fn vt369_process_sprites_hires(&mut self) {
+        self.vt369_sprite_count_hi = 0;
+        if !self.vt369_hires_ppu() {
+            return;
+        }
+        let reg2000_1d = self.vt369_reg2000(0x1D);
+        let max_sprite = if reg2000_1d & 0x01 != 0 { 127 } else { 63 };
+        let prg_len = self.vt369_prg_len();
+        if prg_len == 0 {
+            return;
+        }
+
+        for sprite_num in (0..=max_sprite).rev() {
+            let sn = sprite_num as usize;
+            let (sprite_x, sprite_y, sprite_tile, palette, flip_x, flip_y, bit8pp, size_x, size_y) = {
+                    let base = sn << 3;
+                    if base + 7 >= self.oam.len() { continue; }
+                    let oam = &self.oam[base..base + 8];
+                    let oam_y = oam[0] as i16 - 1;
+                    let oam_x = oam[7] as i16;
+                    let oam_tile = (oam[1] as u16) | ((oam[2] as u16) << 8);
+                    let oam_cfg = oam[3];
+                    let oam_attr = oam[6];
+                    let size_x = 4_usize << ((oam_cfg >> 4) & 3);
+                    let size_y = 4_usize << ((oam_cfg >> 2) & 3);
+                    let bit8pp = (oam_cfg & 0x80) != 0;
+                    let pal = (oam_attr << 4) & 0xF0;
+                    let fx = (oam_attr & 0x40) != 0;
+                    let fy = (oam_attr & 0x80) != 0;
+                    (oam_x, oam_y, oam_tile as usize, pal, fx, fy, bit8pp, size_x, size_y)
+                };
+
+            let mut sprite_sl = self.ppu_scanline as i16 - sprite_y;
+            if sprite_sl < 0 || sprite_sl > (size_y as i16 - 1) {
+                continue;
+            }
+            if flip_y {
+                sprite_sl = (size_y as i16 - 1) - sprite_sl;
+            }
+
+            let count = self.vt369_sprite_count_hi as usize;
+            if count >= self.vt369_sprite_buf_hi.len() {
+                break;
+            }
+            let mut entry = Vt369SpriteHiEntry {
+                start_x: sprite_x,
+                mask_x: !(size_x as i16 - 1),
+                sprite0: sprite_num == 0,
+                ..Default::default()
+            };
+
+            if bit8pp {
+                let mut pattern_addr = sprite_tile * size_x * size_y * 2 * 2
+                    + (sprite_sl as usize) * size_x * 2 * 2;
+                pattern_addr += self.cart.as_ref().map_or(0, |c| c.mapper_chip.vt369_spr_data());
+                pattern_addr &= prg_len - 1;
+                for i in 0..size_x * 2 {
+                    entry.data_even[i] = self.vt369_read_prg(pattern_addr + i);
+                }
+                pattern_addr += size_x * 2;
+                for i in 0..size_x * 2 {
+                    entry.data_odd[i] = self.vt369_read_prg(pattern_addr + i);
+                }
+            } else {
+                let mut pattern_addr = sprite_tile * size_x * size_y * 2
+                    + (sprite_sl as usize) * size_x * 2;
+                pattern_addr += self.cart.as_ref().map_or(0, |c| c.mapper_chip.vt369_spr_data());
+                pattern_addr &= prg_len - 1;
+                for i in 0..size_x {
+                    let b = self.vt369_read_prg(pattern_addr + i);
+                    entry.data_even[i * 2] = palette | (b & 0x0F);
+                    entry.data_even[i * 2 + 1] = palette | (b >> 4);
+                }
+                pattern_addr += size_x;
+                for i in 0..size_x {
+                    let b = self.vt369_read_prg(pattern_addr + i);
+                    entry.data_odd[i * 2] = palette | (b & 0x0F);
+                    entry.data_odd[i * 2 + 1] = palette | (b >> 4);
+                }
+                for i in 0..size_x * 2 {
+                    if entry.data_even[i] == palette { entry.data_even[i] = 0; }
+                    if entry.data_odd[i] == palette { entry.data_odd[i] = 0; }
+                }
+            }
+            if flip_x {
+                for i in 0..size_x {
+                    entry.data_even.swap(i, size_x * 2 - 1 - i);
+                    entry.data_odd.swap(i, size_x * 2 - 1 - i);
+                }
+            }
+            if flip_y {
+                for i in 0..size_x * 2 {
+                    let tmp = entry.data_even[i];
+                    entry.data_even[i] = entry.data_odd[i];
+                    entry.data_odd[i] = tmp;
+                }
+            }
+
+            self.vt369_sprite_buf_hi[count] = entry;
+            self.vt369_sprite_count_hi += 1;
+        }
+    }
+
     // background tile fetching
 
     pub(crate) fn ppu_render_bg_fetches(&mut self) {
@@ -1022,7 +1225,8 @@ impl Emulator {
 
         match cycle_tick {
             0 => {
-                self.ppu_pattern_address_register_nt = 0x2000 | (self.ppu_v & 0x0FFF);
+                let masked_v = self.vt369_mask_vram_addr_for_nt(self.ppu_v);
+                self.ppu_pattern_address_register_nt = 0x2000 | (masked_v & 0x0FFF);
                 self.ppu_address_bus = self.ppu_pattern_address_register_nt;
             }
             1 => {
@@ -1238,47 +1442,74 @@ impl Emulator {
     }
 
     fn ppu_render_calculate_pixel_vt369_enhanced(&mut self) {
+        let hires = self.vt369_hires_ppu();
         let mut displayed_tc: u16 = 0;
         let show_bg = self.ppu_mask_show_background
             && (self.ppu_dot > 8 || self.ppu_mask_8px_show_background);
         let show_sp = self.ppu_mask_show_sprites
             && (self.ppu_dot > 8 || self.ppu_mask_8px_show_sprites);
+        let dot = self.ppu_dot.saturating_sub(1);
 
         if show_bg {
-            let idx = self.ppu_dot as usize + self.ppu_fine_x_scroll as usize;
-            if idx < self.vt369_tile_data.len() {
-                displayed_tc = self.vt369_tile_data[idx] as u16;
+            if hires {
+                let idx = dot as usize + self.ppu_fine_x_scroll as usize;
+                let idx2 = idx * 2;
+                if idx2 + 1 < self.vt369_tile_data_even.len() {
+                    displayed_tc = self.vt369_tile_data_even[idx2] as u16;
+                }
+            } else {
+                let idx = dot as usize + self.ppu_fine_x_scroll as usize;
+                if idx < self.vt369_tile_data.len() {
+                    displayed_tc = self.vt369_tile_data[idx] as u16;
+                }
             }
         }
 
         if show_sp {
-            let sp_mask = if (self.vt369_reg2000(0x1D) & 0x02) != 0 {
-                15
+            if hires {
+                for i in 0..self.vt369_sprite_count_hi as usize {
+                    let sprite = &self.vt369_sprite_buf_hi[i];
+                    let sprite_pixel = dot as i16 - sprite.start_x;
+                    if (sprite_pixel & sprite.mask_x) != 0 {
+                        continue;
+                    }
+                    let idx = sprite_pixel as usize * 2;
+                    if idx + 1 >= sprite.data_even.len() {
+                        continue;
+                    }
+                    let sp_data = sprite.data_even[idx];
+                    if sp_data == 0 {
+                        continue;
+                    }
+                    if sprite.sprite0 && dot < 255 {
+                        self.ppu_status_sprite_zero_hit = true;
+                    }
+                    if !(displayed_tc != 0 && false) {
+                        displayed_tc = sp_data as u16 | 0x100;
+                    }
+                }
             } else {
-                7
-            };
-            for i in 0..self.vt369_sprite_count as usize {
-                let sprite = &self.vt369_sprite_buf[i];
-                let sprite_pixel = self.ppu_dot as i16 - sprite.start_x;
-                if sprite_pixel < 0 || sprite_pixel > sp_mask {
-                    continue;
-                }
-                let sp_data = sprite.data[sprite_pixel as usize];
-                if sp_data == 0 {
-                    continue;
-                }
-                if sprite.sprite0
-                    && self.ppu_can_detect_sprite_zero_hit
-                    && self.ppu_current_scanline_contains_sprite_zero
-                    && show_bg
-                    && displayed_tc != 0
-                    && self.ppu_dot < 256
-                {
-                    self.ppu_status_pending_sprite_zero_hit = true;
-                    self.ppu_can_detect_sprite_zero_hit = false;
-                }
-                if !(displayed_tc != 0 && sprite.priority) {
-                    displayed_tc = sp_data as u16 | 0x100;
+                let sp_mask = if (self.vt369_reg2000(0x1D) & 0x02) != 0 {
+                    15
+                } else {
+                    7
+                };
+                for i in 0..self.vt369_sprite_count as usize {
+                    let sprite = &self.vt369_sprite_buf[i];
+                    let sprite_pixel = dot as i16 - sprite.start_x;
+                    if sprite_pixel < 0 || sprite_pixel > sp_mask {
+                        continue;
+                    }
+                    let sp_data = sprite.data[sprite_pixel as usize];
+                    if sp_data == 0 {
+                        continue;
+                    }
+                    if sprite.sprite0 && dot < 255 {
+                        self.ppu_status_sprite_zero_hit = true;
+                    }
+                    if !(displayed_tc != 0 && sprite.priority) {
+                        displayed_tc = sp_data as u16 | 0x100;
+                    }
                 }
             }
         }
@@ -1286,8 +1517,8 @@ impl Emulator {
         if (self.ppu_mask_show_background || self.ppu_mask_show_sprites)
             && self.ppu_scanline < 240
         {
-            let pal_idx = self.vt369_get_pal_index(displayed_tc);
-            self.dot_color_rgb = crate::vt03_palette::get_vt03_palette()[pal_idx];
+            let rgb = self.vt369_get_pal_index(displayed_tc);
+            self.dot_color_rgb = rgb;
             self.palette_ram_address = (displayed_tc & 0xFF) as u8;
         } else if (self.ppu_v & 0x3F1F) >= 0x3F00 {
             self.palette_ram_address = (self.ppu_v & 0x1F) as u8;
@@ -1431,7 +1662,13 @@ impl Emulator {
 
         self.dot_color = self.palette_ram[self.palette_ram_address as usize & 0x1F] & 0x3F;
 
-        if is_vt03 {
+        let is_vt369 = self.vt369_ppu();
+        let is_vt03 = self.vt03_4bpp_bg_enabled() || self.vt03_4bpp_sp_enabled() || (reg2000_10 & 0x80) != 0;
+
+        if is_vt369 {
+            let tc = self.palette_ram_address as u16;
+            self.dot_color_rgb = self.vt369_get_pal_index(tc);
+        } else if is_vt03 {
             let tc = self.palette_ram_address as usize & 0x7F;
             if (reg2000_10 & 0x80) != 0 {
                 let tc_masked = if (tc & 0x63) == 0 { 0 } else { tc };
@@ -1473,8 +1710,9 @@ impl Emulator {
                 let y = self.ppu_scanline as usize;
                 if x < 256 && y < 240 {
                     let reg2000_10 = self.cart.as_ref().map_or(0, |c| c.mapper_chip.vt03_reg2000_10());
+                    let is_vt369 = self.vt369_ppu();
                     let is_vt03 = self.vt03_4bpp_bg_enabled() || self.vt03_4bpp_sp_enabled() || (reg2000_10 & 0x80) != 0;
-                    if is_vt03 {
+                    if is_vt369 || is_vt03 || self.vt369_enhanced_ppu() {
                         self.screen[y * 256 + x] = self.prev_prev_prev_dot_color_rgb;
                     } else {
                         let pal_idx = (chosen_color | emphasis) % NES_PALETTE.len();
@@ -2044,7 +2282,8 @@ impl Emulator {
                         self.ppu_oam_latch = self.oam2[self.oam2_address as usize];
                         let slot = (self.oam2_address / 4) as usize;
                         if slot < 8 { self.ppu_sprite_y_position[slot] = self.ppu_oam_latch; }
-                        self.ppu_pattern_address_register_nt = 0x2000 + (self.ppu_v & 0x0FFF);
+                        let masked_v = self.vt369_mask_vram_addr_for_nt(self.ppu_v);
+                        self.ppu_pattern_address_register_nt = 0x2000 + (masked_v & 0x0FFF);
                         self.ppu_address_bus = self.ppu_pattern_address_register_nt;
                         self.in_range_check = ((self.ppu_scanline & 0xFF) as u16).wrapping_sub(self.ppu_oam_latch as u16);
                     }
@@ -2064,7 +2303,8 @@ impl Emulator {
                         self.ppu_oam_latch = self.oam2[self.oam2_address as usize];
                         let slot = (self.oam2_address / 4) as usize;
                         if slot < 8 { self.ppu_sprite_attribute[slot] = self.ppu_oam_latch; }
-                        self.ppu_pattern_address_register_nt = 0x2000 + (self.ppu_v & 0x0FFF);
+                        let masked_v = self.vt369_mask_vram_addr_for_nt(self.ppu_v);
+                        self.ppu_pattern_address_register_nt = 0x2000 + (masked_v & 0x0FFF);
                         self.ppu_address_bus = self.ppu_pattern_address_register_nt;
                     }
                     self.oam2_address = self.oam2_address.wrapping_add(1);

@@ -160,6 +160,7 @@ impl Mapper for Mapper256 {
     }
 
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
+        self.core.ensure_prg_rom(&cart.prg_rom);
         if (0x4020..0x4040).contains(&address) || (address >= 0x4100 && address < 0x4200) {
             if let Some(data) = self.core.read_apu(address) {
                 return FetchResult { data, driven: true };
@@ -465,6 +466,9 @@ impl Mapper for Mapper256 {
     fn vt369_reg2000(&self, idx: usize) -> u8 {
         self.core.reg2000.get(idx).copied().unwrap_or(0)
     }
+    fn vt369_reg4100(&self, idx: usize) -> u8 {
+        self.core.reg4100.get(idx).copied().unwrap_or(0)
+    }
     fn vt369_relative(&self) -> usize {
         self.core.vt369_relative
     }
@@ -485,4 +489,7 @@ impl Mapper for Mapper256 {
         None
     }
     fn load_battery_save(&mut self, _cart: &mut Cartridge, _data: &[u8]) {}
+    fn audio_sample(&self) -> f32 {
+        self.core.audio_sample()
+    }
 }

@@ -1,6 +1,6 @@
+use crate::mappers::adpcm_vt::{vt1682_decode_adpcm, vt369_decode_adpcm};
 use crate::mappers::one_bus_gpio::GpioPort;
 
-/// Per-fetch context for VT03 OneBus CHR reads (EVA + BG/sprite routing).
 #[derive(Clone, Copy, Default)]
 pub struct OneBusChrCtx {
     pub eva: u16,
@@ -183,6 +183,17 @@ pub struct OneBus {
     pub alu_operand56: u16,
     pub alu_operand67: u16,
     pub alu_busy: u8,
+    pub sound_ram: [u8; 8192],
+    pub sound_dac: i16,
+    pub sound_prescaler: u8,
+    pub sound_prescaler_hle: u8,
+    pub sound_timer_period: i16,
+    pub sound_last_period: i16,
+    pub sound_timer_count: i16,
+    pub sound_timer_control: u8,
+    pub sound_adpcm_frame: [u64; 3],
+    pub sound_adpcm_frame_count: [u8; 3],
+    pub prg_rom: Vec<u8>,
 }
 impl OneBus {
     pub fn new(prg_rom: &[u8], chr_rom: &[u8], banking: OneBusBanking) -> Self {
@@ -248,9 +259,26 @@ impl OneBus {
             alu_operand56: 0,
             alu_operand67: 0,
             alu_busy: 0,
+            sound_ram: [0; 8192],
+            sound_dac: 0,
+            sound_prescaler: 6,
+            sound_prescaler_hle: 6,
+            sound_timer_period: 0,
+            sound_last_period: 0,
+            sound_timer_count: 0,
+            sound_timer_control: 0,
+            sound_adpcm_frame: [0; 3],
+            sound_adpcm_frame_count: [0; 3],
+            prg_rom: prg_rom.to_vec(),
         };
         ob.reset();
         ob
+    }
+
+    pub fn ensure_prg_rom(&mut self, prg: &[u8]) {
+        if self.prg_rom.is_empty() && !prg.is_empty() {
+            self.prg_rom = prg.to_vec();
+        }
     }
     pub fn reset(&mut self) {
         self.reg2000 = [0; 0x100];
@@ -259,6 +287,16 @@ impl OneBus {
         self.alu_operand56 = 0;
         self.alu_operand67 = 0;
         self.alu_busy = 0;
+        self.sound_ram = [0; 8192];
+        self.sound_dac = 0;
+        self.sound_prescaler = 6;
+        self.sound_prescaler_hle = 6;
+        self.sound_timer_period = 0;
+        self.sound_last_period = 0;
+        self.sound_timer_count = 0;
+        self.sound_timer_control = 0;
+        self.sound_adpcm_frame = [0; 3];
+        self.sound_adpcm_frame_count = [0; 3];
         self.relative_8k = 0;
         self.vt369_relative = 0;
         self.vt369_bg_data = 0;
@@ -290,7 +328,6 @@ impl OneBus {
         self.reg4100[0x0F] = 0xFF;
         self.reg4100[0x60] = 0x00;
         self.reg4100[0x61] = 0x00;
-        // VT369: turn off the sound CPU on every reset (hard or soft)
         if self.console_type_vt369 {
             self.reg4100[0x62] = 0x00;
         }
@@ -302,6 +339,187 @@ impl OneBus {
         self.dma_length = 0x100;
         self.dma_target = 0x2004;
         self.update_vt369_offsets();
+        self.update_sound_prescaler();
+    }
+
+    pub fn update_sound_prescaler(&mut self) {
+        if (self.reg4100[0x1F] & 1) != 0 {
+            self.sound_prescaler = if (self.reg4100[0x1C] & 0x80) != 0 { 1 } else { 3 };
+        } else if (self.reg4100[0x1C] & 0x80) != 0 {
+            self.sound_prescaler = 2;
+        } else {
+            self.sound_prescaler = 6;
+        }
+        self.sound_prescaler_hle = 6;
+    }
+
+    pub fn run_sound_hle(&mut self) {
+        if !self.console_type_vt369 || self.reg4100[0x62] != 0x0D {
+            return;
+        }
+        self.sound_ram[0x1FF5] = 0x01;
+
+        let reset_vector = (self.sound_ram[0x1FF8] as u16) | ((self.sound_ram[0x1FF9] as u16) << 8);
+        if reset_vector == 0x0293 {
+            match self.sound_ram[0x1FA2] {
+                0x01 => {
+                    let ch = (self.sound_ram[0x1FA3] as usize).min(2);
+                    self.sound_ram[0x1CB0 + ch] = 0xFF;
+                    self.sound_ram[0x1CB7 + ch * 2] = 0x00;
+                    self.sound_ram[0x1980 + ch * 2] = 0x00;
+                    self.sound_ram[0x1981 + ch * 2] = 0x00;
+                    self.sound_ram[0x1FA2] = 0x00;
+                    self.sound_adpcm_frame_count[ch] = 0;
+                }
+                0x02 => {
+                    let period = (self.sound_ram[0x1FA0] as i16) | ((self.sound_ram[0x1FA1] as i16) << 8);
+                    self.sound_timer_period = period.wrapping_mul(3);
+                    self.sound_ram[0x1FA2] = 0x00;
+                }
+                0x03 => {
+                    let ch = (self.sound_ram[0x1FA3] as usize).min(2);
+                    self.sound_ram[0x1CB0 + ch] = 0x00;
+                    self.sound_ram[0x1FA2] = 0x00;
+                }
+                _ => {}
+            }
+            self.sound_timer_count = self.sound_timer_count.wrapping_sub(self.sound_prescaler_hle as i16);
+            let mut guard = 0;
+            while self.sound_timer_period != 0 && self.sound_timer_count <= self.sound_timer_period && guard < 100 {
+                guard += 1;
+                self.sound_timer_count = self.sound_timer_count.wrapping_sub(self.sound_timer_period);
+                let mut adpcm_output: i32 = 0;
+                for ch in 0..3 {
+                    if self.sound_ram[0x1CB0 + ch] == 0 {
+                        continue;
+                    }
+                    if self.sound_adpcm_frame_count[ch] == 0 {
+                        self.sound_adpcm_frame[ch] = 0;
+                        let offset = self.sound_ram[0x1CB7 + ch * 2] as usize;
+                        let read_addr = 0x1800 + ch * 0x80 + offset;
+                        for i in 0..8 {
+                            if read_addr + i < self.sound_ram.len() {
+                                self.sound_adpcm_frame[ch] |= (self.sound_ram[read_addr + i] as u64) << (i * 8);
+                            }
+                        }
+                        if (self.sound_adpcm_frame[ch] & 0x8000_0000_0000_0000) != 0 {
+                            self.sound_adpcm_frame[ch] = 0;
+                        }
+                        self.sound_adpcm_frame_count[ch] = 21;
+                        self.sound_ram[0x1CB7 + ch * 2] = (self.sound_ram[0x1CB7 + ch * 2] + 8) & 0x7F;
+                    }
+                    let mut out_byte = self.sound_ram[0x1980 + ch * 2];
+                    let mut idx_byte = self.sound_ram[0x1981 + ch * 2];
+                    vt1682_decode_adpcm(
+                        (self.sound_adpcm_frame[ch] & 7) as u8,
+                        &mut out_byte,
+                        &mut idx_byte,
+                    );
+                    self.sound_ram[0x1980 + ch * 2] = out_byte;
+                    self.sound_ram[0x1981 + ch * 2] = idx_byte;
+                    let predictor = out_byte as i8;
+                    adpcm_output += (predictor as i32) << 7;
+
+                    self.sound_adpcm_frame[ch] >>= 3;
+                    self.sound_adpcm_frame_count[ch] = self.sound_adpcm_frame_count[ch].saturating_sub(1);
+                }
+                self.sound_dac = adpcm_output.clamp(-32768, 32767) as i16;
+            }
+        } else {
+            let (adr_masks, adr_period, adr_loop, adr_loop_inc, stream) = match reset_vector {
+                0x0203 | 0x02A0 => (0x184Cusize, 0x183Busize, 0x18FCusize, 1usize, false),
+                0x02E0 => (0x184C, 0x183B, 0x1873, 4, false),
+                0x0250 => (0x184C, 0x183B, 0x18FC, 1, true),
+                0x1C4C | 0x40AE => (0x18A4, 0x186B, 0, 1, false),
+                _ => (0x184C, 0x183B, 0x18FC, 1, false),
+            };
+
+            let mut timer_period = (self.sound_ram[adr_period] as i16) | ((self.sound_ram[adr_period + 4] as i16) << 8);
+            if timer_period == (!0xE7i16) {
+                timer_period = timer_period * 5 / 2;
+            }
+            self.sound_timer_period = timer_period;
+            self.sound_timer_count = self.sound_timer_count.wrapping_sub(self.sound_prescaler_hle as i16);
+
+            let mut guard = 0;
+            while self.sound_timer_period != 0 && self.sound_timer_count <= self.sound_timer_period && guard < 100 {
+                guard += 1;
+                self.sound_timer_count = self.sound_timer_count.wrapping_sub(self.sound_timer_period);
+                self.sound_ram[0x18F6] = self.sound_ram[0x18F6].wrapping_add(1);
+                self.sound_ram[adr_masks + 1] &= !self.sound_ram[adr_masks + 2];
+
+                let mut adpcm_output: i32 = 0;
+                for ch in 0..4 {
+                    if (self.sound_ram[adr_masks] & (1 << ch)) != 0 {
+                        self.sound_ram[0x1830 + ch * 4] = self.sound_ram[0x1860 + ch * 4];
+                        self.sound_ram[0x1831 + ch * 4] = self.sound_ram[0x1861 + ch * 4];
+                        self.sound_ram[0x1832 + ch * 4] = self.sound_ram[0x1862 + ch * 4];
+                    }
+                    if (self.sound_ram[adr_masks + 1] & (1 << ch)) != 0 {
+                        let mut wave_addr: u32 = if stream {
+                            self.sound_ram[0x1D21 + ch * 2] as u32
+                        } else {
+                            (self.sound_ram[0x1830 + ch * 4] as u32)
+                                | ((self.sound_ram[0x1831 + ch * 4] as u32) << 8)
+                                | ((self.sound_ram[0x1832 + ch * 4] as u32) << 16)
+                        };
+                        let prg_len = self.prg_rom.len().max(1);
+                        if self.sound_ram[0x1805 + ch * 8] == 48 {
+                            if stream {
+                                self.sound_ram[0x1800 + ch * 8] = self.sound_ram[0x1900 + ch * 0x100 + ((wave_addr & 0xFF) as usize)];
+                                wave_addr += 1;
+                                self.sound_ram[0x1801 + ch * 8] = self.sound_ram[0x1900 + ch * 0x100 + ((wave_addr & 0xFF) as usize)];
+                                wave_addr += 1;
+                            } else {
+                                self.sound_ram[0x1800 + ch * 8] = self.prg_rom.get(((wave_addr as usize) + self.vt369_relative) % prg_len).copied().unwrap_or(0);
+                                wave_addr += 1;
+                                self.sound_ram[0x1801 + ch * 8] = self.prg_rom.get(((wave_addr as usize) + self.vt369_relative) % prg_len).copied().unwrap_or(0);
+                                wave_addr += 1;
+                            }
+                            if self.sound_ram[0x1800 + ch * 8] == 0xFF {
+                                if adr_loop != 0 && self.sound_ram[adr_loop + ch * adr_loop_inc] != 0 {
+                                    self.sound_ram[0x1830 + ch * 4] = self.sound_ram[0x1860 + ch * 4];
+                                    self.sound_ram[0x1831 + ch * 4] = self.sound_ram[0x1861 + ch * 4];
+                                    self.sound_ram[0x1832 + ch * 4] = self.sound_ram[0x1862 + ch * 4];
+                                    self.sound_ram[0x1803 + ch * 8] = 0;
+                                    self.sound_ram[0x1804 + ch * 8] = 0;
+                                    self.sound_ram[0x1805 + ch * 8] = 48;
+                                } else {
+                                    self.sound_ram[adr_masks + 1] &= !(1 << ch);
+                                }
+                                continue;
+                            }
+                        } else if (self.sound_ram[0x1805 + ch * 8] & 1) == 0 {
+                            if stream {
+                                self.sound_ram[0x1801 + ch * 8] = self.sound_ram[0x1900 + ch * 0x100 + ((wave_addr & 0xFF) as usize)];
+                                wave_addr += 1;
+                            } else {
+                                self.sound_ram[0x1801 + ch * 8] = self.prg_rom.get(((wave_addr as usize) + self.vt369_relative) % prg_len).copied().unwrap_or(0);
+                                wave_addr += 1;
+                            }
+                        }
+                        if stream {
+                            self.sound_ram[0x1D21 + ch * 2] = (wave_addr & 0xFF) as u8;
+                        } else {
+                            self.sound_ram[0x1830 + ch * 4] = (wave_addr & 0xFF) as u8;
+                            self.sound_ram[0x1831 + ch * 4] = ((wave_addr >> 8) & 0xFF) as u8;
+                            self.sound_ram[0x1832 + ch * 4] = ((wave_addr >> 16) & 0xFF) as u8;
+                        }
+                        adpcm_output += vt369_decode_adpcm(&mut self.sound_ram[0x1800 + ch * 8..0x1800 + ch * 8 + 6]);
+                    }
+                }
+                self.sound_ram[adr_masks + 1] |= self.sound_ram[adr_masks];
+                self.sound_dac = adpcm_output.clamp(-32768, 32767) as i16;
+            }
+        }
+    }
+
+    pub fn audio_sample(&self) -> f32 {
+        if self.console_type_vt369 {
+            (self.sound_dac as f32) / 32767.0
+        } else {
+            0.0
+        }
     }
 
     pub fn update_vt369_offsets(&mut self) {
@@ -547,9 +765,6 @@ impl OneBus {
         }
         self.chr_source_len = raw_chr.len();
     }
-    /// Update a single byte in the 4bpp split CHR planes after a write to the underlying
-    /// ROM data (mapper 407 writable PRG window). Mirrors Furbtendulator's writeRAM()
-    /// chr plane update logic.
     pub fn update_chr_plane_byte(&mut self, rom_addr: usize, val: u8) {
         let shifted = (rom_addr & 0xF) | ((rom_addr >> 1) & !0xF);
         if rom_addr & 0x10 != 0 {
@@ -559,7 +774,6 @@ impl OneBus {
         } else if shifted < self.chr_low.len() {
             self.chr_low[shifted] = val;
         }
-        // Also update the 16-bit interleaved planes (odd bytes → chr_high16, even → chr_low16)
         let half = rom_addr >> 1;
         if rom_addr & 1 != 0 {
             if half < self.chr_high16.len() {
@@ -619,8 +833,6 @@ impl OneBus {
         } else {
             use_4bpp
         };
-        // V16BEN: use the 16-bit interleaved planes when the console type requires it,
-        // or when reg2000[0x10] bit 6 is set, or when reg4100[0x2B] == 0x61.
         let use_16bit_planes = self.console_type_vt369
             || (self.reg2000[0x10] & 0x40) != 0
             || self.reg4100[0x2B] == 0x61;
@@ -662,9 +874,13 @@ impl OneBus {
         self.fetch_chr_byte_ext(prg_rom, chr_rom, chr_ram, address, chr_ram_flat, false, false, 0)
     }
     pub fn read_apu(&mut self, address: u16) -> Option<u8> {
+        if address >= 0x4800 && address <= 0x4FFF {
+            if self.console_type_vt369 {
+                return Some(self.sound_ram[((address & 0x7FF) | 0x1800) as usize]);
+            }
+        }
         let idx = (address & 0xFF) as usize;
         if address >= 0x4020 && address < 0x4040 && idx == 0x35 {
-            // Second APU status ($4035): length-counter bits for square2/3, triangle2, noise2.
             return Some(0);
         }
         if address >= 0x4100 && address < 0x4200 {
@@ -676,13 +892,7 @@ impl OneBus {
                     0x33 | 0x3B => return Some(((self.alu_operand14 >> 24) & 0xFF) as u8),
                     0x34 | 0x3C => return Some((self.alu_operand56 & 0xFF) as u8),
                     0x35 | 0x3D => return Some(((self.alu_operand56 >> 8) & 0xFF) as u8),
-                    0x36 | 0x3E => {
-                        let b = self.alu_busy;
-                        if self.alu_busy > 0 {
-                            self.alu_busy -= 1;
-                        }
-                        return Some(b);
-                    }
+                    0x36 | 0x3E => return Some(self.alu_busy),
                     _ => {}
                 }
             }
@@ -705,7 +915,6 @@ impl OneBus {
             if (0x00..=0x0D).contains(&idx) || (0x60..=0xFF).contains(&idx) {
                 return Some(self.reg4100[idx]);
             }
-            // Mirror reg4100 reads for $4200-$47FF (addr & 0xFF gives reg index)
             if address >= 0x4200 && address < 0x4800 {
                 return Some(self.reg4100[idx]);
             }
@@ -715,7 +924,6 @@ impl OneBus {
         None
     }
     pub fn write_ppu(&mut self, addr: u16, val: u8, mangle: &OneBusMangle) {
-        // PPU_OneBus mirrors every CPU write in the $2000-$20FF page to reg2000[].
         self.reg2000[(addr & 0xFF) as usize] = val;
 
         let mut a = (addr & 0xFF) as u8;
@@ -733,12 +941,24 @@ impl OneBus {
         }
     }
     pub fn write_apu(&mut self, addr: u16, val: u8, mangle: &OneBusMangle) {
+        if addr >= 0x4800 && addr <= 0x4FFF {
+            if self.console_type_vt369 {
+                self.sound_ram[((addr & 0x7FF) | 0x1800) as usize] = val;
+                return;
+            }
+        }
         let mut idx = (addr & 0xFF) as usize;
         if (0x07..=0x0A).contains(&idx) {
             idx = 0x07 + mangle.cpu[(idx - 0x07) as usize] as usize;
         }
         if idx == 0x1C && (self.submapper == 12 || self.submapper == 14) {
             self.opcode_encryption = (val & 0x40) != 0;
+        }
+        if idx == 0x1C || idx == 0x1F {
+            self.update_sound_prescaler();
+        }
+        if idx == 0x2D {
+            self.dma_middle_addr = 0;
         }
         if idx == 0x69 && (self.submapper == 13 || self.submapper == 15) {
             self.opcode_encryption = (val & 1) == 0;
@@ -803,6 +1023,11 @@ impl OneBus {
                     return;
                 }
             }
+            0x62 => {
+                if self.console_type_vt369 && val == 0x0D {
+                    self.sound_ram[0x1FF5] = 0x01;
+                }
+            }
             _ => {}
         }
         self.reg4100[idx] = val;
@@ -864,9 +1089,6 @@ impl OneBus {
         dot: u16,
         rendering: bool,
     ) -> bool {
-        // Furbtendulator uses scanline <= 0 to cover both scanline 0 and the pre-render
-        // line. We represent the pre-render line as 261 (u16::MAX would wrap), so guard
-        // both scanline 0 and 261 here.
         let is_prerender_or_zero = scanline == 0 || scanline == 261;
         if self.console_type_vt369 && (self.reg4100[0x1C] & 0x80) != 0 && is_prerender_or_zero {
             return false;
@@ -898,6 +1120,9 @@ impl OneBus {
         if self.pa12_filter > 0 {
             self.pa12_filter = self.pa12_filter.wrapping_sub(1);
         }
+        if self.console_type_vt369 && self.reg4100[0x62] == 0x0D {
+            self.run_sound_hle();
+        }
         if self.irq_delay > 0 {
             self.irq_delay = self.irq_delay.wrapping_sub(1);
             if self.irq_delay == 0 {
@@ -926,6 +1151,12 @@ impl OneBus {
         state.push(self.dma_middle_addr);
         state.extend_from_slice(&self.dma_length.to_le_bytes());
         state.extend_from_slice(&self.dma_target.to_le_bytes());
+        if self.console_type_vt369 {
+            state.extend_from_slice(&self.sound_ram);
+            state.extend_from_slice(&self.sound_dac.to_le_bytes());
+            state.extend_from_slice(&self.sound_timer_period.to_le_bytes());
+            state.extend_from_slice(&self.sound_timer_count.to_le_bytes());
+        }
         state
     }
     pub fn load_core(&mut self, state: &[u8], start: usize) -> usize {
@@ -983,9 +1214,26 @@ impl OneBus {
             p += 2;
         }
         if self.console_type_vt369 {
+            if p + 8192 <= state.len() {
+                self.sound_ram.copy_from_slice(&state[p..p + 8192]);
+                p += 8192;
+            }
+            if p + 2 <= state.len() {
+                self.sound_dac = i16::from_le_bytes([state[p], state[p + 1]]);
+                p += 2;
+            }
+            if p + 2 <= state.len() {
+                self.sound_timer_period = i16::from_le_bytes([state[p], state[p + 1]]);
+                p += 2;
+            }
+            if p + 2 <= state.len() {
+                self.sound_timer_count = i16::from_le_bytes([state[p], state[p + 1]]);
+                p += 2;
+            }
             self.relative_8k = (self.reg4100[0x60] as usize)
                 | (((self.reg4100[0x61] as usize) << 8) & 0xF00);
             self.update_vt369_offsets();
+            self.update_sound_prescaler();
         }
         p
     }

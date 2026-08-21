@@ -403,6 +403,16 @@ pub use crate::mappers::mapper567::Mapper567;
 pub use crate::mappers::mapper568::Mapper568;
 pub use crate::mappers::mapper569::Mapper569;
 pub use crate::mappers::mapper570::Mapper570;
+pub use crate::mappers::mapper571::Mapper571;
+pub use crate::mappers::mapper572::Mapper572;
+pub use crate::mappers::mapper573::Mapper573;
+pub use crate::mappers::mapper574::Mapper574;
+pub use crate::mappers::mapper575::Mapper575;
+pub use crate::mappers::mapper576::Mapper576;
+pub use crate::mappers::mapper577::Mapper577;
+pub use crate::mappers::mapper578::Mapper578;
+pub use crate::mappers::mapper579::Mapper579;
+pub use crate::mappers::mapper580::Mapper580;
 pub use crate::mappers::mapper476::Mapper476;
 pub use crate::mappers::mapper495::Mapper495;
 pub use crate::mappers::mapper497::Mapper497;
@@ -644,6 +654,7 @@ pub trait Mapper: Send {
     /// VT369 enhanced PPU
     fn onebus_vt369_enhanced_ppu(&self) -> bool { false }
     fn vt369_reg2000(&self, _idx: usize) -> u8 { 0 }
+    fn vt369_reg4100(&self, _idx: usize) -> u8 { 0 }
     fn vt369_relative(&self) -> usize { 0 }
     fn vt369_bg_data(&self) -> usize { 0 }
     fn vt369_spr_data(&self) -> usize { 0 }
@@ -1513,6 +1524,16 @@ pub fn create_mapper(
         568 => Box::new(Mapper568::new()),
         569 => Box::new(Mapper569::new()),
         570 => Box::new(Mapper570::new()),
+        571 => Box::new(Mapper571::new()),
+        572 => Box::new(Mapper572::new()),
+        573 => Box::new(Mapper573::new()),
+        574 => Box::new(Mapper574::new()),
+        575 => Box::new(Mapper575::new()),
+        576 => Box::new(Mapper576::new()),
+        577 => Box::new(Mapper577::new()),
+        578 => Box::new(Mapper578::new()),
+        579 => Box::new(Mapper579::new()),
+        580 => Box::new(Mapper580::new()),
         582 => Box::new(Mapper582::new()),
         _ => {
             return Err(format!("Mapper {} is currently unsupported", mapper_id));
