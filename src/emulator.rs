@@ -172,6 +172,7 @@ pub struct Emulator {
     pub vt369_sprite_count_hi: u8,
     pub vt369_sprite_ram: [u8; 512],
     pub vt369_spr_addr_high: u8,
+    pub vt369_dma_target_addr: u16,
 
     pub ppu_sprite_sr_l: [u8; 8],
     pub ppu_sprite_sr_h: [u8; 8],
@@ -554,6 +555,7 @@ impl Emulator {
             vt369_sprite_count_hi: 0,
             vt369_sprite_ram: [0; 512],
             vt369_spr_addr_high: 0,
+            vt369_dma_target_addr: 0,
             ppu_sprite_sr_l: [0; 8], ppu_sprite_sr_h: [0; 8],
             ppu_sprite_sr_l2: [0; 8], ppu_sprite_sr_h2: [0; 8],
             ppu_sprite_attribute: [0; 8], ppu_sprite_pattern: [0; 8],

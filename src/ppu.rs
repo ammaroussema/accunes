@@ -24,22 +24,6 @@ impl Emulator {
             }
         }
 
-        if self.ppu_update_2005_delay > 0 {
-            self.ppu_update_2005_delay -= 1;
-            if self.ppu_update_2005_delay == 0 {
-                if !self.ppu_addr_latch {
-                    self.ppu_fine_x_scroll = self.ppu_update_2005_value & 7;
-                    self.ppu_t = (self.ppu_t & 0b0111111111100000)
-                        | ((self.ppu_update_2005_value as u16) >> 3);
-                } else {
-                    self.ppu_t = (self.ppu_t & 0b0000110000011111)
-                        | (((self.ppu_update_2005_value as u16 & 0xF8) << 2)
-                            | ((self.ppu_update_2005_value as u16 & 7) << 12));
-                }
-                self.ppu_addr_latch = !self.ppu_addr_latch;
-            }
-        }
-
         self.ppu_dot += 1;
         if self.ppu_dot > 340 {
             self.ppu_dot = 0;
@@ -602,12 +586,6 @@ impl Emulator {
                 self.ppu_bus = input;
                 for i in 0..8 { self.ppu_bus_decay[i] = 1786830; }
                 if self.ppu_reset { return; }
-                let alignment = self.ppu_clock & 3;
-                self.ppu_update_2005_delay = match alignment {
-                    2 => 2,
-                    _ => 1,
-                };
-                self.ppu_update_2005_value = input;
                 if !self.ppu_addr_latch {
                     self.ppu_fine_x_scroll = input & 7;
                     self.ppu_t = (self.ppu_t & 0b0111111111100000) | ((input as u16) >> 3);
@@ -615,11 +593,19 @@ impl Emulator {
                     self.ppu_t = (self.ppu_t & 0b0000110000011111)
                         | (((input as u16 & 0xF8) << 2) | ((input as u16 & 7) << 12));
                 }
+                self.ppu_addr_latch = !self.ppu_addr_latch;
             }
             0x2006 => {
                 self.ppu_bus = input;
                 for i in 0..8 { self.ppu_bus_decay[i] = 1786830; }
                 if self.ppu_reset { return; }
+                if self.vt369_ppu() {
+                    if !self.ppu_addr_latch {
+                        self.vt369_dma_target_addr = (self.vt369_dma_target_addr & 0x00FF) | (((input & 0x3F) as u16) << 8);
+                    } else {
+                        self.vt369_dma_target_addr = (self.vt369_dma_target_addr & 0x3F00) | (input as u16);
+                    }
+                }
                 if !self.ppu_addr_latch {
                     self.ppu_t = (self.ppu_t & 0b000000011111111) | (((input & 0x3F) as u16) << 8);
                 } else {

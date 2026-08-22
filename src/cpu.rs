@@ -140,7 +140,7 @@ impl Emulator {
 
     // the dma handling helper function thingies
 
-    fn onebus_dma_config(&self) -> (u8, u16, u16) {
+    pub(crate) fn onebus_dma_config(&self) -> (u8, u16, u16) {
         self.cart
             .as_ref()
             .map(|c| c.mapper_chip.onebus_dma_config())
@@ -176,7 +176,19 @@ impl Emulator {
             } else {
                 0x2004
             };
-            self.store(self.oam_internal_bus, store_addr);
+            let vt369 = self.cart.as_ref().map_or(false, |c| c.mapper_chip.onebus_vt369_ppu());
+            if vt369 && target == 0x2007 {
+                let taddr = self.vt369_dma_target_addr;
+                if taddr < 0x3C00 {
+                    self.store_ppu_data(taddr, self.oam_internal_bus);
+                } else {
+                    self.palette_ram[(taddr & 0x3FF) as usize] = self.oam_internal_bus;
+                }
+                let inc = if self.ppu_control_increment_mode_32 { 32 } else { 1 };
+                self.vt369_dma_target_addr = self.vt369_dma_target_addr.wrapping_add(inc);
+            } else {
+                self.store(self.oam_internal_bus, store_addr);
+            }
             self.dma_address = self.dma_address.wrapping_add(1);
             let done = if self.onebus_cart() {
                 if length == 0x100 {

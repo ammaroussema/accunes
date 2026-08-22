@@ -659,10 +659,34 @@ impl Emulator {
             0x4012 => { self.apu_dmc_sample_address = 0xC000 | ((input as u16) << 6); }
             0x4013 => { self.apu_dmc_sample_length = ((input as u16) << 4) | 1; }
             0x4014 => {
-                self.do_oam_dma = true;
-                self.first_cycle_of_oam_dma = true;
-                self.dma_address = 0;
-                self.dma_page = input;
+                let vt369 = self.cart.as_ref().map_or(false, |c| c.mapper_chip.onebus_vt369_ppu());
+                let fast_dma = vt369 && (self.cart.as_ref().map_or(0, |c| c.mapper_chip.vt369_reg4100(0x1C)) & 0x80 != 0);
+                if fast_dma {
+                    let (middle, length, target) = self.onebus_dma_config();
+                    let from_base = ((input as u16) << 8) | (middle as u16);
+                    let inc = if self.ppu_control_increment_mode_32 { 32 } else { 1 };
+                    for i in 0..length {
+                        let src_addr = from_base.wrapping_add(i);
+                        let val = self.fetch(src_addr);
+                        if target == 0x2007 {
+                            let taddr = self.vt369_dma_target_addr;
+                            if taddr < 0x3C00 {
+                                self.store_ppu_data(taddr, val);
+                            } else {
+                                self.palette_ram[(taddr & 0x3FF) as usize] = val;
+                            }
+                            self.vt369_dma_target_addr = self.vt369_dma_target_addr.wrapping_add(inc);
+                        } else {
+                            self.store_ppu_registers(0x2004, val);
+                        }
+                    }
+                    self.do_oam_dma = false;
+                } else {
+                    self.do_oam_dma = true;
+                    self.first_cycle_of_oam_dma = true;
+                    self.dma_address = 0;
+                    self.dma_page = input;
+                }
             }
             0x4015 => {
                 self.apu_status_delayed_dmc = (input & 0x10) != 0;
