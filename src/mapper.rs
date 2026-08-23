@@ -532,6 +532,12 @@ pub use crate::mappers::mapper587::Mapper587;
 pub use crate::mappers::mapper588::Mapper588;
 pub use crate::mappers::mapper589::Mapper589;
 pub use crate::mappers::mapper590::Mapper590;
+pub use crate::mappers::mapper591::Mapper591;
+pub use crate::mappers::mapper592::Mapper592;
+pub use crate::mappers::mapper593::Mapper593;
+pub use crate::mappers::mapper594::Mapper594;
+pub use crate::mappers::mapper761::Mapper761;
+pub use crate::mappers::mapper767::Mapper767;
 
 pub fn mirror_h_or_v(horizontal: bool, address: u16) -> u16 {
     if horizontal {
@@ -1553,6 +1559,12 @@ pub fn create_mapper(
         588 => Box::new(Mapper588::new()),
         589 => Box::new(Mapper589::new()),
         590 => Box::new(Mapper590::new()),
+        591 => Box::new(Mapper591::new()),
+        592 => Box::new(Mapper592::new()),
+        593 => Box::new(Mapper593::new()),
+        594 => Box::new(Mapper594::new()),
+        761 => Box::new(Mapper761::new()),
+        767 => Box::new(Mapper767::new()),
         _ => {
             return Err(format!("Mapper {} is currently unsupported", mapper_id));
         }

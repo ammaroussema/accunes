@@ -1221,7 +1221,8 @@ impl Emulator {
                 self.ppu_commit_nametable_fetch = true;
             }
             2 => {
-                self.ppu_pattern_address_register_at = 0x23C0 | (self.ppu_v & 0x0C00) | ((self.ppu_v >> 4) & 0x38) | ((self.ppu_v >> 2) & 0x07);
+                let masked_v = self.vt369_mask_vram_addr_for_nt(self.ppu_v);
+                self.ppu_pattern_address_register_at = 0x23C0 | (masked_v & 0x0C00) | ((masked_v >> 4) & 0x38) | ((masked_v >> 2) & 0x07);
                 self.ppu_address_bus = self.ppu_pattern_address_register_at;
             }
             3 => {
@@ -1323,7 +1324,7 @@ impl Emulator {
             if self.ppu_dot < 256 || self.ppu_dot > 320 {
                 self.ppu_pattern_address_register_chr |= (self.ppu_address_bus & 0xFF) << 4;
                 if self.vt369_enhanced_ppu() {
-                    self.vt369_nt_byte = (self.ppu_address_bus & 0xFF) as u8;
+                    self.vt369_nt_byte = self.ppu_render_temp;
                 }
             } else {
                 let idx = ((self.oam2_address & 0x1C) + 1) as usize;

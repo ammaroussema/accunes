@@ -63,7 +63,7 @@ const MMC3_MANGLE: [[u8; 8]; 16] = [
 pub struct Mapper256 {
     core: OneBus,
     submapper: u8,
-    vt369_vram: [u8; 0x800],
+    vt369_vram: [u8; 0x1000],
 }
 
 impl Mapper256 {
@@ -93,7 +93,7 @@ impl Mapper256 {
         Self {
             core,
             submapper,
-            vt369_vram: [0u8; 0x800],
+            vt369_vram: [0u8; 0x1000],
         }
     }
 
@@ -129,9 +129,7 @@ impl Mapper for Mapper256 {
         } else if (0x4020..=0x403F).contains(&address) || (0x4100..0x4200).contains(&address) {
             self.core.write_apu(address, data, &mangle);
         } else if self.core.console_type_vt369 && (0x3000..0x4000).contains(&address) {
-            let ppu_addr = (address & 0xFFF) | 0x2000;
-            let mirrored = self.core.mirror_nametable_address(ppu_addr);
-            let idx = (mirrored & 0x7FF) as usize;
+            let idx = (address & 0xFFF) as usize;
             self.vt369_vram[idx] = data;
         }
     }
@@ -186,18 +184,8 @@ impl Mapper for Mapper256 {
             };
         }
         if self.core.console_type_vt369 && (0x3000..0x4000).contains(&address) {
-            let ppu_addr = (address & 0xFFF) | 0x2000;
-            let mirrored = if cart.alternative_nametable_arrangement {
-                ppu_addr
-            } else {
-                self.core.mirror_nametable_address(ppu_addr)
-            };
-            let data = if cart.alternative_nametable_arrangement && (mirrored & 0x0800) != 0 {
-                let idx = (mirrored & 0x7FF) as usize;
-                if idx < cart.prg_vram.len() { cart.prg_vram[idx] } else { 0 }
-            } else {
-                self.vt369_vram[(mirrored & 0x7FF) as usize]
-            };
+            let idx = (address & 0xFFF) as usize;
+            let data = self.vt369_vram[idx];
             return FetchResult { data, driven: true };
         }
         if address >= 0x6000 && address < 0x8000 {
@@ -347,7 +335,8 @@ impl Mapper for Mapper256 {
                 let idx = (mirrored & 0x7FF) as usize;
                 if idx < prg_vram.len() { prg_vram[idx] } else { 0 }
             } else if self.core.console_type_vt369 {
-                self.vt369_vram[(mirrored & 0x7FF) as usize]
+                let idx = (raw_address & 0xFFF) as usize;
+                self.vt369_vram[idx]
             } else {
                 vram[(mirrored & 0x7FF) as usize]
             };
@@ -366,17 +355,19 @@ impl Mapper for Mapper256 {
                 cart.chr_ram[offset % len] = data;
             }
         } else if (0x2000..0x3F00).contains(&address) {
-            let mirrored = self.mirror_nametable(cart, address);
-            let idx = (mirrored & 0x7FF) as usize;
             if self.core.console_type_vt369 {
+                let idx = (address & 0xFFF) as usize;
                 self.vt369_vram[idx] = data;
-            }
-            if cart.alternative_nametable_arrangement && (mirrored & 0x0800) != 0 {
-                if idx < cart.prg_vram.len() {
-                    cart.prg_vram[idx] = data;
-                }
             } else {
-                vram[idx] = data;
+                let mirrored = self.mirror_nametable(cart, address);
+                let idx = (mirrored & 0x7FF) as usize;
+                if cart.alternative_nametable_arrangement && (mirrored & 0x0800) != 0 {
+                    if idx < cart.prg_vram.len() {
+                        cart.prg_vram[idx] = data;
+                    }
+                } else {
+                    vram[idx] = data;
+                }
             }
         }
     }
