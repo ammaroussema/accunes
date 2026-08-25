@@ -532,10 +532,14 @@ pub use crate::mappers::mapper587::Mapper587;
 pub use crate::mappers::mapper588::Mapper588;
 pub use crate::mappers::mapper589::Mapper589;
 pub use crate::mappers::mapper590::Mapper590;
+pub use crate::mappers::mapper405::Mapper405;
 pub use crate::mappers::mapper591::Mapper591;
 pub use crate::mappers::mapper592::Mapper592;
 pub use crate::mappers::mapper593::Mapper593;
 pub use crate::mappers::mapper594::Mapper594;
+pub use crate::mappers::mapper600::Mapper600;
+pub use crate::mappers::mapper601::Mapper601;
+pub use crate::mappers::mapper602::Mapper602;
 pub use crate::mappers::mapper761::Mapper761;
 pub use crate::mappers::mapper767::Mapper767;
 
@@ -658,6 +662,9 @@ pub trait Mapper: Send {
     fn vt03_4bpp_bg(&self) -> bool { false }
     fn vt03_4bpp_sp(&self) -> bool { false }
     fn vt03_reg2000_10(&self) -> u8 { 0 }
+    fn is_vt32(&self) -> bool { false }
+    fn is_um6578(&self) -> bool { false }
+    fn um6578_chr(&self) -> u8 { 0 }
 
     // onebus CPU opcode encryption (mapper 256 submapper 12-15)
     fn unscramble_opcode(&self, opcode: u8) -> u8 { opcode }
@@ -1562,7 +1569,11 @@ pub fn create_mapper(
         591 => Box::new(Mapper591::new()),
         592 => Box::new(Mapper592::new()),
         593 => Box::new(Mapper593::new()),
+        405 => Box::new(Mapper405::new()),
         594 => Box::new(Mapper594::new()),
+        600 => Box::new(Mapper600::new()),
+        601 => Box::new(Mapper601::new()),
+        602 => Box::new(Mapper602::new()),
         761 => Box::new(Mapper761::new()),
         767 => Box::new(Mapper767::new()),
         _ => {

@@ -78,13 +78,15 @@ fn convert_mfc_to_ines(rom: &[u8]) -> Result<Vec<u8>, String> {
     out[4] = prg_16k as u8;
     out[5] = chr_8k as u8;
     out[6] = ((mapper as u8 & 0x0F) << 4) | 0x01 | if battery { 0x02 } else { 0x00 };
-    out[7] = 0x08 | (((mapper >> 4) as u8 & 0x0F) << 4);
+    let console = if mapper == 256 && submapper == 1 { 0x07u8 } else if mapper == 256 { 0x08u8 } else { 0x00u8 };
+    let has_extended_console = console != 0;
+    out[7] = 0x08 | (((mapper >> 4) as u8 & 0x0F) << 4) | if has_extended_console { 0x03 } else { 0x00 };
     out[8] = ((submapper & 0x0F) << 4) | ((mapper >> 8) as u8 & 0x0F);
     out[9] = 0x00;
     out[10] = prgram;
     out[11] = chrram;
     out[12] = 0x03;
-    out[13] = if mapper == 256 { 8 } else { 0 };
+    out[13] = console;
     out[16..].copy_from_slice(&rom[16..expected]);
     Ok(out)
 }

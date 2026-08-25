@@ -48,15 +48,16 @@ impl Mapper for Mapper270 {
         let mangle = OneBusMangle::IDENTITY;
         if (0x2000..0x2100).contains(&address) {
             self.core.write_ppu(address, data, &mangle);
+        } else if address == 0x4242 && self.submapper == 2 {
+            // per NES 2.0 wiki, $4242 flat is submapper 2 only
+            self.reg4242 = data;
+            self.refresh_banking();
         } else if (0x4100..0x4200).contains(&address) {
-            if address & 0xFF == 0x42 {
-                self.reg4242 = data;
+            if address & 0xFF == 0x2C {
+                self.core.write_apu(address, data, &mangle);
                 self.refresh_banking();
             } else {
                 self.core.write_apu(address, data, &mangle);
-                if address & 0xFF == 0x2C {
-                    self.refresh_banking();
-                }
             }
         }
     }
@@ -107,8 +108,6 @@ impl Mapper for Mapper270 {
             if idx == 0x2C {
                 self.core.reg4100[0x2C] = data;
                 self.refresh_banking();
-            } else if idx == 0x42 {
-                self.reg4242 = data;
             } else if idx < 0x100 {
                 self.core.reg4100[idx] = data;
             }

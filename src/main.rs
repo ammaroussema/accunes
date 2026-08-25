@@ -16,10 +16,11 @@ mod bus;
 mod config;
 mod region;
 mod vt03_palette;
+mod vt32_palette;
 
 use region::Region;
 use emulator::Emulator;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -168,35 +169,38 @@ fn parse_dip_value(s: &str) -> Option<u32> {
 }
 
 fn load_dip_game(target_crc: u32, mapper_id: u16) -> Option<DipGame> {
-    let cfg_path = (|| {
-        let exe = std::env::current_exe().ok()?;
-        let mut dir = exe.parent()?.to_path_buf();
-        loop {
-            let candidate = dir.join("dip.cfg");
-            if candidate.exists() {
-                return Some(candidate);
+    static DIP_TEXT_CACHE: OnceLock<Option<String>> = OnceLock::new();
+    let text = DIP_TEXT_CACHE.get_or_init(|| {
+        let cfg_path = (|| {
+            let exe = std::env::current_exe().ok()?;
+            let mut dir = exe.parent()?.to_path_buf();
+            loop {
+                let candidate = dir.join("dip.cfg");
+                if candidate.exists() {
+                    return Some(candidate);
+                }
+                if !dir.pop() {
+                    break;
+                }
             }
-            if !dir.pop() {
-                break;
-            }
-        }
-        None
-    })()
-    .unwrap_or_else(|| std::path::PathBuf::from("dip.cfg"));
-
-    let raw = std::fs::read(&cfg_path).ok()?;
-
-    let text: String = if raw.len() >= 2 && raw[0] == 0xFF && raw[1] == 0xFE {
-        let u16s: Vec<u16> = raw[2..]
-            .chunks_exact(2)
-            .map(|b| u16::from_le_bytes([b[0], b[1]]))
-            .collect();
-        String::from_utf16_lossy(&u16s).to_owned()
-    } else if raw.len() >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF {
-        String::from_utf8_lossy(&raw[3..]).into_owned()
-    } else {
-        String::from_utf8_lossy(&raw).into_owned()
-    };
+            None
+        })()
+        .unwrap_or_else(|| std::path::PathBuf::from("dip.cfg"));
+        let raw = std::fs::read(&cfg_path).ok()?;
+        let s: String = if raw.len() >= 2 && raw[0] == 0xFF && raw[1] == 0xFE {
+            let u16s: Vec<u16> = raw[2..]
+                .chunks_exact(2)
+                .map(|b| u16::from_le_bytes([b[0], b[1]]))
+                .collect();
+            String::from_utf16_lossy(&u16s).to_owned()
+        } else if raw.len() >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF {
+            String::from_utf8_lossy(&raw[3..]).into_owned()
+        } else {
+            String::from_utf8_lossy(&raw).into_owned()
+        };
+        Some(s)
+    });
+    let text = text.as_ref()?;
 
     let mut found_game  = false;
     let mut crc_matches = false;
@@ -662,7 +666,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.5.5";
+const APP_VERSION: &str = "1.5.6";
 
 fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     let a = a.trim_start_matches('v');
@@ -923,6 +927,8 @@ enum EmuCommand {
     InsertCoin(u8),
     ServiceButton,
     ChangeDisk,
+    EjectDisk,
+    InsertDisk,
     SavePrgRam,
     ClearCart,
     SetDipSwitches(u8),
@@ -1010,7 +1016,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.5.5")
+        .with_title("AccuNES 1.5.6")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -1292,7 +1298,7 @@ fn main() {
     let crop_overscan_clone = crop_overscan.clone();
 
     let screen_buffer = Arc::new(Mutex::new(vec![0u32; (NES_WIDTH * NES_HEIGHT) as usize]));
-    let (_cmd_tx, cmd_rx) = mpsc::channel::<EmuCommand>();
+    let (cmd_tx, cmd_rx) = mpsc::channel::<EmuCommand>();
     let exit_flag = Arc::new(AtomicBool::new(false));
     let rom_loaded_flag = Arc::new(AtomicBool::new(false));
 
@@ -1333,8 +1339,10 @@ fn main() {
                         EmuCommand::InsertCoin(n) => { e.insert_coin(n); }
                         EmuCommand::ServiceButton => { e.service_button(); }
                         EmuCommand::ChangeDisk => { e.change_disk(); }
+                        EmuCommand::EjectDisk => { e.eject_disk(); }
+                        EmuCommand::InsertDisk => { e.insert_disk(); }
                         EmuCommand::SavePrgRam => { e.save_prg_ram(); }
-                        EmuCommand::ClearCart => { e.cart = None; }
+                        EmuCommand::ClearCart => { e.clear_cart(); }
                         EmuCommand::SetDipSwitches(val) => { e.set_dip_switches(val); }
                         EmuCommand::SetVsPpuVariant(v) => { e.set_vs_ppu_variant(v); }
                         EmuCommand::SetRegionPreference(r) => { e.set_region_preference(r); }
@@ -1926,7 +1934,7 @@ fn main() {
                         }
                         winit::event::VirtualKeyCode::R => {
                             if *rom_loaded_clone.borrow() {
-                                emu_clone.lock().unwrap().reset();
+                                let _ = cmd_tx.send(EmuCommand::Reset);
                             }
                         }
                         _ => {}
@@ -3422,24 +3430,20 @@ fn main() {
                                             let path_str = roms[i].clone();
                                             match cartridge::Cartridge::from_file(&path_str) {
                                                      Ok(cart) => {
-                                                             let mut emu = emu_clone.lock().unwrap();
-                                                             emu.load_cartridge(cart);
-                                                             emu.power_cycle(*initial_ram_clone.borrow());
-                                                             drop(emu);
+                                                    let crc = cart.prg_rom_crc32;
+                                                    let mapper_id = cart.memory_mapper;
+                                                    let dip_needed = load_dip_game(crc, mapper_id);
+                                                    let _ = cmd_tx.send(EmuCommand::LoadCartridge(cart));
+                                                    let _ = cmd_tx.send(EmuCommand::PowerCycle(*initial_ram_clone.borrow()));
                                                     *rom_loaded_clone.borrow_mut() = true;
                                                     rom_loaded_flag_clone.store(true, Ordering::Relaxed);
                                                     *current_rom_clone.borrow_mut() = Some(path_str.clone());
-                                                    
-                                                    let crc = emu_clone.lock().unwrap().prg_rom_crc32();
-                                                    let mapper_id = emu_clone.lock().unwrap().memory_mapper();
-                                                     if let Some(game) = load_dip_game(crc, mapper_id) {
-                                                         let mut emu = emu_clone.lock().unwrap();
-                                                         let dip_val = emu.get_dip_switches();
+                                                     if let Some(game) = dip_needed {
+                                                         let dip_val = 0u8;
                                                          let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
-                                                         emu.set_dip_switches(new_val as u8);
                                                          let variant = compute_vs_ppu_variant(&game, new_val as u8, crc);
-                                                         emu.set_vs_ppu_variant(variant);
-                                                         drop(emu);
+                                                         let _ = cmd_tx.send(EmuCommand::SetDipSwitches(new_val as u8));
+                                                         let _ = cmd_tx.send(EmuCommand::SetVsPpuVariant(variant));
                                                          ms_mut.dip_definition = Some(game);
                                                          ms_mut.show_dip_switches = true;
                                                          paused_clone.store(true, Ordering::Relaxed);
@@ -3547,22 +3551,20 @@ fn main() {
                                                     let path_str = path.to_string_lossy().to_string();
                                                     match cartridge::Cartridge::from_file(&path_str) {
                                                         Ok(cart) => {
-                                                            emu_clone.lock().unwrap().load_cartridge(cart);
-                                                    emu_clone.lock().unwrap().power_cycle(*initial_ram_clone.borrow());
+                                                    let crc = cart.prg_rom_crc32;
+                                                    let mapper_id = cart.memory_mapper;
+                                                    let dip_needed = load_dip_game(crc, mapper_id);
+                                                    let _ = cmd_tx.send(EmuCommand::LoadCartridge(cart));
+                                                    let _ = cmd_tx.send(EmuCommand::PowerCycle(*initial_ram_clone.borrow()));
                                                     *rom_loaded_clone.borrow_mut() = true;
                                                     rom_loaded_flag_clone.store(true, Ordering::Relaxed);
                                                     *current_rom_clone.borrow_mut() = Some(path_str.clone());
-                                                    
-                                                    let mapper_id = emu_clone.lock().unwrap().memory_mapper();
-                                                            let crc = emu_clone.lock().unwrap().prg_rom_crc32();
-                                                             if let Some(game) = load_dip_game(crc, mapper_id) {
-                                                                 let mut emu = emu_clone.lock().unwrap();
-                                                                 let dip_val = emu.get_dip_switches();
+                                                             if let Some(game) = dip_needed {
+                                                                 let dip_val = 0u8;
                                                                  let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
-                                                                 emu.set_dip_switches(new_val as u8);
                                                                  let variant = compute_vs_ppu_variant(&game, new_val as u8, crc);
-                                                                 emu.set_vs_ppu_variant(variant);
-                                                                 drop(emu);
+                                                                 let _ = cmd_tx.send(EmuCommand::SetDipSwitches(new_val as u8));
+                                                                 let _ = cmd_tx.send(EmuCommand::SetVsPpuVariant(variant));
                                                                  ms_mut.dip_definition = Some(game);
                                                                  ms_mut.show_dip_switches = true;
                                                                  paused_clone.store(true, Ordering::Relaxed);
@@ -3590,9 +3592,9 @@ fn main() {
                                             }
                                             FileMenuItem::Close => {
                                                 if *auto_save_sram_clone.borrow() {
-                                                    emu_clone.lock().unwrap().save_prg_ram();
+                                                    let _ = cmd_tx.send(EmuCommand::SavePrgRam);
                                                 }
-                                                emu_clone.lock().unwrap().cart = None;
+                                                let _ = cmd_tx.send(EmuCommand::ClearCart);
                                                 *rom_loaded_clone.borrow_mut() = false;
                                                 rom_loaded_flag_clone.store(false, Ordering::Relaxed);
                                                 *current_rom_clone.borrow_mut() = None;
@@ -3604,7 +3606,7 @@ fn main() {
                                                     window.request_redraw();
                                                 } else {
                                                     if *auto_save_sram_clone.borrow() && *rom_loaded_clone.borrow() {
-                                                        emu_clone.lock().unwrap().save_prg_ram();
+                                                        let _ = cmd_tx.send(EmuCommand::SavePrgRam);
                                                     }
                                                     *control_flow = ControlFlow::Exit;
                                                 }
@@ -3655,8 +3657,12 @@ fn main() {
                                 let dropdown_y = ms_mut.menu_height;
                                 let sc = ms_mut.scale;
                                 let pause_text = if paused_clone.load(Ordering::Relaxed) { "Resume" } else { "Pause" };
-                                let disk_label = if *rom_loaded_clone.borrow() && emu_clone.lock().unwrap().disk_inserted() {
-                                    "Eject Disk"
+                                let disk_label = if *rom_loaded_clone.borrow() {
+                                    if let Ok(e) = emu_clone.try_lock() {
+                                        if e.disk_inserted() { "Eject Disk" } else { "Insert Disk" }
+                                    } else {
+                                        "Insert Disk"
+                                    }
                                 } else {
                                     "Insert Disk"
                                 };
@@ -3671,57 +3677,60 @@ fn main() {
                                                 paused_clone.store(!paused_clone.load(Ordering::Relaxed), Ordering::Relaxed);
                                             }
                                             NesMenuItem::DipSwitches => {
-                                                 if *rom_loaded_clone.borrow() && emu_clone.lock().unwrap().has_dip_switches() {
-                                                     let mapper_id = emu_clone.lock().unwrap().memory_mapper();
-                                                     let crc = emu_clone.lock().unwrap().prg_rom_crc32();
-                                                     let game = load_dip_game(crc, mapper_id);
-                                                    if let Some(ref g) = game {
-                                                        let dip_val = emu_clone.lock().unwrap().get_dip_switches();
-                                                        let variant = compute_vs_ppu_variant(g, dip_val, crc);
-                                                        emu_clone.lock().unwrap().set_vs_ppu_variant(variant);
-                                                    }
-                                                    ms_mut.dip_definition = game;
-                                                    ms_mut.show_dip_switches = true;
-                                                    paused_clone.store(true, Ordering::Relaxed);
-                                                }
-                                            }
+                                                   if *rom_loaded_clone.borrow() {
+                                                       let dip_info = emu_clone.try_lock().ok().map(|e| (e.has_dip_switches(), e.memory_mapper(), e.prg_rom_crc32(), e.get_dip_switches()));
+                                                       if let Some((has_dip, mapper_id, crc, dip_val)) = dip_info {
+                                                           if has_dip {
+                                                               let game = load_dip_game(crc, mapper_id);
+                                                               if let Some(ref g) = game {
+                                                                   let variant = compute_vs_ppu_variant(g, dip_val, crc);
+                                                                   let _ = cmd_tx.send(EmuCommand::SetVsPpuVariant(variant));
+                                                               }
+                                                          ms_mut.dip_definition = game;
+                                                           ms_mut.show_dip_switches = true;
+                                                           paused_clone.store(true, Ordering::Relaxed);
+                                                       }
+                                                   }
+                                               }
+                                             }
                                             NesMenuItem::InsertCoin1 => {
                                                 if *rom_loaded_clone.borrow() {
-                                                    emu_clone.lock().unwrap().insert_coin(0);
+                                                    let _ = cmd_tx.send(EmuCommand::InsertCoin(0));
                                                 }
                                             }
                                             NesMenuItem::InsertCoin2 => {
                                                 if *rom_loaded_clone.borrow() {
-                                                    emu_clone.lock().unwrap().insert_coin(1);
+                                                    let _ = cmd_tx.send(EmuCommand::InsertCoin(1));
                                                 }
                                             }
                                             NesMenuItem::ServiceButton => {
                                                 if *rom_loaded_clone.borrow() {
-                                                    emu_clone.lock().unwrap().service_button();
+                                                    let _ = cmd_tx.send(EmuCommand::ServiceButton);
                                                 }
                                             }
                                             NesMenuItem::InsertEjectDisk => {
                                                 if *rom_loaded_clone.borrow() {
-                                                    if emu_clone.lock().unwrap().disk_inserted() {
-                                                        emu_clone.lock().unwrap().eject_disk();
+                                                    let should_eject = emu_clone.try_lock().map_or(false, |e| e.disk_inserted());
+                                                    if should_eject {
+                                                        let _ = cmd_tx.send(EmuCommand::EjectDisk);
                                                     } else {
-                                                        emu_clone.lock().unwrap().insert_disk();
+                                                        let _ = cmd_tx.send(EmuCommand::InsertDisk);
                                                     }
                                                 }
                                             }
                                             NesMenuItem::SwapDisk => {
                                                 if *rom_loaded_clone.borrow() {
-                                                    emu_clone.lock().unwrap().change_disk();
+                                                    let _ = cmd_tx.send(EmuCommand::ChangeDisk);
                                                 }
                                             }
                                             NesMenuItem::Reset => {
                                                 if *rom_loaded_clone.borrow() {
-                                                    emu_clone.lock().unwrap().reset();
+                                                    let _ = cmd_tx.send(EmuCommand::Reset);
                                                 }
                                             }
                                             NesMenuItem::PowerCycle => {
                                                 if *rom_loaded_clone.borrow() {
-                                                    emu_clone.lock().unwrap().power_cycle(*initial_ram_clone.borrow());
+                                                    let _ = cmd_tx.send(EmuCommand::PowerCycle(*initial_ram_clone.borrow()));
                                                 }
                                             }
                                         }
@@ -4069,8 +4078,12 @@ fn main() {
                             let sc = ms_mut.scale;
                             let dropdown_w = item_w;
                             let pause_text = if paused_clone.load(Ordering::Relaxed) { "Resume" } else { "Pause" };
-                            let disk_label = if *rom_loaded_clone.borrow() && emu_clone.lock().unwrap().disk_inserted() {
-                                "Eject Disk"
+                            let disk_label = if *rom_loaded_clone.borrow() {
+                                if let Ok(e) = emu_clone.try_lock() {
+                                    if e.disk_inserted() { "Eject Disk" } else { "Insert Disk" }
+                                } else {
+                                    "Insert Disk"
+                                }
                             } else {
                                 "Insert Disk"
                             };
@@ -4170,9 +4183,9 @@ fn main() {
                         } else if lower.ends_with(".fds") || lower.ends_with(".qd") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.5.5: {}", filename)
+                        format!("AccuNES 1.5.6: {}", filename)
                     } else {
-                        "AccuNES 1.5.5".to_string()
+                        "AccuNES 1.5.6".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -4440,8 +4453,8 @@ fn main() {
                         }
                         Menu::Nes => {
                             let pause_text = if paused_clone.load(Ordering::Relaxed) { "Resume" } else { "Pause" };
-                            let disk_label = if emu_clone.lock().unwrap().disk_inserted() {
-                                "Eject Disk"
+                            let disk_label = if let Ok(e) = emu_clone.try_lock() {
+                                if e.disk_inserted() { "Eject Disk" } else { "Insert Disk" }
                             } else {
                                 "Insert Disk"
                             };
@@ -4479,7 +4492,7 @@ fn main() {
                                         }
                                     }
                                     NesMenuItem::DipSwitches => {
-                                        *rom_loaded_clone.borrow() && emu_clone.lock().unwrap().has_dip_switches()
+                                        *rom_loaded_clone.borrow()
                                     }
                                     _ => *rom_loaded_clone.borrow(),
                                 };
@@ -4592,7 +4605,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.5.5",
+                        "Version: 1.5.6",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };

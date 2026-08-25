@@ -15,7 +15,7 @@ impl OneBusChrCtx {
             return raw_address;
         }
         let pat = raw_address & 0x1FFF;
-        let high_4bpp = raw_address >= 0x4000 && raw_address < 0x6000;
+        let high_4bpp = (raw_address & 0x4000) != 0;
         if self.is_sprite {
             if high_4bpp {
                 0xE000 | pat
@@ -34,7 +34,7 @@ impl OneBusChrCtx {
     }
 }
 
-pub const VB0S_TABLE: [u8; 8] = [0, 1, 2, 0, 3, 4, 5, 0];
+pub const VB0S_TABLE: [u8; 8] = [0, 1, 2, 0, 3, 4, 5, 1];
 pub fn is_onebus_mapper(mapper: u16) -> bool {
     matches!(
         mapper,
@@ -431,7 +431,13 @@ impl OneBus {
                 0x02E0 => (0x184C, 0x183B, 0x1873, 4, false),
                 0x0250 => (0x184C, 0x183B, 0x18FC, 1, true),
                 0x1C4C | 0x40AE => (0x18A4, 0x186B, 0, 1, false),
-                _ => (0x184C, 0x183B, 0x18FC, 1, false),
+                _ => {
+                    if self.sound_ram[0x18A4] != 0 || self.sound_ram[0x18A5] != 0 || self.sound_ram[0x186B] != 0 {
+                        (0x18A4, 0x186B, 0, 1, false)
+                    } else {
+                        (0x184C, 0x183B, 0x18FC, 1, false)
+                    }
+                }
             };
 
             let mut timer_period = (self.sound_ram[adr_period] as i16) | ((self.sound_ram[adr_period + 4] as i16) << 8);
@@ -510,6 +516,9 @@ impl OneBus {
                 }
                 self.sound_ram[adr_masks + 1] |= self.sound_ram[adr_masks];
                 self.sound_dac = adpcm_output.clamp(-32768, 32767) as i16;
+            }
+            if self.sound_timer_period == 0 && adr_masks == 0x18A4 && self.sound_ram[0x18A4] != 0 && self.sound_ram[0x18A5] == 0 {
+                self.sound_ram[0x18A5] = self.sound_ram[0x18A4];
             }
         }
     }
@@ -924,8 +933,6 @@ impl OneBus {
         None
     }
     pub fn write_ppu(&mut self, addr: u16, val: u8, mangle: &OneBusMangle) {
-        self.reg2000[(addr & 0xFF) as usize] = val;
-
         let mut a = (addr & 0xFF) as u8;
         if (0x12..=0x17).contains(&a) {
             a = 0x12 + mangle.ppu[(a - 0x12) as usize];
@@ -935,6 +942,8 @@ impl OneBus {
         }
         if a >= 8 {
             self.reg2000[a as usize] = val;
+        } else {
+            self.reg2000[(addr & 0xFF) as usize] = val;
         }
         if self.console_type_vt369 && (0x20..=0x23).contains(&(addr & 0xFF)) {
             self.update_vt369_offsets();
@@ -957,6 +966,9 @@ impl OneBus {
         if idx == 0x1C || idx == 0x1F {
             self.update_sound_prescaler();
         }
+        if idx == 0x24 && self.reg2000[0x1E] != 0 {
+            self.dma_middle_addr = val;
+        }
         if idx == 0x2D {
             self.dma_middle_addr = 0;
         }
@@ -968,7 +980,9 @@ impl OneBus {
             if shift == 0 {
                 shift = 8;
             }
-            self.dma_middle_addr = val & 0xF0;
+            if (self.reg2000[0x1D] & 1) == 0 {
+                self.dma_middle_addr = val & 0xF0;
+            }
             self.dma_length = 1u16 << shift;
             self.dma_target = if val & 1 != 0 { 0x2007 } else { 0x2004 };
         }

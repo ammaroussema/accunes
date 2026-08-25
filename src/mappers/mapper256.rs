@@ -126,7 +126,10 @@ impl Mapper for Mapper256 {
         let mangle = self.mangle();
         if (0x2000..0x2100).contains(&address) {
             self.core.write_ppu(address, data, &mangle);
-        } else if (0x4020..=0x403F).contains(&address) || (0x4100..0x4200).contains(&address) {
+        } else if (0x4020..=0x403F).contains(&address)
+            || (0x4100..0x4200).contains(&address)
+            || (self.core.console_type_vt369 && (0x4800..=0x4FFF).contains(&address))
+        {
             self.core.write_apu(address, data, &mangle);
         } else if self.core.console_type_vt369 && (0x3000..0x4000).contains(&address) {
             let idx = (address & 0xFFF) as usize;
@@ -159,7 +162,10 @@ impl Mapper for Mapper256 {
 
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         self.core.ensure_prg_rom(&cart.prg_rom);
-        if (0x4020..0x4040).contains(&address) || (address >= 0x4100 && address < 0x4200) {
+        if (0x4020..0x4040).contains(&address)
+            || (address >= 0x4100 && address < 0x4200)
+            || (self.core.console_type_vt369 && address >= 0x4800 && address <= 0x4FFF)
+        {
             if let Some(data) = self.core.read_apu(address) {
                 return FetchResult { data, driven: true };
             }
@@ -283,10 +289,18 @@ impl Mapper for Mapper256 {
         let raw_address = (ppu_address_bus & 0x7FFF) | (ppu_octal_latch as u16);
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
 
-        let is_chr_fetch = raw_address < 0x2000 || (raw_address >= 0x4000 && raw_address < 0x6000);
+        let is_vt = self.core.console_type_vt03
+            || self.core.console_type_vt09
+            || self.core.console_type_vt369;
+        let is_chr_fetch = raw_address < 0x2000
+            || (raw_address >= 0x4000 && raw_address < 0x6000)
+            || (is_vt
+                && ctx.active
+                && ((raw_address >= 0x2000 && raw_address < 0x4000)
+                    || (raw_address >= 0x6000 && raw_address < 0x8000)));
 
         if is_chr_fetch {
-            let high_plane = raw_address >= 0x4000 && raw_address < 0x6000;
+            let high_plane = (raw_address & 0x4000) != 0;
             let chr_addr = raw_address & 0x1FFF;
             let ext_address = if ctx.active
                 && (self.core.console_type_vt03

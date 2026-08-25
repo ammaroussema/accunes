@@ -92,8 +92,18 @@ pub struct Emulator {
     pub nmi_line: bool,
     pub irq_line: bool,
 
-    pub ram: [u8; 0x1000],
+    pub ram: [u8; 0x2000],
     pub cpu_ram_mask: u16,
+    pub um6578_extra_ram: [u8; 0x800],
+    pub um6578_vram: [[u8; 0x400]; 0xA],
+    pub um6578_reg2008: u8,
+    pub um6578_color_mask: u8,
+    pub um6578_dma_control: u8,
+    pub um6578_dma_page: u8,
+    pub um6578_dma_source: u16,
+    pub um6578_dma_target: u16,
+    pub um6578_dma_length: u16,
+    pub um6578_dma_busy: u8,
     pub vram: [u8; 0x800],
     pub oam: [u8; 0x100],
     pub oam2: [u8; 32],
@@ -430,10 +440,10 @@ pub struct Emulator {
 }
 
 impl Emulator {
-    pub fn init_ram(ram: &mut [u8; 0x1000], vram: &mut [u8; 0x800], mode: config::InitialRam) {
+    pub fn init_ram(ram: &mut [u8; 0x2000], vram: &mut [u8; 0x800], mode: config::InitialRam) {
         match mode {
             config::InitialRam::Default => {
-                for i in 0..0x1000usize {
+                for i in 0..0x2000usize {
                     let j = i & 0x2;
                     let swap = (i & 0x1F) >= 0x10;
                     if (j < 0x2) != swap {
@@ -463,7 +473,7 @@ impl Emulator {
                     .unwrap_or_default()
                     .as_nanos();
                 let mut state = seed as u32;
-                for i in 0..0x1000usize {
+                for i in 0..0x2000usize {
                     state = state.wrapping_mul(1103515245).wrapping_add(12345);
                     ram[i] = (state >> 16) as u8;
                     if i < 0x800 {
@@ -476,7 +486,7 @@ impl Emulator {
     }
 
     pub fn new() -> Self {
-        let mut ram = [0u8; 0x1000];
+        let mut ram = [0u8; 0x2000];
         let mut vram = [0u8; 0x800];
 
         Self::init_ram(&mut ram, &mut vram, config::InitialRam::Default);
@@ -510,7 +520,7 @@ impl Emulator {
             oam_internal_bus: 0,
             nmi_pins_signal: false, nmi_previous_pins_signal: false,
             irq_level_detector: false, nmi_line: false, irq_line: false,
-            ram, cpu_ram_mask: 0x7FF, vram, oam: [0u8; 0x100], oam2, palette_ram,
+            ram, cpu_ram_mask: 0x7FF, um6578_extra_ram: [0u8; 0x800], um6578_vram: [[0u8; 0x400]; 0xA], um6578_reg2008: 0, um6578_color_mask: 0x3, um6578_dma_control: 0, um6578_dma_page: 0, um6578_dma_source: 0, um6578_dma_target: 0, um6578_dma_length: 0, um6578_dma_busy: 0, vram, oam: [0u8; 0x100], oam2, palette_ram,
             ppu_bus: 0, ppu_bus_decay: [0i32; 8], ppu_oam_address: 0,
             ppu_status_vblank: false, ppu_status_sprite_zero_hit: false,
             ppu_status_sprite_zero_hit_delayed: false,
@@ -721,14 +731,24 @@ impl Emulator {
     pub fn load_cartridge(&mut self, cart: Cartridge) {
         self.resolved_region = self.compute_region(&cart.tv_system, &cart.name);
         let cpu_clock = self.cpu_clock();
-        self.cpu_ram_mask = if cart.mapper_chip.onebus_cpu_ram_4k() {
+        self.cpu_ram_mask = if cart.mapper_chip.is_um6578() {
+            0x1FFF
+        } else if cart.mapper_chip.onebus_cpu_ram_4k() {
             0xFFF
         } else {
             0x7FF
         };
-        self.cart = Some(cart);
+        let old = self.cart.replace(cart);
+        if let Some(old_cart) = old {
+            std::thread::spawn(move || drop(old_cart));
+        }
         if let Some(ref mut cart) = self.cart {
             cart.mapper_chip.set_cpu_clock(cpu_clock);
+        }
+    }
+    pub fn clear_cart(&mut self) {
+        if let Some(old) = self.cart.take() {
+            std::thread::spawn(move || drop(old));
         }
     }
 
@@ -895,10 +915,7 @@ impl Emulator {
                 return;
             }
             let sav_path = crate::config::save_file_path(&cart.name);
-            if let Some(parent) = sav_path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            let data = {
+            let data_opt = {
                 let mapper = &cart.mapper_chip;
                 if let Some(save) = mapper.battery_save_data(cart) {
                     Some(save)
@@ -908,12 +925,17 @@ impl Emulator {
                     None
                 }
             };
-            if let Some(data) = data {
-                if let Err(e) = std::fs::write(&sav_path, &data) {
-                    eprintln!("Failed to save SRAM to {:?}: {}", sav_path, e);
-                } else {
-                    println!("Saved SRAM to {:?}", sav_path);
-                }
+            if let Some(data) = data_opt {
+                std::thread::spawn(move || {
+                    if let Some(parent) = sav_path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    if let Err(e) = std::fs::write(&sav_path, &data) {
+                        eprintln!("Failed to save SRAM to {:?}: {}", sav_path, e);
+                    } else {
+                        println!("Saved SRAM to {:?}", sav_path);
+                    }
+                });
             }
         }
     }
@@ -1537,6 +1559,16 @@ impl Emulator {
         } else {
             out.extend_from_slice(&0u32.to_le_bytes());
         }
+        out.extend_from_slice(&self.um6578_extra_ram);
+        for bank in &self.um6578_vram { out.extend_from_slice(bank); }
+        out.push(self.um6578_reg2008);
+        out.push(self.um6578_color_mask);
+        out.push(self.um6578_dma_control);
+        out.push(self.um6578_dma_page);
+        out.extend_from_slice(&self.um6578_dma_source.to_le_bytes());
+        out.extend_from_slice(&self.um6578_dma_target.to_le_bytes());
+        out.extend_from_slice(&self.um6578_dma_length.to_le_bytes());
+        out.push(self.um6578_dma_busy);
         out
     }
 
@@ -1590,7 +1622,13 @@ impl Emulator {
         self.nmi_line = read_u8()? != 0;
         self.irq_line = read_u8()? != 0;
         self.cpu_ram_mask = u16::from_le_bytes([read_u8()?, read_u8()?]);
-        for i in 0..self.ram.len() { self.ram[i] = read_u8()?; }
+        let is_new_save = data.len() > 5000;
+        if is_new_save {
+            for i in 0..self.ram.len() { self.ram[i] = read_u8()?; }
+        } else {
+            for i in 0..0x1000 { self.ram[i] = read_u8()?; }
+            for i in 0x1000..self.ram.len() { self.ram[i] = 0; }
+        }
         for i in 0..self.vram.len() { self.vram[i] = read_u8()?; }
         for i in 0..self.oam.len() { self.oam[i] = read_u8()?; }
         for i in 0..self.oam2.len() { self.oam2[i] = read_u8()?; }
@@ -1849,6 +1887,22 @@ impl Emulator {
                 real_mapper.load_mapper_registers(cart, &mapper_state, 0);
                 cart.mapper_chip = real_mapper;
             }
+        }
+        if p < data.len() {
+            for i in 0..self.um6578_extra_ram.len() {
+                if p < data.len() { self.um6578_extra_ram[i] = data[p]; p+=1; }
+            }
+            for bank in &mut self.um6578_vram {
+                for i in 0..bank.len() { if p < data.len() { bank[i] = data[p]; p+=1; } }
+            }
+            if p < data.len() { self.um6578_reg2008 = data[p]; p+=1; }
+            if p < data.len() { self.um6578_color_mask = data[p]; p+=1; }
+            if p < data.len() { self.um6578_dma_control = data[p]; p+=1; }
+            if p < data.len() { self.um6578_dma_page = data[p]; p+=1; }
+            if p + 1 < data.len() { self.um6578_dma_source = u16::from_le_bytes([data[p], data[p+1]]); p+=2; }
+            if p + 1 < data.len() { self.um6578_dma_target = u16::from_le_bytes([data[p], data[p+1]]); p+=2; }
+            if p + 1 < data.len() { self.um6578_dma_length = u16::from_le_bytes([data[p], data[p+1]]); p+=2; }
+            if p < data.len() { self.um6578_dma_busy = data[p]; }
         }
         Ok(())
     }

@@ -142,6 +142,9 @@ impl Emulator {
 
     // apu emulation every cpu cycle
     pub fn emulate_apu(&mut self) {
+        if self.um6578_dma_busy > 0 {
+            self.um6578_dma_busy -= 1;
+        }
         // controller clocking
         if !self.apu_controller_ports_strobing {
             if self.controller1_shift_counter > 0 {
