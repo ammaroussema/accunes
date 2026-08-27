@@ -893,6 +893,8 @@ impl Cartridge {
             vec![0u8; 32 * 1024]
         } else if memory_mapper == 555 {
             vec![0u8; 0x4000]
+        } else if memory_mapper == 405 {
+            vec![0u8; crate::mappers::mapper405::prg_ram_size(&rom[0..16])]
         } else {
             vec![0u8; 0x2000]
         };

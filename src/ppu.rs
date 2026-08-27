@@ -120,7 +120,8 @@ impl Emulator {
         self.ppu_mask_show_sprites_delayed = self.ppu_mask_show_sprites;
 
         if !self.ppu_mask_show_background && !self.ppu_mask_show_sprites {
-            self.ppu_address_bus = self.ppu_v & 0x3FFF;
+            let mask = if self.is_um6578() { 0xFFFFu16 } else { 0x3FFF };
+            self.ppu_address_bus = self.ppu_v & mask;
         }
 
         let temp_rendering = self.ppu_mask_show_background || self.ppu_mask_show_sprites;
@@ -333,7 +334,8 @@ impl Emulator {
 
         if self.ppu_2007_read_ale || self.ppu_2007_write_ale {
             if !self.ppu_read {
-                self.ppu_address_bus = self.ppu_v & 0x3FFF;
+                let mask = if self.is_um6578() { 0xFFFFu16 } else { 0x3FFF };
+                self.ppu_address_bus = self.ppu_v & mask;
                 self.ppu_octal_latch = self.ppu_address_bus as u8;
             }
         }
@@ -356,9 +358,9 @@ impl Emulator {
             if !self.ppu_2007_blnk_latch {
                 self.ppu_increment_scroll_y();
             } else {
-                self.ppu_v = (self.ppu_v.wrapping_add(
-                    if self.ppu_control_increment_mode_32 { 32 } else { 1 }
-                )) & 0x7FFF;
+                let inc = if self.ppu_control_increment_mode_32 { 32u16 } else { 1 };
+                let mask = if self.cart.as_ref().map_or(false, |c| c.mapper_chip.is_um6578()) { 0xFFFF } else { 0x7FFF };
+                self.ppu_v = (self.ppu_v.wrapping_add(inc)) & mask;
                 let vt03_ppu = self
                     .cart
                     .as_ref()
@@ -403,49 +405,62 @@ impl Emulator {
         }
     }
 
+    fn um6578_chr_offset(&self, addr: u16) -> usize {
+        let chr = self.cart.as_ref().map_or(0, |c| c.mapper_chip.um6578_chr()) as usize;
+        if addr >= 0x8000 {
+            let window = ((addr as usize) >> 13) & 3;
+            let phys_8k = window | (chr << 2);
+            (phys_8k * 0x2000 + (addr as usize & 0x1FFF)) & 0x7FFF
+        } else {
+            addr as usize & 0x7FFF
+        }
+    }
+
+    fn um6578_read_ppu(&self, addr: u16) -> u8 {
+        if addr < 0x2000 {
+            let bank = (addr >> 10) as usize;
+            self.um6578_vram[bank][(addr & 0x3FF) as usize]
+        } else if addr < 0x2800 {
+            let bank = 8 + ((addr >> 10) & 1) as usize;
+            self.um6578_vram[bank][(addr & 0x3FF) as usize]
+        } else if (0x3F00..0x4000).contains(&addr) {
+            self.palette_ram[(addr & 0x3F) as usize]
+        } else if (0x5000..0x8000).contains(&addr) || addr >= 0x8000 {
+            self.um6578_chr_ram[self.um6578_chr_offset(addr)]
+        } else {
+            0
+        }
+    }
+
+    pub(crate) fn um6578_write_ppu(&mut self, addr: u16, data: u8) {
+        if addr < 0x2000 {
+            let bank = (addr >> 10) as usize;
+            self.um6578_vram[bank][(addr & 0x3FF) as usize] = data;
+        } else if addr < 0x2800 {
+            let bank = 8 + ((addr >> 10) & 1) as usize;
+            self.um6578_vram[bank][(addr & 0x3FF) as usize] = data;
+        } else if (0x3F00..0x4000).contains(&addr) {
+            self.palette_ram[(addr & 0x3F) as usize] = data;
+        } else if (0x5000..0x8000).contains(&addr) || addr >= 0x8000 {
+            let off = self.um6578_chr_offset(addr);
+            self.um6578_chr_ram[off] = data;
+        }
+    }
+
     /// mapper ppu bus interactions
     pub(crate) fn fetch_ppu(&mut self) -> u8 {
         if self.copy_v {
             self.ppu_address_bus = self.ppu_v;
         }
 
-        let addr = (self.ppu_address_bus & 0x7F00) | self.ppu_octal_latch as u16;
         if self.is_um6578() {
-            let a = addr & 0x3FFF;
-            let chr = self.cart.as_ref().map_or(0, |c| c.mapper_chip.um6578_chr()) as usize;
-            let data = if a < 0x2000 {
-                if chr != 0 {
-                    if let Some(cart) = self.cart.as_ref() {
-                        if !cart.chr_rom.is_empty() {
-                            let base = (chr << 2) * 0x2000;
-                            let off2 = (a as usize & 0x1FFF) + base;
-                            cart.chr_rom[off2 % cart.chr_rom.len()]
-                        } else {
-                            let bank = (a >> 10) as usize;
-                            let off = (a & 0x3FF) as usize;
-                            let phys = ((chr << 2) | (bank & 0x03)) % 8;
-                            self.um6578_vram[phys][off]
-                        }
-                    } else { 0 }
-                } else {
-                    let bank = (a >> 10) as usize;
-                    let off = (a & 0x3FF) as usize;
-                    if bank < 8 { self.um6578_vram[bank][off] } else { 0 }
-                }
-            } else if a < 0x2800 {
-                let bank = 8 + ((a >> 10) & 1) as usize;
-                let off = (a & 0x3FF) as usize;
-                self.um6578_vram[bank][off]
-            } else if a < 0x3F00 {
-                0
-            } else {
-                let pal_addr = (a & 0x3F) as usize;
-                self.palette_ram[pal_addr]
-            };
-            let new_addr_bus = (self.ppu_address_bus & 0xFF00) | data as u16;
-            self.ppu_address_bus = new_addr_bus;
+            let addr = self.ppu_address_bus;
+            let data = self.um6578_read_ppu(addr);
+            self.ppu_address_bus = (self.ppu_address_bus & 0xFF00) | data as u16;
             return data;
         }
+
+        let addr = (self.ppu_address_bus & 0x7F00) | self.ppu_octal_latch as u16;
 
         let (data, new_addr_bus) = if let Some(cart) = self.cart.as_mut() {
             cart.mapper_chip.fetch_ppu_with_ctx(
@@ -520,6 +535,15 @@ impl Emulator {
             for i in 0..8 { self.ppu_bus_decay[i] = 1786830; }
             self.um6578_reg2008 = input;
             self.um6578_color_mask = if input & 0x80 != 0 { 0xF } else { 0x3 };
+            return;
+        }
+        if self.is_um6578() && (0x2040..=0x207F).contains(&addr) {
+            self.ppu_bus = input;
+            for i in 0..8 { self.ppu_bus_decay[i] = 1786830; }
+            self.palette_ram[(addr & 0x3F) as usize] = input;
+            return;
+        }
+        if self.is_um6578() && addr > 0x2007 {
             return;
         }
         if self.vt369_enhanced_ppu() && (addr & 0x200F) == 0x2008 {
@@ -650,9 +674,17 @@ impl Emulator {
                     }
                 }
                 if !self.ppu_addr_latch {
-                    self.ppu_t = (self.ppu_t & 0b000000011111111) | (((input & 0x3F) as u16) << 8);
+                    if self.is_um6578() {
+                        self.ppu_t = (self.ppu_t & 0x00FF) | ((input as u16) << 8);
+                    } else {
+                        self.ppu_t = (self.ppu_t & 0b000000011111111) | (((input & 0x3F) as u16) << 8);
+                    }
                 } else {
-                    self.ppu_t = (self.ppu_t & 0b0111111100000000) | (input as u16);
+                    if self.is_um6578() {
+                        self.ppu_t = (self.ppu_t & 0xFF00) | (input as u16);
+                    } else {
+                        self.ppu_t = (self.ppu_t & 0b0111111100000000) | (input as u16);
+                    }
                     self.ppu_update_2006_value = self.ppu_t;
                     self.ppu_update_2006_value_temp = self.ppu_v;
                     let alignment = self.ppu_clock & 3;
@@ -677,6 +709,19 @@ impl Emulator {
 
     // ppu scroll
     fn ppu_increment_scroll_y(&mut self) {
+        if self.is_um6578() {
+            if (self.ppu_v & 0x7000) == 0x7000 {
+                self.ppu_v &= 0x0FFF;
+                if (self.ppu_v & 0x03E0) == 0x03E0 {
+                    self.ppu_v ^= 0x0BE0;
+                } else {
+                    self.ppu_v += 0x20;
+                }
+            } else {
+                self.ppu_v += 0x1000;
+            }
+            return;
+        }
         if (self.ppu_v & 0x7000) != 0x7000 {
             self.ppu_v += 0x1000;
         } else {
@@ -696,12 +741,21 @@ impl Emulator {
 
     // ppu scroll x reset
     pub fn ppu_reset_x_scroll(&mut self) {
+        if self.is_um6578() {
+            self.ppu_v &= !0x041F;
+            self.ppu_v |= self.ppu_t & 0x041F;
+            return;
+        }
         self.ppu_v &= 0x7BE0;
         self.ppu_v |= self.ppu_t & 0x041F;
     }
 
     // ppu scroll y reset
     pub fn ppu_reset_y_scroll(&mut self) {
+        if self.is_um6578() {
+            self.ppu_v = (self.ppu_v & 0x041F) | (self.ppu_t & 0xFBE0);
+            return;
+        }
         self.ppu_v = (self.ppu_v & 0x041F) | (self.ppu_t & 0x7BE0);
     }
 
@@ -736,6 +790,10 @@ impl Emulator {
 
     fn is_um6578_4bpp(&self) -> bool {
         self.is_um6578() && (self.um6578_reg2008 & 0x80) != 0
+    }
+
+    fn is_um6578_4bpp_sprites(&self) -> bool {
+        self.is_um6578_4bpp() && self.ppu_sprite_x16
     }
 
     fn vt369_enhanced_ppu(&self) -> bool {
@@ -1266,32 +1324,64 @@ impl Emulator {
 
         match cycle_tick {
             0 => {
-                let masked_v = self.vt369_mask_vram_addr_for_nt(self.ppu_v);
-                self.ppu_pattern_address_register_nt = 0x2000 | (masked_v & 0x0FFF);
-                self.ppu_address_bus = self.ppu_pattern_address_register_nt;
+                if self.is_um6578() {
+                    let reg2008 = self.um6578_reg2008 as u16;
+                    let mut w = ((reg2008 << 13) & 0x2000) | ((self.ppu_v << 1) & 0x1FFE);
+                    if (reg2008 & 1) != 0 {
+                        w &= !0x1800;
+                    }
+                    self.ppu_pattern_address_register_nt = w;
+                    self.ppu_address_bus = w;
+                } else {
+                    let masked_v = self.vt369_mask_vram_addr_for_nt(self.ppu_v);
+                    self.ppu_pattern_address_register_nt = 0x2000 | (masked_v & 0x0FFF);
+                    self.ppu_address_bus = self.ppu_pattern_address_register_nt;
+                }
             }
             1 => {
-                self.ppu_address_bus = (self.ppu_pattern_address_register_nt & 0xFF00) | self.ppu_octal_latch as u16;
+                if !self.is_um6578() {
+                    self.ppu_address_bus = (self.ppu_pattern_address_register_nt & 0xFF00) | self.ppu_octal_latch as u16;
+                }
                 self.ppu_render_temp = self.fetch_ppu();
+                if self.is_um6578() {
+                    self.um6578_nt_tile_byte = self.ppu_render_temp;
+                }
                 self.ppu_commit_nametable_fetch = true;
             }
             2 => {
-                let masked_v = self.vt369_mask_vram_addr_for_nt(self.ppu_v);
-                self.ppu_pattern_address_register_at = 0x23C0 | (masked_v & 0x0C00) | ((masked_v >> 4) & 0x38) | ((masked_v >> 2) & 0x07);
-                self.ppu_address_bus = self.ppu_pattern_address_register_at;
+                if self.is_um6578() {
+                    let w = self.ppu_pattern_address_register_nt.wrapping_add(1);
+                    self.ppu_pattern_address_register_at = w;
+                    self.ppu_address_bus = w;
+                } else {
+                    let masked_v = self.vt369_mask_vram_addr_for_nt(self.ppu_v);
+                    self.ppu_pattern_address_register_at = 0x23C0 | (masked_v & 0x0C00) | ((masked_v >> 4) & 0x38) | ((masked_v >> 2) & 0x07);
+                    self.ppu_address_bus = self.ppu_pattern_address_register_at;
+                }
             }
             3 => {
-                self.ppu_address_bus = (self.ppu_pattern_address_register_at & 0xFF00) | self.ppu_octal_latch as u16;
+                if !self.is_um6578() {
+                    self.ppu_address_bus = (self.ppu_pattern_address_register_at & 0xFF00) | self.ppu_octal_latch as u16;
+                }
                 self.ppu_render_temp = self.fetch_ppu();
+                if self.is_um6578() {
+                    self.um6578_nt_attr_byte = self.ppu_render_temp;
+                }
                 self.ppu_commit_attribute_fetch = true;
             }
             4 => {
                 self.ppu_check_par();
-                self.ppu_pattern_address_register_chr &= 0b1111111110111;
+                if !self.is_um6578() {
+                    self.ppu_pattern_address_register_chr &= 0b1111111110111;
+                }
                 self.ppu_address_bus = self.ppu_pattern_address_register_chr;
             }
             5 => {
-                let base_addr = (self.ppu_pattern_address_register_chr & 0xFF00) | self.ppu_octal_latch as u16;
+                let base_addr = if self.is_um6578() {
+                    self.ppu_pattern_address_register_chr
+                } else {
+                    (self.ppu_pattern_address_register_chr & 0xFF00) | self.ppu_octal_latch as u16
+                };
                 self.ppu_address_bus = base_addr;
                 self.onebus_begin_bg_chr_fetch();
                 self.ppu_render_temp = self.fetch_ppu();
@@ -1304,7 +1394,7 @@ impl Emulator {
                     self.onebus_clear_chr_fetch();
                 }
                 if self.is_um6578_4bpp() {
-                    self.ppu_address_bus = base_addr | 0x10;
+                    self.ppu_address_bus = self.ppu_pattern_address_register_chr | 0x10;
                     self.ppu_low_bit_plane_hi = self.fetch_ppu();
                 }
             }
@@ -1314,7 +1404,11 @@ impl Emulator {
                 self.ppu_address_bus = self.ppu_pattern_address_register_chr;
             }
             7 => {
-                let base_addr = (self.ppu_pattern_address_register_chr & 0xFF00) | self.ppu_octal_latch as u16;
+                let base_addr = if self.is_um6578() {
+                    self.ppu_pattern_address_register_chr
+                } else {
+                    (self.ppu_pattern_address_register_chr & 0xFF00) | self.ppu_octal_latch as u16
+                };
                 self.ppu_address_bus = base_addr;
                 self.onebus_begin_bg_chr_fetch();
                 self.ppu_render_temp = self.fetch_ppu();
@@ -1327,7 +1421,7 @@ impl Emulator {
                     self.onebus_clear_chr_fetch();
                 }
                 if self.is_um6578_4bpp() {
-                    self.ppu_address_bus = (base_addr | 0x10) | 8;
+                    self.ppu_address_bus = self.ppu_pattern_address_register_chr | 0x10;
                     self.ppu_high_bit_plane_hi = self.fetch_ppu();
                 }
             }
@@ -1350,7 +1444,9 @@ impl Emulator {
 
         if self.ppu_dot == 0 {
             self.ppu_check_par();
-            self.ppu_pattern_address_register_chr &= 0b1111111110111;
+            if !self.is_um6578() {
+                self.ppu_pattern_address_register_chr &= 0b1111111110111;
+            }
             if self.ppu_scanline != self.pre_render_scanline() {
                 self.ppu_address_bus = self.ppu_pattern_address_register_chr;
             }
@@ -1383,6 +1479,7 @@ impl Emulator {
     pub fn ppu_render_commit_shift_registers_and_bit_planes(&mut self) {
         if self.ppu_commit_nametable_fetch {
             self.ppu_commit_nametable_fetch = false;
+            if !self.is_um6578() {
             self.ppu_pattern_address_register_chr &= 0b1000000001111;
             if self.ppu_dot < 256 || self.ppu_dot > 320 {
                 self.ppu_pattern_address_register_chr |= (self.ppu_address_bus & 0xFF) << 4;
@@ -1393,9 +1490,11 @@ impl Emulator {
                 let idx = ((self.oam2_address & 0x1C) + 1) as usize;
                 self.ppu_pattern_address_register_chr |= (self.oam2[idx] as u16) << 4;
             }
+            }
         }
         if self.ppu_commit_attribute_fetch {
             self.ppu_commit_attribute_fetch = false;
+            if !self.is_um6578() {
             self.ppu_attribute = self.ppu_render_temp;
             if (self.ppu_v & 3) >= 2 {
                 self.ppu_attribute >>= 2;
@@ -1415,6 +1514,7 @@ impl Emulator {
                     0
                 };
             }
+            }
         }
         if self.ppu_commit_pattern_low_fetch {
             self.ppu_commit_pattern_low_fetch = false;
@@ -1431,7 +1531,7 @@ impl Emulator {
     fn ppu_update_bg_shift_registers(&mut self) {
         self.ppu_bg_pattern_sr_l <<= 1;
         self.ppu_bg_pattern_sr_h = (self.ppu_bg_pattern_sr_h << 1) | 1;
-        if self.vt03_4bpp_bg_enabled() || self.is_um6578_4bpp() {
+        if self.vt03_4bpp_bg_enabled() || self.is_um6578() {
             self.ppu_bg_pattern_sr_l2 <<= 1;
             self.ppu_bg_pattern_sr_h2 = (self.ppu_bg_pattern_sr_h2 << 1) | 1;
         }
@@ -1440,6 +1540,33 @@ impl Emulator {
     }
 
     fn ppu_load_shift_registers(&mut self) {
+        if self.is_um6578() {
+            if self.is_um6578_4bpp() {
+                let palette = (self.um6578_nt_attr_byte >> 6) & 0x3;
+                self.um6578_bg_palette_lo = self.um6578_bg_palette;
+                self.um6578_bg_palette = palette;
+                self.ppu_bg_pattern_sr_l =
+                    (self.ppu_bg_pattern_sr_l & 0xFF00) | self.ppu_low_bit_plane as u16;
+                self.ppu_bg_pattern_sr_h =
+                    (self.ppu_bg_pattern_sr_h & 0xFF00) | self.ppu_high_bit_plane as u16;
+                self.ppu_bg_pattern_sr_l2 =
+                    (self.ppu_bg_pattern_sr_l2 & 0xFF00) | self.ppu_low_bit_plane_hi as u16;
+                self.ppu_bg_pattern_sr_h2 =
+                    (self.ppu_bg_pattern_sr_h2 & 0xFF00) | self.ppu_high_bit_plane_hi as u16;
+            } else {
+                let palette = (self.um6578_nt_attr_byte >> 4) & 0xF;
+                self.um6578_bg_palette_lo = self.um6578_bg_palette;
+                self.um6578_bg_palette = palette;
+                self.ppu_bg_pattern_sr_l =
+                    (self.ppu_bg_pattern_sr_l & 0xFF00) | self.ppu_low_bit_plane as u16;
+                self.ppu_bg_pattern_sr_h =
+                    (self.ppu_bg_pattern_sr_h & 0xFF00) | self.ppu_high_bit_plane as u16;
+                self.ppu_bg_pattern_sr_l2 = 0;
+                self.ppu_bg_pattern_sr_h2 = 0;
+            }
+            self.ppu_attr_latch_register = self.ppu_attribute;
+            return;
+        }
         self.ppu_bg_pattern_sr_l =
             (self.ppu_bg_pattern_sr_l & 0xFF00) | self.ppu_low_bit_plane as u16;
         self.ppu_bg_pattern_sr_h =
@@ -1464,9 +1591,41 @@ impl Emulator {
 
     pub(crate) fn ppu_check_par(&mut self) {
         if self.ppu_dot < 256 || self.ppu_dot > 320 {
+            if self.is_um6578() {
+                let mut addr = ((self.um6578_nt_attr_byte as u16) << 12) & 0xF000
+                    | ((self.um6578_nt_tile_byte as u16) << 4)
+                    | ((self.ppu_v >> 12) & 0x07);
+                if self.is_um6578_4bpp() {
+                    addr &= !0x10;
+                }
+                self.ppu_pattern_address_register_chr = addr;
+            } else {
             self.ppu_pattern_address_register_chr &= 0b0111111111000;
             self.ppu_pattern_address_register_chr |= if self.ppu_pattern_select_background { 0b1000000000000 } else { 0 };
             self.ppu_pattern_address_register_chr |= (self.ppu_v & 0b0111000000000000) >> 12;
+            }
+        } else if self.is_um6578() {
+            let flipy = (self.oam2[((self.oam2_address & 0x1C) + 2) as usize] & 0x80) != 0;
+            let tc = self.oam2[((self.oam2_address & 0x1C) + 1) as usize] as u16;
+            let spr_sl = self.in_range_check;
+            let reg2008 = self.um6578_reg2008 as u16;
+            if self.ppu_sprite_x16 {
+                let y = if self.is_um6578_4bpp_sprites() {
+                    (spr_sl & 7)
+                        ^ if flipy { 0x27 } else { 0 }
+                        ^ ((spr_sl & 8) << 2)
+                } else {
+                    (spr_sl & 7)
+                        ^ if flipy { 0x17 } else { 0 }
+                        ^ ((spr_sl & 8) << 1)
+                };
+                self.ppu_pattern_address_register_chr =
+                    ((tc & 0xFE) << 4) | y | ((reg2008 << 10) & 0x2000);
+            } else {
+                let y = (spr_sl & 7) ^ if flipy { 7 } else { 0 };
+                self.ppu_pattern_address_register_chr =
+                    (tc << 4) | y | ((reg2008 << 10) & 0x3000);
+            }
         } else {
             if !self.ppu_sprite_x16 {
                 let flipy = (self.oam2[((self.oam2_address & 0x1C) + 2) as usize] & 0x80) != 0;
@@ -1591,6 +1750,11 @@ impl Emulator {
 
         let mut palette: u8 = 0;
         let mut color: u8 = 0;
+
+        if self.is_um6578() {
+            self.ppu_render_calculate_pixel_um6578();
+            return;
+        }
 
         let bg_color_mask: u8 = if self.vt03_4bpp_bg_enabled() || self.is_um6578_4bpp() { 0x0F } else { 0x03 };
         let sp_color_mask: u8 = if self.vt03_4bpp_sp_enabled() || self.is_um6578_4bpp() { 0x0F } else { 0x03 };
@@ -1766,6 +1930,70 @@ impl Emulator {
         }
     }
 
+    fn ppu_render_calculate_pixel_um6578(&mut self) {
+        let cm = self.um6578_color_mask;
+        let four = self.is_um6578_4bpp();
+        let four_sp = self.is_um6578_4bpp_sprites();
+        let px = 15 - self.ppu_fine_x_scroll as u16;
+
+        let mut out_tc: u8 = 0;
+        let mut bg_opaque = false;
+        if self.ppu_mask_show_background
+            && (self.ppu_dot > 8 || self.ppu_mask_8px_show_background)
+        {
+            let c0 = ((self.ppu_bg_pattern_sr_l >> px) & 1) as u8;
+            let c1 = ((self.ppu_bg_pattern_sr_h >> px) & 1) as u8;
+            let pal = self.um6578_bg_palette_lo;
+            let tc = if four {
+                let c2 = ((self.ppu_bg_pattern_sr_l2 >> px) & 1) as u8;
+                let c3 = ((self.ppu_bg_pattern_sr_h2 >> px) & 1) as u8;
+                c0 | (c1 << 1) | (c2 << 2) | (c3 << 3) | ((pal & 0x3) << 4)
+            } else {
+                c0 | (c1 << 1) | ((pal & 0xF) << 2)
+            };
+            if (tc & cm) != 0 {
+                out_tc = tc & 0x3F;
+                bg_opaque = true;
+            }
+        }
+
+        if self.ppu_mask_show_sprites
+            && (self.ppu_dot > 8 || self.ppu_mask_8px_show_sprites)
+        {
+            for i in 0..8 {
+                if self.ppu_sprite_shifter_counter[i] != 0 && !self.skipped_pre_render_dot_341 {
+                    continue;
+                }
+                let sl = (self.ppu_sprite_sr_l[i] & 0x80) != 0;
+                let sh = (self.ppu_sprite_sr_h[i] & 0x80) != 0;
+                let mut sc = (sh as u8) << 1 | sl as u8;
+                if four_sp {
+                    let sl2 = (self.ppu_sprite_sr_l2[i] & 0x80) != 0;
+                    let sh2 = (self.ppu_sprite_sr_h2[i] & 0x80) != 0;
+                    sc |= (sl2 as u8) << 2 | (sh2 as u8) << 3;
+                }
+                if (sc & cm) == 0 {
+                    continue;
+                }
+                let behind = (self.ppu_sprite_attribute[i] >> 5) & 1 == 1;
+                if !bg_opaque || !behind {
+                    let palette = self.ppu_sprite_attribute[i] & 0x03;
+                    out_tc = if four_sp {
+                        ((palette & 0x3) << 4) | sc
+                    } else {
+                        0x10 | (palette << 2) | sc
+                    };
+                }
+                break;
+            }
+        }
+
+        self.palette_ram_address = out_tc;
+        let pal_val = self.palette_ram[out_tc as usize] & 0x3F;
+        self.dot_color = pal_val;
+        self.dot_color_rgb = NES_PALETTE[pal_val as usize];
+    }
+
     fn draw_to_screen(&mut self) {
         if self.ppu_dot > 3 && self.ppu_dot <= 259 && self.ppu_scanline < 241 {
             let mut chosen_color = self.prev_prev_prev_dot_color as usize;
@@ -1822,7 +2050,7 @@ impl Emulator {
                 } else if self.ppu_mask_show_sprites || self.ppu_mask_show_background {
                     self.ppu_sprite_sr_l[i] <<= 1;
                     self.ppu_sprite_sr_h[i] <<= 1;
-                    if self.vt03_4bpp_sp_enabled() || self.is_um6578_4bpp() {
+                    if self.vt03_4bpp_sp_enabled() || self.is_um6578_4bpp_sprites() {
                         self.ppu_sprite_sr_l2[i] <<= 1;
                         self.ppu_sprite_sr_h2[i] <<= 1;
                     }
@@ -2248,16 +2476,7 @@ impl Emulator {
                                     if self.secondary_oam_full && !self.nine_objects_on_this_scanline {
                                         if (self.ppu_oam_address & 0x3) == 3 {
                                             self.ppu_oam_address = self.ppu_oam_address.wrapping_add(1);
-        } else if self.is_um6578() {
-            let tc = self.palette_ram_address as usize;
-            let addr = if (tc & self.um6578_color_mask as usize) != 0 {
-                tc & 0x3F
-            } else {
-                0
-            };
-            let pal_idx = (self.palette_ram[addr] & 0x3F) as usize;
-            self.dot_color_rgb = NES_PALETTE[pal_idx];
-        } else {
+                                        } else {
                                             self.ppu_oam_address = self.ppu_oam_address.wrapping_add(4);
                                             self.ppu_oam_address = self.ppu_oam_address.wrapping_add(1);
                                         }
@@ -2416,7 +2635,9 @@ impl Emulator {
                         if slot < 8 { self.ppu_sprite_x_position[slot] = self.ppu_oam_latch; }
                         self.ppu_sprite_get_address((self.oam2_address / 4) as usize);
                         self.ppu_check_par();
-                        self.ppu_pattern_address_register_chr &= 0b1111111110111;
+                        if !self.is_um6578() {
+                            self.ppu_pattern_address_register_chr &= 0b1111111110111;
+                        }
                         self.ppu_address_bus = self.ppu_pattern_address_register_chr;
                     }
                 }
@@ -2425,8 +2646,14 @@ impl Emulator {
                         self.ppu_oam_latch = self.oam2[self.oam2_address as usize];
                         let slot = (self.oam2_address / 4) as usize;
                         if slot < 8 { self.ppu_sprite_x_position[slot] = self.ppu_oam_latch; }
-                        self.ppu_sprite_get_address((self.oam2_address / 4) as usize);
-                        let base_addr = (self.ppu_address_bus & 0xFF00) | self.ppu_octal_latch as u16;
+                        if !self.is_um6578() {
+                            self.ppu_sprite_get_address((self.oam2_address / 4) as usize);
+                        }
+                        let base_addr = if self.is_um6578() {
+                            self.ppu_pattern_address_register_chr
+                        } else {
+                            (self.ppu_address_bus & 0xFF00) | self.ppu_octal_latch as u16
+                        };
                         self.ppu_address_bus = base_addr;
                         self.onebus_begin_sprite_chr_fetch(slot);
                         self.ppu_sprite_pattern_l = self.fetch_ppu();
@@ -2452,8 +2679,8 @@ impl Emulator {
                                 if slot < 8 { self.ppu_sprite_sr_l2[slot] = 0; }
                             }
                         }
-                        if self.is_um6578_4bpp() {
-                            self.ppu_address_bus = base_addr | 0x10;
+                        if self.is_um6578_4bpp_sprites() {
+                            self.ppu_address_bus = self.ppu_pattern_address_register_chr | 0x10;
                             self.ppu_sprite_pattern_l2 = self.fetch_ppu();
                             if slot < 8 && ((self.ppu_sprite_attribute[slot] >> 6) & 1) == 1 {
                                 self.ppu_sprite_pattern_l2 = Self::flip_byte(self.ppu_sprite_pattern_l2);
@@ -2481,8 +2708,14 @@ impl Emulator {
                         self.ppu_oam_latch = self.oam2[self.oam2_address as usize];
                         let slot = (self.oam2_address / 4) as usize;
                         if slot < 8 { self.ppu_sprite_x_position[slot] = self.ppu_oam_latch; }
-                        self.ppu_sprite_get_address((self.oam2_address / 4) as usize);
-                        let base_addr = (self.ppu_address_bus & 0xFF00) | self.ppu_octal_latch as u16;
+                        if !self.is_um6578() {
+                            self.ppu_sprite_get_address((self.oam2_address / 4) as usize);
+                        }
+                        let base_addr = if self.is_um6578() {
+                            self.ppu_pattern_address_register_chr
+                        } else {
+                            (self.ppu_address_bus & 0xFF00) | self.ppu_octal_latch as u16
+                        };
                         self.ppu_address_bus = base_addr;
                         self.onebus_begin_sprite_chr_fetch(slot);
                         self.ppu_sprite_pattern_h = self.fetch_ppu();
@@ -2508,8 +2741,8 @@ impl Emulator {
                                 if slot < 8 { self.ppu_sprite_sr_h2[slot] = 0; }
                             }
                         }
-                        if self.is_um6578_4bpp() {
-                            self.ppu_address_bus = (base_addr | 0x10) | 8;
+                        if self.is_um6578_4bpp_sprites() {
+                            self.ppu_address_bus = self.ppu_pattern_address_register_chr | 0x10;
                             self.ppu_sprite_pattern_h2 = self.fetch_ppu();
                             if slot < 8 && ((self.ppu_sprite_attribute[slot] >> 6) & 1) == 1 {
                                 self.ppu_sprite_pattern_h2 = Self::flip_byte(self.ppu_sprite_pattern_h2);

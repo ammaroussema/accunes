@@ -1344,7 +1344,7 @@ pub fn create_mapper(
         402 => Box::new(Mapper402::new()),
         403 => Box::new(Mapper403::new()),
         404 => Box::new(Mapper404::new(header, rom, rom_name, using_chr_ram, has_battery)),
-    //  405 => Box::new(Mapper405::new()), (to be implemented in the future)
+        405 => Box::new(Mapper405::new(crate::mappers::mapper405::has_24c02_eeprom(header))),
         406 => Box::new(Mapper406::new(submapper_id, header, rom, rom_name)),
         407 => Box::new(Mapper407::new()),
         408 => Box::new(Mapper408::new()),
@@ -1569,7 +1569,6 @@ pub fn create_mapper(
         591 => Box::new(Mapper591::new()),
         592 => Box::new(Mapper592::new()),
         593 => Box::new(Mapper593::new()),
-        405 => Box::new(Mapper405::new()),
         594 => Box::new(Mapper594::new()),
         600 => Box::new(Mapper600::new()),
         601 => Box::new(Mapper601::new()),

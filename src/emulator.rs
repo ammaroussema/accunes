@@ -58,7 +58,7 @@ pub struct Emulator {
     pub op_code: u8,
     pub operation_cycle: u8,
     pub temporary_address: u16,
-    pub total_cycles: i32,
+    pub total_cycles: u64,
 
     pub flag_carry: bool,
     pub flag_zero: bool,
@@ -96,6 +96,7 @@ pub struct Emulator {
     pub cpu_ram_mask: u16,
     pub um6578_extra_ram: [u8; 0x800],
     pub um6578_vram: [[u8; 0x400]; 0xA],
+    pub um6578_chr_ram: [u8; 0x8000],
     pub um6578_reg2008: u8,
     pub um6578_color_mask: u8,
     pub um6578_dma_control: u8,
@@ -103,7 +104,11 @@ pub struct Emulator {
     pub um6578_dma_source: u16,
     pub um6578_dma_target: u16,
     pub um6578_dma_length: u16,
-    pub um6578_dma_busy: u8,
+    pub um6578_dma_busy: u32,
+    pub um6578_nt_tile_byte: u8,
+    pub um6578_nt_attr_byte: u8,
+    pub um6578_bg_palette: u8,
+    pub um6578_bg_palette_lo: u8,
     pub vram: [u8; 0x800],
     pub oam: [u8; 0x100],
     pub oam2: [u8; 32],
@@ -520,7 +525,7 @@ impl Emulator {
             oam_internal_bus: 0,
             nmi_pins_signal: false, nmi_previous_pins_signal: false,
             irq_level_detector: false, nmi_line: false, irq_line: false,
-            ram, cpu_ram_mask: 0x7FF, um6578_extra_ram: [0u8; 0x800], um6578_vram: [[0u8; 0x400]; 0xA], um6578_reg2008: 0, um6578_color_mask: 0x3, um6578_dma_control: 0, um6578_dma_page: 0, um6578_dma_source: 0, um6578_dma_target: 0, um6578_dma_length: 0, um6578_dma_busy: 0, vram, oam: [0u8; 0x100], oam2, palette_ram,
+            ram, cpu_ram_mask: 0x7FF, um6578_extra_ram: [0u8; 0x800], um6578_vram: [[0u8; 0x400]; 0xA], um6578_chr_ram: [0u8; 0x8000], um6578_reg2008: 0, um6578_color_mask: 0x3, um6578_dma_control: 0, um6578_dma_page: 0, um6578_dma_source: 0, um6578_dma_target: 0, um6578_dma_length: 0, um6578_dma_busy: 0, um6578_nt_tile_byte: 0, um6578_nt_attr_byte: 0, um6578_bg_palette: 0, um6578_bg_palette_lo: 0, vram, oam: [0u8; 0x100], oam2, palette_ram,
             ppu_bus: 0, ppu_bus_decay: [0i32; 8], ppu_oam_address: 0,
             ppu_status_vblank: false, ppu_status_sprite_zero_hit: false,
             ppu_status_sprite_zero_hit_delayed: false,
@@ -738,6 +743,12 @@ impl Emulator {
         } else {
             0x7FF
         };
+        if cart.mapper_chip.is_um6578() {
+            self.apu_frame_counter_inhibit_irq = true;
+            if cart.memory_mapper == 601 {
+                self.um6578_dma_page = 0x20;
+            }
+        }
         let old = self.cart.replace(cart);
         if let Some(old_cart) = old {
             std::thread::spawn(move || drop(old_cart));
@@ -1568,7 +1579,12 @@ impl Emulator {
         out.extend_from_slice(&self.um6578_dma_source.to_le_bytes());
         out.extend_from_slice(&self.um6578_dma_target.to_le_bytes());
         out.extend_from_slice(&self.um6578_dma_length.to_le_bytes());
-        out.push(self.um6578_dma_busy);
+        out.extend_from_slice(&self.um6578_dma_busy.to_le_bytes());
+        out.push(self.um6578_nt_tile_byte);
+        out.push(self.um6578_nt_attr_byte);
+        out.push(self.um6578_bg_palette);
+        out.push(self.um6578_bg_palette_lo);
+        out.extend_from_slice(&self.um6578_chr_ram);
         out
     }
 
@@ -1592,7 +1608,10 @@ impl Emulator {
         self.op_code = read_u8()?;
         self.operation_cycle = read_u8()?;
         self.temporary_address = u16::from_le_bytes([read_u8()?, read_u8()?]);
-        self.total_cycles = i32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        self.total_cycles = u64::from_le_bytes([
+            read_u8()?, read_u8()?, read_u8()?, read_u8()?,
+            read_u8()?, read_u8()?, read_u8()?, read_u8()?,
+        ]);
         self.flag_carry = read_u8()? != 0;
         self.flag_zero = read_u8()? != 0;
         self.flag_interrupt = read_u8()? != 0;
@@ -1902,7 +1921,14 @@ impl Emulator {
             if p + 1 < data.len() { self.um6578_dma_source = u16::from_le_bytes([data[p], data[p+1]]); p+=2; }
             if p + 1 < data.len() { self.um6578_dma_target = u16::from_le_bytes([data[p], data[p+1]]); p+=2; }
             if p + 1 < data.len() { self.um6578_dma_length = u16::from_le_bytes([data[p], data[p+1]]); p+=2; }
-            if p < data.len() { self.um6578_dma_busy = data[p]; }
+            if p + 3 < data.len() { self.um6578_dma_busy = u32::from_le_bytes([data[p], data[p+1], data[p+2], data[p+3]]); p+=4; }
+        if p < data.len() { self.um6578_nt_tile_byte = data[p]; p+=1; }
+        if p < data.len() { self.um6578_nt_attr_byte = data[p]; p+=1; }
+        if p < data.len() { self.um6578_bg_palette = data[p]; p+=1; }
+        if p < data.len() { self.um6578_bg_palette_lo = data[p]; p+=1; }
+            for i in 0..self.um6578_chr_ram.len() {
+                if p < data.len() { self.um6578_chr_ram[i] = data[p]; p+=1; }
+            }
         }
         Ok(())
     }

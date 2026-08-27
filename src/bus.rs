@@ -89,8 +89,24 @@ impl Emulator {
                     self.data_pins_are_not_floating = true;
                     return self.data_bus;
                 }
+                if self.cart.as_ref().map_or(false, |c| c.mapper_chip.is_um6578())
+                    && (0x2040..=0x207F).contains(&address)
+                {
+                    self.data_bus = self.palette_ram[(address & 0x3F) as usize];
+                    self.data_pins_are_not_floating = true;
+                    return self.data_bus;
+                }
                 // ppu registers
-                let reg = address & 0x2007;
+                let reg = if self.cart.as_ref().map_or(false, |c| c.mapper_chip.is_um6578()) {
+                    if address > 0x2007 {
+                        self.data_bus = self.ppu_bus;
+                        self.data_pins_are_not_floating = true;
+                        return self.data_bus;
+                    }
+                    address
+                } else {
+                    address & 0x2007
+                };
                 match reg {
                     0x2000 => { self.data_bus = self.ppu_bus; }
                     0x2001 => { self.data_bus = self.ppu_bus; }
@@ -116,7 +132,8 @@ impl Emulator {
                     0x2005 => { self.data_bus = self.ppu_bus; }
                     0x2006 => { self.data_bus = self.ppu_bus; }
                     0x2007 => {
-                        if (self.ppu_v & 0x3FFF) >= 0x3F00 {
+                        if !self.cart.as_ref().map_or(false, |c| c.mapper_chip.is_um6578())
+                            && (self.ppu_v & 0x3FFF) >= 0x3F00 {
                             self.this_dot_read_from_palette_ram = true;
                             let is_onebus = self
                                 .cart
@@ -243,7 +260,7 @@ impl Emulator {
                     };
                     let mut val = if readbit >= 16 { 0 } else { ret };
                     if readbit == if w == 0 { 19 } else { 18 } { val = 1; }
-                    self.fourscore_readbit[w] += 1;
+                    self.fourscore_readbit[w] = self.fourscore_readbit[w].wrapping_add(1);
                     self.apu_controller_ports_strobed = false;
                     let fs_byte = (val as u8) | (self.data_bus & 0xFE);
                     if self.do_oam_dma && self.data_pins_are_not_floating {
@@ -336,7 +353,7 @@ impl Emulator {
                         1
                     };
                     drop(snes_state_lock);
-                    self.snes_readbit[idx] += 1;
+                    self.snes_readbit[idx] = self.snes_readbit[idx].wrapping_add(1);
                     self.apu_controller_ports_strobed = false;
                     let snes_byte = (snes_val as u8) | (self.data_bus & 0xFE);
                     if self.do_oam_dma && self.data_pins_are_not_floating {
@@ -354,7 +371,7 @@ impl Emulator {
                     } else {
                         1
                     };
-                    self.snes_mouse_readbit[idx] += 1;
+                    self.snes_mouse_readbit[idx] = self.snes_mouse_readbit[idx].wrapping_add(1);
                     self.apu_controller_ports_strobed = false;
                     let mouse_byte = (mouse_val as u8) | (self.data_bus & 0xFE);
                     if self.do_oam_dma && self.data_pins_are_not_floating {
@@ -582,49 +599,46 @@ impl Emulator {
                 let apu_addr = 0x4000 + (address & 0x0F);
                 self.store_apu_registers(apu_addr, input);
             }
+            if self.cart.as_ref().map_or(false, |c| c.mapper_chip.is_um6578()) && address == 0x4016 {
+                if self.cart.as_ref().map_or(false, |c| c.memory_mapper == 600) {
+                    self.um6578_dma_page = (self.um6578_dma_page & 0x1F) | ((input << 4) & 0xE0);
+                }
+            }
+            if self.cart.as_ref().map_or(false, |c| c.mapper_chip.is_um6578()) && address == 0x4026 {
+                if self.cart.as_ref().map_or(false, |c| c.memory_mapper == 601) {
+                    self.um6578_dma_page = (self.um6578_dma_page & 0x1F) | ((input >> 2) & 0xE0);
+                }
+            }
             if self.cart.as_ref().map_or(false, |c| c.mapper_chip.is_um6578()) && (0x4048..=0x404F).contains(&address) {
                 match address {
                     0x4048 => {
                         self.um6578_dma_control = input;
                         if input & 0x80 != 0 {
-                            let len = (self.um6578_dma_length as usize) & 0x7FFF;
-                            for i in 0..=len {
-                                let src = ((self.um6578_dma_source as usize + i) & 0x7FFF) | ((self.um6578_dma_page as usize) << 15);
-                                let dst = (self.um6578_dma_target as usize + i) & 0xFFFF;
-                                let data = if src & 0x8000 != 0 {
-                                    let prg_len = self.cart.as_ref().map_or(0, |c| c.prg_rom.len());
-                                    if prg_len == 0 { 0 } else { self.cart.as_ref().unwrap().prg_rom[src % prg_len] }
-                                } else {
-                                    self.ram[(src & self.cpu_ram_mask as usize) % self.ram.len()]
-                                };
-                                if self.um6578_dma_control & 0x20 != 0 {
-                                    let idx = (dst & self.cpu_ram_mask as usize) % self.ram.len();
-                                    self.ram[idx] = data;
-                                } else {
-                                    let a = dst & 0x3FFF;
-                                    if a < 0x2000 {
-                                        let chr = self.cart.as_ref().map_or(0, |c| c.mapper_chip.um6578_chr()) as usize;
-                                        if chr != 0 {
-                                            let b = (a >> 10) as usize;
-                                            let o = (a & 0x3FF) as usize;
-                                            let phys = ((chr << 2) | (b & 0x03)) % 8;
-                                            self.um6578_vram[phys][o] = data;
-                                        } else {
-                                            let b = (a >> 10) as usize;
-                                            let o = (a & 0x3FF) as usize;
-                                            if b < 8 { self.um6578_vram[b][o] = data; }
-                                        }
-                                    } else if a < 0x2800 {
-                                        let b = 8 + ((a >> 10) & 1) as usize;
-                                        let o = (a & 0x3FF) as usize;
-                                        self.um6578_vram[b][o] = data;
-                                    } else if a >= 0x3F00 {
-                                        self.palette_ram[(a & 0x3F) as usize] = data;
-                                    }
-                                }
-                            }
-                            self.um6578_dma_busy = 0;
                             self.um6578_dma_control &= !0x80;
+                            let ctrl = input;
+                            let page = self.um6578_dma_page as usize;
+                            let mut src = self.um6578_dma_source;
+                            let mut dst = self.um6578_dma_target;
+                            let len = self.um6578_dma_length;
+                            let mut busy: u32 = 0;
+                            for _ in 0..=len {
+                                let data = if src & 0x8000 != 0 {
+                                    let rom_addr = (src as usize & 0x7FFF) | (page << 15);
+                                    let prg_len = self.cart.as_ref().map_or(0, |c| c.prg_rom.len());
+                                    if prg_len == 0 { 0u8 } else { self.cart.as_ref().unwrap().prg_rom[rom_addr % prg_len] }
+                                } else {
+                                    self.um6578_cpu_read(src)
+                                };
+                                if ctrl & 0x20 != 0 {
+                                    self.um6578_cpu_write(dst, data);
+                                } else {
+                                    self.um6578_write_ppu(dst, data);
+                                }
+                                src = src.wrapping_add(1);
+                                dst = dst.wrapping_add(1);
+                                busy = busy.saturating_add(if ctrl & 0x40 != 0 { 1 } else { 2 });
+                            }
+                            self.um6578_dma_busy = busy;
                         }
                     }
                     0x4049 => self.um6578_dma_page = input & 0x1F,
@@ -882,35 +896,34 @@ impl Emulator {
         }
     }
 
+    fn um6578_cpu_read(&self, addr: u16) -> u8 {
+        let a = addr & 0x7FFF;
+        if a < 0x2000 {
+            let idx = (a & self.cpu_ram_mask) as usize % self.ram.len();
+            self.ram[idx]
+        } else if (0x5000..0x5800).contains(&a) {
+            self.um6578_extra_ram[(a & 0x7FF) as usize]
+        } else {
+            0xFF
+        }
+    }
+
+    fn um6578_cpu_write(&mut self, addr: u16, data: u8) {
+        let a = addr & 0x7FFF;
+        if a < 0x2000 {
+            let idx = (a & self.cpu_ram_mask) as usize % self.ram.len();
+            self.ram[idx] = data;
+        } else if (0x5000..0x5800).contains(&a) {
+            self.um6578_extra_ram[(a & 0x7FF) as usize] = data;
+        }
+    }
+
     pub fn store_ppu_data(&mut self, address: u16, input: u8) {
-        let address = address & 0x3FFF;
         if self.cart.as_ref().map_or(false, |c| c.mapper_chip.is_um6578()) {
-            if address < 0x2000 {
-                let chr = self.cart.as_ref().map_or(0, |c| c.mapper_chip.um6578_chr()) as usize;
-                if chr != 0 {
-                    let bank = (address >> 10) as usize;
-                    let off = (address & 0x3FF) as usize;
-                    let phys = ((chr << 2) | (bank & 0x03)) % 8;
-                    self.um6578_vram[phys][off] = input;
-                } else {
-                    let bank = (address >> 10) as usize;
-                    let off = (address & 0x3FF) as usize;
-                    if bank < 8 { self.um6578_vram[bank][off] = input; }
-                }
-                return;
-            } else if address < 0x2800 {
-                let bank = 8 + ((address >> 10) & 1) as usize;
-                let off = (address & 0x3FF) as usize;
-                self.um6578_vram[bank][off] = input;
-                return;
-            } else if address < 0x3F00 {
-                return;
-            }
-            let pal_addr = (address & 0x3F) as usize;
-            self.palette_ram[pal_addr] = input;
-            self.palette_ram[pal_addr | 0x10] = input;
+            self.um6578_write_ppu(address, input);
             return;
         }
+        let address = address & 0x3FFF;
         let vt369_enhanced = self
             .cart
             .as_ref()
