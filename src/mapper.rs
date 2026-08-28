@@ -331,6 +331,7 @@ pub use crate::mappers::mapper442::Mapper442;
 pub use crate::mappers::mapper443::Mapper443;
 pub use crate::mappers::mapper444::Mapper444;
 pub use crate::mappers::mapper445::Mapper445;
+pub use crate::mappers::mapper446::Mapper446;
 pub use crate::mappers::mapper447::Mapper447;
 pub use crate::mappers::mapper448::Mapper448;
 pub use crate::mappers::mapper449::Mapper449;
@@ -352,6 +353,7 @@ pub use crate::mappers::mapper464::Mapper464;
 pub use crate::mappers::mapper465::Mapper465;
 pub use crate::mappers::mapper466::Mapper466;
 pub use crate::mappers::mapper467::Mapper467;
+pub use crate::mappers::mapper468::Mapper468;
 pub use crate::mappers::mapper469::Mapper469;
 pub use crate::mappers::mapper470::Mapper470;
 pub use crate::mappers::mapper471::Mapper471;
@@ -359,6 +361,7 @@ pub use crate::mappers::mapper472::Mapper472;
 pub use crate::mappers::mapper473::Mapper473;
 pub use crate::mappers::mapper474::Mapper474;
 pub use crate::mappers::mapper475::Mapper475;
+pub use crate::mappers::mapper477::Mapper477;
 pub use crate::mappers::mapper478::Mapper478;
 pub use crate::mappers::mapper479::Mapper479;
 pub use crate::mappers::mapper480::Mapper480;
@@ -537,10 +540,17 @@ pub use crate::mappers::mapper591::Mapper591;
 pub use crate::mappers::mapper592::Mapper592;
 pub use crate::mappers::mapper593::Mapper593;
 pub use crate::mappers::mapper594::Mapper594;
+pub use crate::mappers::mapper595::Mapper595;
+pub use crate::mappers::mapper596::Mapper596;
+pub use crate::mappers::mapper597::Mapper597;
+pub use crate::mappers::mapper598::Mapper598;
+pub use crate::mappers::mapper599::Mapper599;
 pub use crate::mappers::mapper600::Mapper600;
 pub use crate::mappers::mapper601::Mapper601;
 pub use crate::mappers::mapper602::Mapper602;
+pub use crate::mappers::mapper756::Mapper756;
 pub use crate::mappers::mapper761::Mapper761;
+pub use crate::mappers::mapper764::Mapper764;
 pub use crate::mappers::mapper767::Mapper767;
 
 pub fn mirror_h_or_v(horizontal: bool, address: u16) -> u16 {
@@ -1142,7 +1152,7 @@ pub fn create_mapper(
         217 => Box::new(Mapper217::new()),
         218 => Box::new(Mapper218::new()),
         219 => Box::new(Mapper219::new(header, rom, rom_name)),
-//      220 => Box::new(Mapper220::new()), (fceux debug assignment)
+        220 => Box::new(Mapper547::new(header, rom, rom_name)),
         221 => Box::new(Mapper221::new()),
         222 => Box::new(Mapper222::new()),
         223 => Box::new(Mapper199::new()),
@@ -1385,7 +1395,7 @@ pub fn create_mapper(
         443 => Box::new(Mapper443::new(header, rom, rom_name)),
         444 => Box::new(Mapper444::new(submapper_id, header, rom, rom_name)),
         445 => Box::new(Mapper445::new(header, rom, rom_name)),
-    //  446 => Box::new(Mapper446::new()), (to be implemented in the future)
+        446 => Box::new(Mapper446::new(submapper_id, header, rom, rom_name)),
         447 => Box::new(Mapper447::new()),
         448 => Box::new(Mapper448::new()),
         449 => Box::new(Mapper449::new()),
@@ -1409,7 +1419,7 @@ pub fn create_mapper(
         465 => Box::new(Mapper465::new()),
         466 => Box::new(Mapper466::new()),
         467 => Box::new(Mapper467::new(header, rom, rom_name)),
-    //  468 => Box::new(Mapper468::new()), (to be implemented in the future)
+        468 => Box::new(Mapper468::new(submapper_id, header, rom, rom_name, using_chr_ram, has_battery)),
         469 => {
              let has_trainer = (header[6] & 4) != 0;
              let trainer_len = if has_trainer { 512 } else { 0 };
@@ -1423,7 +1433,7 @@ pub fn create_mapper(
         474 => Box::new(Mapper474::new(header, rom, rom_name)),
         475 => Box::new(Mapper475::new(header, rom, rom_name)),
         476 => Box::new(Mapper476::new()),
-    //  477 => Box::new(Mapper477::new()), (no public references found)
+        477 => Box::new(Mapper477::new()),
         478 => Box::new(Mapper478::new(submapper_id, header, rom, rom_name)),
         479 => Box::new(Mapper479::new(submapper_id, header, rom, rom_name)),
         480 => Box::new(Mapper480::new(submapper_id, header, rom, rom_name)),
@@ -1570,10 +1580,49 @@ pub fn create_mapper(
         592 => Box::new(Mapper592::new()),
         593 => Box::new(Mapper593::new()),
         594 => Box::new(Mapper594::new()),
+        595 => Box::new(Mapper595::new()),
+        596 => Box::new(Mapper596::new()),
+        597 => Box::new(Mapper597::new()),
+        598 => Box::new(Mapper598::new()),
+        599 => Box::new(Mapper599::new()),
         600 => Box::new(Mapper600::new()),
         601 => Box::new(Mapper601::new()),
         602 => Box::new(Mapper602::new()),
+        740 => Box::new(Mapper489::new()),
+        741 => Box::new(Mapper570::new()),
+        742 => Box::new(Mapper574::new()),
+        743 => Box::new(Mapper586::new()),
+        744 => Box::new(Mapper588::new()),
+        745 => Box::new(Mapper508::new(header, rom, rom_name)),
+        746 => Box::new(Mapper581::new()),
+        747 => Box::new(Mapper509::new(header, rom, rom_name)),
+        748 => Box::new(Mapper492::new()),
+        749 => Box::new(Mapper584::new()),
+        750 => Box::new(Mapper510::new(header, rom, rom_name)),
+        751 => Box::new(Mapper579::new()),
+        752 => Box::new(Mapper461::new(header, rom, rom_name, using_chr_ram, has_battery)),
+        753 => Box::new(Mapper511::new(header, rom, rom_name)),
+    //  754 => Box::new(Mapper754::new()), (unassigned)
+        755 => Box::new(Mapper566::new()),
+        756 => Box::new(Mapper756::new()),
+        757 => Box::new(Mapper567::new()),
+        758 => Box::new(Mapper568::new()),
+        759 => Box::new(Mapper573::new()),
+        760 => {
+            Box::new(MapperMMC3::new(Mmc3Config::for_ines(
+                header,
+                submapper_id,
+                if using_chr_ram { 0 } else { header[5] },
+                rom,
+                rom_name,
+            )))
+        }
         761 => Box::new(Mapper761::new()),
+        762 => Box::new(Mapper589::new()),
+        763 => Box::new(Mapper61::new()),
+        764 => Box::new(Mapper764::new()),
+        765 => Box::new(Mapper569::new()),
+        766 => Box::new(Mapper499::new(header, rom, rom_name, using_chr_ram, has_battery)),
         767 => Box::new(Mapper767::new()),
         _ => {
             return Err(format!("Mapper {} is currently unsupported", mapper_id));
