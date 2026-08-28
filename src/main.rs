@@ -1177,10 +1177,24 @@ fn main() {
         let update_state = update_check_state.clone();
         let auto_started = auto_check_started.clone();
         std::thread::spawn(move || {
-            let mut state = update_state.lock().unwrap();
-            *state = UpdateCheckState::Checking;
-            drop(state);
-            match ureq::get("https://api.github.com/repos/ammaroussema/accunes/releases/latest")
+            {
+                let mut state = update_state.lock().unwrap();
+                *state = UpdateCheckState::Checking;
+            }
+            let tls = match ureq::native_tls::TlsConnector::new() {
+                Ok(c) => c,
+                Err(_) => {
+                    let mut state = update_state.lock().unwrap();
+                    *state = UpdateCheckState::Idle;
+                    auto_started.store(false, Ordering::Relaxed);
+                    return;
+                }
+            };
+            let agent = ureq::AgentBuilder::new()
+                .tls_connector(std::sync::Arc::new(tls))
+                .build();
+            match agent
+                .get("https://api.github.com/repos/ammaroussema/accunes/releases/latest")
                 .set("User-Agent", "AccuNES")
                 .call()
             {
@@ -3753,10 +3767,23 @@ fn main() {
                                         paused_clone.store(true, Ordering::Relaxed);
                                         let update_state = update_check_state.clone();
                                         thread::spawn(move || {
-                                            let mut state = update_state.lock().unwrap();
-                                            *state = UpdateCheckState::Checking;
-                                            drop(state);
-                                            match ureq::get("https://api.github.com/repos/ammaroussema/accunes/releases/latest")
+                                            {
+                                                let mut state = update_state.lock().unwrap();
+                                                *state = UpdateCheckState::Checking;
+                                            }
+                                            let tls = match ureq::native_tls::TlsConnector::new() {
+                                                Ok(c) => c,
+                                                Err(e) => {
+                                                    let mut state = update_state.lock().unwrap();
+                                                    *state = UpdateCheckState::Error(format!("TLS init failed: {}", e));
+                                                    return;
+                                                }
+                                            };
+                                            let agent = ureq::AgentBuilder::new()
+                                                .tls_connector(std::sync::Arc::new(tls))
+                                                .build();
+                                            match agent
+                                                .get("https://api.github.com/repos/ammaroussema/accunes/releases/latest")
                                                 .set("User-Agent", "AccuNES")
                                                 .call()
                                             {
