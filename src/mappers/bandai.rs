@@ -426,7 +426,6 @@ impl MapperBandai {
         }
     }
 }
-#[allow(dead_code)]
 pub fn datach_set_barcode(mapper: &mut MapperBandai, rcode: &[u8]) -> bool {
     if mapper.kind != BandaiKind::Mapper157 {
         return false;
@@ -737,6 +736,10 @@ impl Mapper for MapperBandai {
             self.barcode_out = 0;
             self.barcode_cycle_count = 0;
         }
+    }
+
+    fn set_barcode(&mut self, rcode: &[u8]) -> bool {
+        datach_set_barcode(self, rcode)
     }
 
     fn battery_save_data(&self, cart: &Cartridge) -> Option<Vec<u8>> {

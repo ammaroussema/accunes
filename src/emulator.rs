@@ -1021,6 +1021,14 @@ impl Emulator {
         }
     }
 
+    pub fn set_barcode(&mut self, rcode: &[u8]) -> bool {
+        if let Some(ref mut cart) = self.cart {
+            cart.mapper_chip.set_barcode(rcode)
+        } else {
+            false
+        }
+    }
+
     #[allow(dead_code)]
     pub fn get_vs_ppu_variant(&self) -> u8 {
         self.vs_ppu_variant

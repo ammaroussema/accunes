@@ -7,6 +7,7 @@ pub enum VrcVariant {
     Mapper22,
     Mapper23,
     Mapper25,
+    Mapper617,
 }
 
 pub struct Vrc2And4 {
@@ -37,6 +38,7 @@ impl Vrc2And4 {
             VrcVariant::Mapper22 => (0x02, 0x01, false, false, true),
             VrcVariant::Mapper23 => (0x15, 0x2a, true, true, false),
             VrcVariant::Mapper25 => (0x0a, 0x05, true, true, false),
+            VrcVariant::Mapper617 => (0x05, 0x0a, true, true, false),
         };
         Vrc2And4 {
             variant,
@@ -68,6 +70,26 @@ impl Vrc2And4 {
         if index < 8 { self.chr_reg[index] as u16 | self.chr_hi[index] } else { 0 }
     }
 
+    pub fn prg_slot_bank(&self, slot: usize) -> u16 {
+        if self.reg_cmd & 2 != 0 {
+            match slot {
+                0 => (!1 & 0x1F) | self.big_bank as u16,
+                1 => self.prg_reg[1] as u16 | self.big_bank as u16,
+                2 => self.prg_reg[0] as u16 | self.big_bank as u16,
+                3 => (!0 & 0x1F) | self.big_bank as u16,
+                _ => 0,
+            }
+        } else {
+            match slot {
+                0 => self.prg_reg[0] as u16,
+                1 => self.prg_reg[1] as u16,
+                2 => (!1 & 0x1F) | self.big_bank as u16,
+                3 => (!0 & 0x1F) | self.big_bank as u16,
+                _ => 0,
+            }
+        }
+    }
+
     fn decode_address(&self, address: u16) -> u16 {
         let base = address & 0xF000;
         let bit1 = if address & self.reg2mask as u16 != 0 { 1 << 1 } else { 0 };
@@ -79,23 +101,8 @@ impl Vrc2And4 {
 impl Mapper for Vrc2And4 {
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
-            let bank = if self.reg_cmd & 2 != 0 {
-                match address {
-                    0x8000..=0x9FFF => (!1 & 0x1F) | self.big_bank as u16,
-                    0xA000..=0xBFFF => self.prg_reg[1] as u16 | self.big_bank as u16,
-                    0xC000..=0xDFFF => self.prg_reg[0] as u16 | self.big_bank as u16,
-                    0xE000..=0xFFFF => (!0 & 0x1F) | self.big_bank as u16,
-                    _ => 0,
-                }
-            } else {
-                match address {
-                    0x8000..=0x9FFF => self.prg_reg[0] as u16 | self.big_bank as u16,
-                    0xA000..=0xBFFF => self.prg_reg[1] as u16 | self.big_bank as u16,
-                    0xC000..=0xDFFF => (!1 & 0x1F) | self.big_bank as u16,
-                    0xE000..=0xFFFF => (!0 & 0x1F) | self.big_bank as u16,
-                    _ => 0,
-                }
-            };
+            let slot = (address as usize - 0x8000) / 0x2000;
+            let bank = self.prg_slot_bank(slot);
             let offset = (bank as usize * 0x2000) + (address as usize & 0x1FFF);
             let final_offset = offset % cart.prg_rom.len();
             FetchResult { data: cart.prg_rom[final_offset], driven: true }
@@ -362,6 +369,7 @@ impl Mapper for Vrc2And4 {
                 1 => VrcVariant::Mapper22,
                 2 => VrcVariant::Mapper23,
                 3 => VrcVariant::Mapper25,
+                4 => VrcVariant::Mapper617,
                 _ => VrcVariant::Mapper21,
             };
             start += 1;

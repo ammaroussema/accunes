@@ -548,6 +548,25 @@ pub use crate::mappers::mapper599::Mapper599;
 pub use crate::mappers::mapper600::Mapper600;
 pub use crate::mappers::mapper601::Mapper601;
 pub use crate::mappers::mapper602::Mapper602;
+pub use crate::mappers::mapper603::Mapper603;
+pub use crate::mappers::mapper604::Mapper604;
+pub use crate::mappers::mapper605::Mapper605;
+pub use crate::mappers::mapper606::Mapper606;
+pub use crate::mappers::mapper607::Mapper607;
+pub use crate::mappers::mapper608::Mapper608;
+pub use crate::mappers::mapper609::Mapper609;
+pub use crate::mappers::mapper610::Mapper610;
+pub use crate::mappers::mapper611::Mapper611;
+pub use crate::mappers::mapper612::Mapper612;
+pub use crate::mappers::mapper613::Mapper613;
+pub use crate::mappers::mapper614::Mapper614;
+pub use crate::mappers::mapper615::Mapper615;
+pub use crate::mappers::mapper616::Mapper616;
+pub use crate::mappers::mapper617::Mapper617;
+pub use crate::mappers::mapper618::Mapper618;
+pub use crate::mappers::mapper619::Mapper619;
+pub use crate::mappers::mapper620::Mapper620;
+pub use crate::mappers::mapper621::Mapper621;
 pub use crate::mappers::mapper756::Mapper756;
 pub use crate::mappers::mapper761::Mapper761;
 pub use crate::mappers::mapper764::Mapper764;
@@ -693,6 +712,9 @@ pub trait Mapper: Send {
     fn onebus_dma_config(&self) -> (u8, u16, u16) { (0, 0x100, 0x2004) }
 
     fn set_dip_switches(&mut self, _value: u8) {}
+
+    // barcode scanner input for bandai datach (mapper 157) games
+    fn set_barcode(&mut self, _rcode: &[u8]) -> bool { false }
 
     // controller read adjustment for vs system mappers
     fn adjust_controller_read(&self, _address: u16, value: u8) -> u8 { value }
@@ -1588,6 +1610,25 @@ pub fn create_mapper(
         600 => Box::new(Mapper600::new()),
         601 => Box::new(Mapper601::new()),
         602 => Box::new(Mapper602::new()),
+        603 => Box::new(Mapper603::new()),
+        604 => Box::new(Mapper604::new()),
+        605 => Box::new(Mapper605::new()),
+        606 => Box::new(Mapper606::new()),
+        607 => Box::new(Mapper607::new()),
+        608 => Box::new(Mapper608::new()),
+        609 => Box::new(Mapper609::new()),
+        610 => Box::new(Mapper610::new()),
+        611 => Box::new(Mapper611::new()),
+        612 => Box::new(Mapper612::new()),
+        613 => Box::new(Mapper613::new()),
+        614 => Box::new(Mapper614::new()),
+        615 => Box::new(Mapper615::new()),
+        616 => Box::new(Mapper616::new()),
+        617 => Box::new(Mapper617::new()),
+        618 => Box::new(Mapper618::new()),
+        619 => Box::new(Mapper619::new()),
+        620 => Box::new(Mapper620::new()),
+        621 => Box::new(Mapper621::new(header, rom, rom_name, using_chr_ram, has_battery)),
         740 => Box::new(Mapper489::new()),
         741 => Box::new(Mapper570::new()),
         742 => Box::new(Mapper574::new()),

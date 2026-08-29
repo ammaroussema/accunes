@@ -78,6 +78,7 @@ enum NesMenuItem {
     ServiceButton,
     InsertEjectDisk,
     SwapDisk,
+    InputBarcode,
     Reset,
     PowerCycle,
 }
@@ -392,6 +393,11 @@ struct MenuState {
     show_error: bool,
     error_message: String,
     show_dip_switches: bool,
+    show_barcode_input: bool,
+    barcode_input: String,
+    barcode_caret: usize,
+    barcode_sel_anchor: Option<usize>,
+    barcode_dragging: bool,
     about_icon_data: Option<Vec<u8>>,
     about_icon_size: (u32, u32),
     dip_hovered_bit: Option<u8>,
@@ -440,6 +446,11 @@ impl MenuState {
             show_error: false,
             error_message: String::new(),
             show_dip_switches: false,
+            show_barcode_input: false,
+            barcode_input: String::new(),
+            barcode_caret: 0,
+            barcode_sel_anchor: None,
+            barcode_dragging: false,
             about_icon_data: None,
             about_icon_size: (0, 0),
             dip_hovered_bit: None,
@@ -666,11 +677,15 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.5.8";
+const APP_VERSION: &str = "1.5.9";
+
+fn strip_version_prefix(s: &str) -> &str {
+    s.trim_start_matches(|c: char| c.is_ascii_alphabetic())
+}
 
 fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
-    let a = a.trim_start_matches('v');
-    let b = b.trim_start_matches('v');
+    let a = strip_version_prefix(a);
+    let b = strip_version_prefix(b);
     let a_parts: Vec<u32> = a.split('.').filter_map(|s| s.parse().ok()).collect();
     let b_parts: Vec<u32> = b.split('.').filter_map(|s| s.parse().ok()).collect();
     for i in 0..std::cmp::max(a_parts.len(), b_parts.len()) {
@@ -877,6 +892,114 @@ fn point_in_rect(px: usize, py: usize, x: usize, y: usize, w: usize, h: usize) -
     px >= x && px < x + w && py >= y && py < y + h
 }
 
+fn barcode_sel_bounds(anchor: Option<usize>, caret: usize) -> (usize, usize) {
+    match anchor {
+        Some(a) if a != caret => (a.min(caret), a.max(caret)),
+        _ => (caret, caret),
+    }
+}
+
+fn barcode_insert_digit(ms: &Rc<RefCell<MenuState>>, c: char) {
+    let mut ms = ms.borrow_mut();
+    let (a, b) = barcode_sel_bounds(ms.barcode_sel_anchor, ms.barcode_caret);
+    if a != b {
+        ms.barcode_input.drain(a..b);
+        ms.barcode_caret = a;
+        ms.barcode_sel_anchor = None;
+    }
+    if ms.barcode_input.len() < 13 {
+        let caret = ms.barcode_caret;
+        ms.barcode_input.insert(caret, c);
+        ms.barcode_caret = caret.saturating_add(1);
+    }
+}
+
+fn barcode_backspace(ms: &Rc<RefCell<MenuState>>) {
+    let mut ms = ms.borrow_mut();
+    let (a, b) = barcode_sel_bounds(ms.barcode_sel_anchor, ms.barcode_caret);
+    if a != b {
+        ms.barcode_input.drain(a..b);
+        ms.barcode_caret = a;
+        ms.barcode_sel_anchor = None;
+    } else if ms.barcode_caret > 0 {
+        ms.barcode_caret -= 1;
+        let caret = ms.barcode_caret;
+        ms.barcode_input.remove(caret);
+    }
+}
+
+fn barcode_delete(ms: &Rc<RefCell<MenuState>>) {
+    let mut ms = ms.borrow_mut();
+    let (a, b) = barcode_sel_bounds(ms.barcode_sel_anchor, ms.barcode_caret);
+    if a != b {
+        ms.barcode_input.drain(a..b);
+        ms.barcode_caret = a;
+        ms.barcode_sel_anchor = None;
+    } else if ms.barcode_caret < ms.barcode_input.len() {
+        let caret = ms.barcode_caret;
+        ms.barcode_input.remove(caret);
+    }
+}
+
+fn barcode_move_caret(ms: &Rc<RefCell<MenuState>>, delta: isize, _shift: bool) {
+    let mut ms = ms.borrow_mut();
+    let new_pos = if delta < 0 {
+        ms.barcode_caret.saturating_sub(1)
+    } else {
+        (ms.barcode_caret + 1).min(ms.barcode_input.len())
+    };
+    ms.barcode_caret = new_pos;
+    ms.barcode_sel_anchor = None;
+}
+
+fn barcode_home_end(ms: &Rc<RefCell<MenuState>>, home: bool) {
+    let mut ms = ms.borrow_mut();
+    ms.barcode_caret = if home { 0 } else { ms.barcode_input.len() };
+    ms.barcode_sel_anchor = None;
+}
+
+fn barcode_select_all(ms: &Rc<RefCell<MenuState>>) {
+    let mut ms = ms.borrow_mut();
+    let len = ms.barcode_input.len();
+    if len > 0 {
+        ms.barcode_sel_anchor = Some(0);
+        ms.barcode_caret = len;
+    }
+}
+
+fn barcode_paste(ms: &Rc<RefCell<MenuState>>) {
+    let text = arboard::Clipboard::new()
+        .ok()
+        .and_then(|mut cb| cb.get_text().ok())
+        .unwrap_or_default();
+    if text.is_empty() {
+        return;
+    }
+    let mut ms = ms.borrow_mut();
+    let (a, b) = barcode_sel_bounds(ms.barcode_sel_anchor, ms.barcode_caret);
+    if a != b {
+        ms.barcode_input.drain(a..b);
+        ms.barcode_caret = a;
+        ms.barcode_sel_anchor = None;
+    }
+    let digits: String = text.chars().filter(|c| c.is_ascii_digit()).collect();
+    let space = 13usize.saturating_sub(ms.barcode_input.len());
+    let take = digits.len().min(space);
+    if take > 0 {
+        let caret = ms.barcode_caret;
+        ms.barcode_input.insert_str(caret, &digits[..take]);
+        ms.barcode_caret = caret + take;
+    }
+}
+
+fn barcode_caret_from_x(mx: usize, field_x: usize, sc: f32, len: usize) -> usize {
+    let pad = (8.0 * sc).round() as usize;
+    let char_w = (8.0 * sc).round() as usize;
+    let off = mx.saturating_sub(field_x + pad);
+    let idx = if char_w > 0 { off / char_w } else { 0 };
+    idx.min(len)
+}
+
 fn calculate_item_positions(items: &[&str], dropdown_x: usize, dropdown_y: usize, dropdown_w: usize, scale: f32) -> Vec<(usize, usize, usize, usize)> {
     let pad_x = (8.0 * scale).round() as usize;
     let pad_y = (4.0 * scale).round() as usize;
@@ -933,6 +1056,7 @@ enum EmuCommand {
     ClearCart,
     SetDipSwitches(u8),
     SetVsPpuVariant(u8),
+    SetBarcode(Vec<u8>),
     SetRegionPreference(Region),
     SetController1Type(config::ControllerType),
     SetController2Type(config::ControllerType),
@@ -1016,7 +1140,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.5.8")
+        .with_title("AccuNES 1.5.9")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -1115,6 +1239,7 @@ fn main() {
     let rom_loaded = Rc::new(RefCell::new(false));
     let current_rom = Rc::new(RefCell::new(Option::<String>::None));
     let paused = Arc::new(AtomicBool::new(false));
+    let barcode_ctrl = Arc::new(AtomicBool::new(false));
     let pause_on_lost_focus = Rc::new(RefCell::new(config::load_pause_on_lost_focus()));
     let initial_ram = Rc::new(RefCell::new(config::load_initial_ram()));
     let fps_mode = Rc::new(RefCell::new(config::load_fps_mode()));
@@ -1251,6 +1376,7 @@ fn main() {
     let rom_loaded_clone = rom_loaded.clone();
     let current_rom_clone = current_rom.clone();
     let paused_clone = paused.clone();
+    let barcode_ctrl_clone = barcode_ctrl.clone();
     let pause_on_lost_focus_clone = pause_on_lost_focus.clone();
     let initial_ram_clone = initial_ram.clone();
     let fps_mode_clone = fps_mode.clone();
@@ -1359,6 +1485,7 @@ fn main() {
                         EmuCommand::ClearCart => { e.clear_cart(); }
                         EmuCommand::SetDipSwitches(val) => { e.set_dip_switches(val); }
                         EmuCommand::SetVsPpuVariant(v) => { e.set_vs_ppu_variant(v); }
+                        EmuCommand::SetBarcode(rcode) => { e.set_barcode(&rcode); }
                         EmuCommand::SetRegionPreference(r) => { e.set_region_preference(r); }
                         EmuCommand::SetController1Type(t) => { e.controller1_type = t; }
                         EmuCommand::SetController2Type(t) => { e.controller2_type = t; }
@@ -1713,7 +1840,70 @@ fn main() {
                 ..
             } => {
                 let pressed = state == winit::event::ElementState::Pressed;
+                match keycode {
+                    winit::event::VirtualKeyCode::LControl
+                    | winit::event::VirtualKeyCode::RControl => {
+                        barcode_ctrl_clone.store(pressed, Ordering::Relaxed);
+                    }
+                    _ => {}
+                }
                 let key_str = format!("{:?}", keycode);
+                let typing_barcode = {
+                    let ms = menu_state_clone.borrow();
+                    ms.show_barcode_input
+                };
+                if typing_barcode {
+                    if pressed {
+                        let ctrl = barcode_ctrl_clone.load(Ordering::Relaxed);
+                        match keycode {
+                            winit::event::VirtualKeyCode::Key0 => barcode_insert_digit(&menu_state_clone, '0'),
+                            winit::event::VirtualKeyCode::Key1 => barcode_insert_digit(&menu_state_clone, '1'),
+                            winit::event::VirtualKeyCode::Key2 => barcode_insert_digit(&menu_state_clone, '2'),
+                            winit::event::VirtualKeyCode::Key3 => barcode_insert_digit(&menu_state_clone, '3'),
+                            winit::event::VirtualKeyCode::Key4 => barcode_insert_digit(&menu_state_clone, '4'),
+                            winit::event::VirtualKeyCode::Key5 => barcode_insert_digit(&menu_state_clone, '5'),
+                            winit::event::VirtualKeyCode::Key6 => barcode_insert_digit(&menu_state_clone, '6'),
+                            winit::event::VirtualKeyCode::Key7 => barcode_insert_digit(&menu_state_clone, '7'),
+                            winit::event::VirtualKeyCode::Key8 => barcode_insert_digit(&menu_state_clone, '8'),
+                            winit::event::VirtualKeyCode::Key9 => barcode_insert_digit(&menu_state_clone, '9'),
+                            winit::event::VirtualKeyCode::Numpad0 => barcode_insert_digit(&menu_state_clone, '0'),
+                            winit::event::VirtualKeyCode::Numpad1 => barcode_insert_digit(&menu_state_clone, '1'),
+                            winit::event::VirtualKeyCode::Numpad2 => barcode_insert_digit(&menu_state_clone, '2'),
+                            winit::event::VirtualKeyCode::Numpad3 => barcode_insert_digit(&menu_state_clone, '3'),
+                            winit::event::VirtualKeyCode::Numpad4 => barcode_insert_digit(&menu_state_clone, '4'),
+                            winit::event::VirtualKeyCode::Numpad5 => barcode_insert_digit(&menu_state_clone, '5'),
+                            winit::event::VirtualKeyCode::Numpad6 => barcode_insert_digit(&menu_state_clone, '6'),
+                            winit::event::VirtualKeyCode::Numpad7 => barcode_insert_digit(&menu_state_clone, '7'),
+                            winit::event::VirtualKeyCode::Numpad8 => barcode_insert_digit(&menu_state_clone, '8'),
+                            winit::event::VirtualKeyCode::Numpad9 => barcode_insert_digit(&menu_state_clone, '9'),
+                            winit::event::VirtualKeyCode::Back => barcode_backspace(&menu_state_clone),
+                            winit::event::VirtualKeyCode::Delete => barcode_delete(&menu_state_clone),
+                            winit::event::VirtualKeyCode::Left => barcode_move_caret(&menu_state_clone, -1, false),
+                            winit::event::VirtualKeyCode::Right => barcode_move_caret(&menu_state_clone, 1, false),
+                            winit::event::VirtualKeyCode::Home => barcode_home_end(&menu_state_clone, true),
+                            winit::event::VirtualKeyCode::End => barcode_home_end(&menu_state_clone, false),
+                            winit::event::VirtualKeyCode::A => {
+                                if ctrl { barcode_select_all(&menu_state_clone); }
+                            }
+                            winit::event::VirtualKeyCode::V => {
+                                if ctrl { barcode_paste(&menu_state_clone); }
+                            }
+                            winit::event::VirtualKeyCode::Return => {
+                                let rc: Vec<u8> = menu_state_clone.borrow().barcode_input.bytes().collect();
+                                let _ = cmd_tx.send(EmuCommand::SetBarcode(rc));
+                                barcode_ctrl_clone.store(false, Ordering::Relaxed);
+                                menu_state_clone.borrow_mut().show_barcode_input = false;
+                                paused_clone.store(false, Ordering::Relaxed);
+                            }
+                            winit::event::VirtualKeyCode::Escape => {
+                                barcode_ctrl_clone.store(false, Ordering::Relaxed);
+                                menu_state_clone.borrow_mut().show_barcode_input = false;
+                                paused_clone.store(false, Ordering::Relaxed);
+                            }
+                            _ => {}
+                        }
+                    }
+                } else {
                 let rebound = {
                     let ms = menu_state_clone.borrow();
                     if ms.rebind_controller.is_some() && ms.rebind_button.is_some() && pressed {
@@ -1955,6 +2145,7 @@ fn main() {
                     }
                 }
                 }
+                }
             }
             WinitEvent::WindowEvent {
                 event: WindowEvent::CursorMoved { position, .. },
@@ -1968,6 +2159,21 @@ fn main() {
                 let ws = window.inner_size();
                 let width = ws.width as usize;
                 let height = ws.height as usize;
+                if ms.show_barcode_input && ms.barcode_dragging {
+                    let dlg_w = (320.0 * sc).round() as usize;
+                    let dlg_h = (160.0 * sc).round() as usize;
+                    let dlg_x = (width.saturating_sub(dlg_w)) / 2;
+                    let dlg_y = (height.saturating_sub(dlg_h)) / 2;
+                    let margin = (12.0 * sc).round() as usize;
+                    let title_h = (26.0 * sc).round() as usize;
+                    let field_x = dlg_x + margin;
+                    let field_y = dlg_y + margin + title_h;
+                    let field_h = (30.0 * sc).round() as usize;
+                    if my >= field_y && my < field_y + field_h {
+                        let caret = barcode_caret_from_x(mx, field_x, sc, ms.barcode_input.len());
+                        ms.barcode_caret = caret;
+                    }
+                }
                 if ms.show_controller1_settings {
                     let cw = (440.0 * sc).round() as usize;
                     let title_h = (30.0 * sc).round() as usize;
@@ -2338,6 +2544,7 @@ fn main() {
                         || ms.show_video_settings || ms.show_input_settings
                         || ms.show_controller1_settings || ms.show_controller2_settings
                         || ms.show_about || ms.show_error || ms.show_confirm_exit_dialog
+                        || ms.show_barcode_input
                 };
                 if !is_modal_open {
                     const BIT_MASKS: [u8; 10] = [0x80, 0x40, 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
@@ -2636,6 +2843,50 @@ fn main() {
                         } else if point_in_rect(mx, my, no_x, btn_y, btn_w, btn_h) {
                             drop(ms);
                             menu_state_clone.borrow_mut().show_confirm_exit_dialog = false;
+                            paused_clone.store(false, Ordering::Relaxed);
+                        }
+                    } else if ms.show_barcode_input {
+                        let sc = ms.scale;
+                        let dlg_w = (320.0 * sc).round() as usize;
+                        let dlg_h = (160.0 * sc).round() as usize;
+                        let dlg_x = (width.saturating_sub(dlg_w)) / 2;
+                        let dlg_y = (height.saturating_sub(dlg_h)) / 2;
+                        let margin = (12.0 * sc).round() as usize;
+                        let title_h = (26.0 * sc).round() as usize;
+                        let field_x = dlg_x + margin;
+                        let field_w = dlg_w - margin * 2;
+                        let field_y = dlg_y + margin + title_h;
+                        let field_h = (30.0 * sc).round() as usize;
+                        let btn_w = (60.0 * sc).round() as usize;
+                        let btn_h = (24.0 * sc).round() as usize;
+                        let btn_y = dlg_y + dlg_h - btn_h - margin;
+                        let ok_x = dlg_x + margin;
+                        let clear_x = ok_x + btn_w + (8.0 * sc).round() as usize;
+                        let close_x = dlg_x + dlg_w - btn_w - margin;
+                        if point_in_rect(mx, my, field_x, field_y, field_w, field_h) {
+                            drop(ms);
+                            let mut ms_mut = menu_state_clone.borrow_mut();
+                            let caret = barcode_caret_from_x(mx, field_x, sc, ms_mut.barcode_input.len());
+                            ms_mut.barcode_caret = caret;
+                            ms_mut.barcode_sel_anchor = Some(caret);
+                            ms_mut.barcode_dragging = true;
+                        } else if point_in_rect(mx, my, ok_x, btn_y, btn_w, btn_h) {
+                            drop(ms);
+                            let rc: Vec<u8> = menu_state_clone.borrow().barcode_input.bytes().collect();
+                            let _ = cmd_tx.send(EmuCommand::SetBarcode(rc));
+                            barcode_ctrl_clone.store(false, Ordering::Relaxed);
+                            menu_state_clone.borrow_mut().show_barcode_input = false;
+                            paused_clone.store(false, Ordering::Relaxed);
+                        } else if point_in_rect(mx, my, clear_x, btn_y, btn_w, btn_h) {
+                            drop(ms);
+                            let mut ms_mut = menu_state_clone.borrow_mut();
+                            ms_mut.barcode_input.clear();
+                            ms_mut.barcode_caret = 0;
+                            ms_mut.barcode_sel_anchor = None;
+                        } else if point_in_rect(mx, my, close_x, btn_y, btn_w, btn_h) {
+                            drop(ms);
+                            barcode_ctrl_clone.store(false, Ordering::Relaxed);
+                            menu_state_clone.borrow_mut().show_barcode_input = false;
                             paused_clone.store(false, Ordering::Relaxed);
                         }
                     } else if ms.show_about {
@@ -3680,9 +3931,9 @@ fn main() {
                                 } else {
                                     "Insert Disk"
                                 };
-                                let nes_items = [pause_text, "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", disk_label, "Swap Disk", "Reset", "Power Cycle"];
+                                let nes_items = [pause_text, "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", disk_label, "Swap Disk", "Input Barcode", "Reset", "Power Cycle"];
                                 let nes_positions = calculate_item_positions(&nes_items, dropdown_x, dropdown_y, dropdown_w, sc);
-                                let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::Reset, NesMenuItem::PowerCycle];
+                                let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::InputBarcode, NesMenuItem::Reset, NesMenuItem::PowerCycle];
                                 
                                 for (i, (x, y, w, h)) in nes_positions.iter().enumerate() {
                                     if point_in_rect(mx, my, *x, *y, *w, *h) {
@@ -3735,6 +3986,17 @@ fn main() {
                                             NesMenuItem::SwapDisk => {
                                                 if *rom_loaded_clone.borrow() {
                                                     let _ = cmd_tx.send(EmuCommand::ChangeDisk);
+                                                }
+                                            }
+                                            NesMenuItem::InputBarcode => {
+                                                if *rom_loaded_clone.borrow() {
+                                                    barcode_ctrl_clone.store(false, Ordering::Relaxed);
+                                                    ms_mut.barcode_input.clear();
+                                                    ms_mut.barcode_caret = 0;
+                                                    ms_mut.barcode_sel_anchor = None;
+                                                    ms_mut.barcode_dragging = false;
+                                                    ms_mut.show_barcode_input = true;
+                                                    paused_clone.store(true, Ordering::Relaxed);
                                                 }
                                             }
                                             NesMenuItem::Reset => {
@@ -3923,7 +4185,9 @@ fn main() {
                     }
                 }
                 if !pressed && button == winit::event::MouseButton::Left {
-                    menu_state_clone.borrow_mut().dragging_audio_slider = None;
+                    let mut ms = menu_state_clone.borrow_mut();
+                    ms.dragging_audio_slider = None;
+                    ms.barcode_dragging = false;
                 }
             }
 
@@ -4114,9 +4378,9 @@ fn main() {
                             } else {
                                 "Insert Disk"
                             };
-                            let nes_items = [pause_text, "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", disk_label, "Swap Disk", "Reset", "Power Cycle"];
+                            let nes_items = [pause_text, "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", disk_label, "Swap Disk", "Input Barcode", "Reset", "Power Cycle"];
                             let nes_positions = calculate_item_positions(&nes_items, dropdown_x, dropdown_y, dropdown_w, sc);
-                            let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::Reset, NesMenuItem::PowerCycle];
+                            let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::InputBarcode, NesMenuItem::Reset, NesMenuItem::PowerCycle];
                             
                             ms_mut.hovered_nes_item = None;
                             for (i, (x, y, w, h)) in nes_positions.iter().enumerate() {
@@ -4210,9 +4474,9 @@ fn main() {
                         } else if lower.ends_with(".fds") || lower.ends_with(".qd") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.5.8: {}", filename)
+                        format!("AccuNES 1.5.9: {}", filename)
                     } else {
-                        "AccuNES 1.5.8".to_string()
+                        "AccuNES 1.5.9".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -4491,11 +4755,12 @@ fn main() {
                                 ("Insert Coin 1", NesMenuItem::InsertCoin1),
                                 ("Insert Coin 2", NesMenuItem::InsertCoin2),
                                 ("Service Button", NesMenuItem::ServiceButton),
-                                (disk_label, NesMenuItem::InsertEjectDisk),
-                                ("Swap Disk", NesMenuItem::SwapDisk),
-                                ("Reset", NesMenuItem::Reset),
-                                ("Power Cycle", NesMenuItem::PowerCycle),
-                            ];
+    (disk_label, NesMenuItem::InsertEjectDisk),
+    ("Swap Disk", NesMenuItem::SwapDisk),
+    ("Input Barcode", NesMenuItem::InputBarcode),
+    ("Reset", NesMenuItem::Reset),
+    ("Power Cycle", NesMenuItem::PowerCycle),
+];
                             let dropdown_w = item_w;
                             let pad_x = (8.0 * scale).round() as usize;
                             let pad_y = (4.0 * scale).round() as usize;
@@ -4519,6 +4784,9 @@ fn main() {
                                         }
                                     }
                                     NesMenuItem::DipSwitches => {
+                                        *rom_loaded_clone.borrow()
+                                    }
+                                    NesMenuItem::InputBarcode => {
                                         *rom_loaded_clone.borrow()
                                     }
                                     _ => *rom_loaded_clone.borrow(),
@@ -4632,7 +4900,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.5.8",
+                        "Version: 1.5.9",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
@@ -5031,7 +5299,70 @@ fn main() {
                     draw_rect(&mut buffer, no_x + 1, btn_y + 1, btn_w - 2, btn_h - 2, width, if no_hovered { colors.box_bg_hover } else { colors.box_bg_default });
                     draw_text(&mut buffer, no_x + (22.0 * scale).round() as usize, btn_y + (7.0 * scale).round() as usize, width, "No", menu_text, scale);
                 }
-                
+
+                if ms.show_barcode_input {
+                    let sc = scale;
+                    let dlg_w = (320.0 * sc).round() as usize;
+                    let dlg_h = (160.0 * sc).round() as usize;
+                    let dlg_x = (width.saturating_sub(dlg_w)) / 2;
+                    let dlg_y = (height.saturating_sub(dlg_h)) / 2;
+                    let window_bg = colors.window_bg;
+                    draw_rect(&mut buffer, dlg_x, dlg_y, dlg_w, dlg_h, width, window_bg);
+                    draw_rect(&mut buffer, dlg_x, dlg_y, dlg_w, (2.0 * sc).round() as usize, width, colors.window_border);
+                    draw_rect(&mut buffer, dlg_x, dlg_y, (2.0 * sc).round() as usize, dlg_h, width, colors.window_border);
+                    draw_rect(&mut buffer, dlg_x + dlg_w - (2.0 * sc).round() as usize, dlg_y, (2.0 * sc).round() as usize, dlg_h, width, colors.window_border);
+                    draw_rect(&mut buffer, dlg_x, dlg_y + dlg_h - (2.0 * sc).round() as usize, dlg_w, (2.0 * sc).round() as usize, width, colors.window_border);
+                    let title_h = (26.0 * sc).round() as usize;
+                    draw_rect(&mut buffer, dlg_x, dlg_y, dlg_w, title_h, width, colors.dropdown_bg);
+                    draw_text(&mut buffer, dlg_x + (10.0 * sc).round() as usize, dlg_y + (7.0 * sc).round() as usize, width, "Input Barcode", menu_text, scale);
+                    let margin = (12.0 * sc).round() as usize;
+                    let field_x = dlg_x + margin;
+                    let field_w = dlg_w - margin * 2;
+                    let field_y = dlg_y + margin + title_h;
+                    let field_h = (30.0 * sc).round() as usize;
+                    draw_rect(&mut buffer, field_x, field_y, field_w, field_h, width, colors.box_border);
+                    draw_rect(&mut buffer, field_x + 1, field_y + 1, field_w - 2, field_h - 2, width, colors.box_bg_default);
+                    let field_text = ms.barcode_input.clone();
+                    let char_w = (8.0 * sc).round() as usize;
+                    let text_x = field_x + (8.0 * sc).round() as usize;
+                    let text_y = field_y + (7.0 * sc).round() as usize;
+                    if field_text.is_empty() {
+                        draw_text(&mut buffer, text_x, text_y, width, "(type digits, then OK)", colors.disabled_text, scale);
+                    } else {
+                        let (sa, sb) = barcode_sel_bounds(ms.barcode_sel_anchor, ms.barcode_caret);
+                        if sa != sb {
+                            let sel_x = text_x + sa * char_w;
+                            let sel_w = (sb - sa) * char_w;
+                            draw_rect(&mut buffer, sel_x, text_y, sel_w, (8.0 * sc).round() as usize, width, colors.box_bg_hover);
+                        }
+                        draw_text(&mut buffer, text_x, text_y, width, &field_text, menu_text, scale);
+                    }
+                    if ms.barcode_caret <= field_text.len() {
+                        let caret_x = text_x + ms.barcode_caret * char_w;
+                        draw_rect(&mut buffer, caret_x, text_y, (1.0 * sc).round() as usize, (8.0 * sc).round() as usize, width, menu_text);
+                    }
+                    let btn_w = (60.0 * sc).round() as usize;
+                    let btn_h = (24.0 * sc).round() as usize;
+                    let btn_y = dlg_y + dlg_h - btn_h - margin;
+                    let text_cry = btn_y + ((btn_h as f32 - 8.0 * sc) / 2.0).round() as usize;
+                    let ok_x = dlg_x + margin;
+                    let clear_x = ok_x + btn_w + (8.0 * sc).round() as usize;
+                    let close_x = dlg_x + dlg_w - btn_w - margin;
+                    let (mx, my) = ms.mouse_pos;
+                    let ok_hovered = point_in_rect(mx, my, ok_x, btn_y, btn_w, btn_h);
+                    draw_rect(&mut buffer, ok_x, btn_y, btn_w, btn_h, width, colors.box_border);
+                    draw_rect(&mut buffer, ok_x + 1, btn_y + 1, btn_w - 2, btn_h - 2, width, if ok_hovered { colors.box_bg_hover } else { colors.box_bg_default });
+                    draw_text(&mut buffer, ok_x + ((btn_w as f32 - 16.0 * sc) / 2.0).round() as usize, text_cry, width, "OK", menu_text, scale);
+                    let clear_hovered = point_in_rect(mx, my, clear_x, btn_y, btn_w, btn_h);
+                    draw_rect(&mut buffer, clear_x, btn_y, btn_w, btn_h, width, colors.box_border);
+                    draw_rect(&mut buffer, clear_x + 1, btn_y + 1, btn_w - 2, btn_h - 2, width, if clear_hovered { colors.box_bg_hover } else { colors.box_bg_default });
+                    draw_text(&mut buffer, clear_x + ((btn_w as f32 - 40.0 * sc) / 2.0).round() as usize, text_cry, width, "Clear", menu_text, scale);
+                    let close_hovered = point_in_rect(mx, my, close_x, btn_y, btn_w, btn_h);
+                    draw_rect(&mut buffer, close_x, btn_y, btn_w, btn_h, width, colors.box_border);
+                    draw_rect(&mut buffer, close_x + 1, btn_y + 1, btn_w - 2, btn_h - 2, width, if close_hovered { colors.box_bg_hover } else { colors.box_bg_default });
+                    draw_text(&mut buffer, close_x + ((btn_w as f32 - 48.0 * sc) / 2.0).round() as usize, text_cry, width, "Cancel", menu_text, scale);
+                }
+
                 if ms.show_input_settings {
                     let input_w = (420.0 * scale).round() as usize;
                     let input_h = (250.0 * scale).round() as usize;
@@ -5750,7 +6081,8 @@ fn main() {
                         || ms_state.show_about
                         || ms_state.show_error
                         || ms_state.show_dip_switches
-                        || ms_state.show_confirm_exit_dialog;
+                        || ms_state.show_confirm_exit_dialog
+                        || ms_state.show_barcode_input;
                     let emu_active = *rom_loaded_clone.borrow() && !paused_clone.load(Ordering::Relaxed);
                     drop(ms_state);
                     window.set_cursor_visible(ui_visible || !emu_active);
