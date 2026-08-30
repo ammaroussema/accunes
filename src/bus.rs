@@ -657,6 +657,7 @@ impl Emulator {
             let mut mapper = std::mem::replace(&mut cart.mapper_chip, Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default())));
             mapper.store_prg(cart, address, input);
             let irq_ack = mapper.take_irq_ack();
+            mapper.execute_dma(cart, &mut self.ram, &mut self.vram);
             let cart = self.cart.as_mut().unwrap();
             cart.mapper_chip = mapper;
 

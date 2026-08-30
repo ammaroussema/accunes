@@ -460,8 +460,8 @@ impl Cartridge {
                 _ => 0,
             };
 
-            let using_chr_ram = chr_rom.is_empty() || matches!(memory_mapper, 268 | 286 | 522 | 536 | 541 | 544 | 547 | 581 | 583 | 587 | 589 | 595 | 598 | 599 | 605 | 606 | 607 | 608 | 609 | 612 | 613 | 614 | 615 | 616 | 617 | 761 | 764 | 767);
-            let chr_ram = if using_chr_ram || matches!(memory_mapper, 268 | 286 | 522 | 536 | 541 | 544 | 547 | 581 | 583 | 587 | 589 | 595 | 598 | 599 | 605 | 606 | 607 | 608 | 609 | 612 | 613 | 614 | 615 | 616 | 617 | 761 | 764 | 767) {
+            let using_chr_ram = chr_rom.is_empty() || matches!(memory_mapper, 268 | 286 | 522 | 536 | 541 | 544 | 547 | 581 | 583 | 587 | 589 | 595 | 598 | 599 | 605 | 606 | 607 | 608 | 609 | 612 | 613 | 614 | 615 | 616 | 617 | 623 | 625 | 761 | 764 | 767);
+            let chr_ram = if using_chr_ram || matches!(memory_mapper, 268 | 286 | 522 | 536 | 541 | 544 | 547 | 581 | 583 | 587 | 589 | 595 | 598 | 599 | 605 | 606 | 607 | 608 | 609 | 612 | 613 | 614 | 615 | 616 | 617 | 623 | 625 | 761 | 764 | 767) {
                 if memory_mapper == 268 {
                     let vram_shift = match rom.get(11) {
                         Some(&b) => b & 0x0F,
@@ -895,6 +895,17 @@ impl Cartridge {
             vec![0u8; 0x4000]
         } else if memory_mapper == 405 {
             vec![0u8; crate::mappers::mapper405::prg_ram_size(&rom[0..16])]
+        } else if memory_mapper == 682 && rom.len() > 10 && (rom[10] & 0x0F) != 0 {
+            let volatile = (rom[10] & 0x0F) as usize;
+            let battery = ((rom[10] >> 4) & 0x0F) as usize;
+            let mut size = 0;
+            if volatile != 0 {
+                size += 64usize << volatile;
+            }
+            if battery != 0 {
+                size += 64usize << battery;
+            }
+            vec![0u8; size]
         } else {
             vec![0u8; 0x2000]
         };
@@ -907,7 +918,7 @@ impl Cartridge {
             None
         };
 
-        if has_battery && bandai_sav.is_none() && memory_mapper != 342 && memory_mapper != 558 {
+        if has_battery && bandai_sav.is_none() && memory_mapper != 342 && memory_mapper != 558 && memory_mapper != 800 {
             let sav_path = crate::config::save_file_path(filepath);
             if let Ok(sav_data) = fs::read(&sav_path) {
                 let save_len = if let Some(ref cfg) = mmc5_cfg {
@@ -1021,6 +1032,19 @@ impl Cartridge {
                 mapper.load_battery_save(&mut cartridge, &sav_data);
                 cartridge.mapper_chip = mapper;
                 println!("Loaded Waixing FSxxx save from {:?}", sav_path);
+            }
+        } else if memory_mapper == 800 {
+            let sav_path = crate::config::save_file_path(filepath);
+            if let Ok(sav_data) = fs::read(&sav_path) {
+                let mut mapper = std::mem::replace(
+                    &mut cartridge.mapper_chip,
+                    Box::new(crate::mapper::MapperNROM::new(
+                        crate::mapper::NromConfig::default(),
+                    )),
+                );
+                mapper.load_battery_save(&mut cartridge, &sav_data);
+                cartridge.mapper_chip = mapper;
+                println!("Loaded FlameCyclone (mapper 800) save from {:?}", sav_path);
             }
         }
 

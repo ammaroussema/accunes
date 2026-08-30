@@ -567,10 +567,18 @@ pub use crate::mappers::mapper618::Mapper618;
 pub use crate::mappers::mapper619::Mapper619;
 pub use crate::mappers::mapper620::Mapper620;
 pub use crate::mappers::mapper621::Mapper621;
+pub use crate::mappers::mapper622::Mapper622;
+pub use crate::mappers::mapper623::Mapper623;
+pub use crate::mappers::mapper624::Mapper624;
+pub use crate::mappers::mapper625::Mapper625;
+pub use crate::mappers::mapper626::Mapper626;
+pub use crate::mappers::mapper627::Mapper627;
 pub use crate::mappers::mapper756::Mapper756;
 pub use crate::mappers::mapper761::Mapper761;
 pub use crate::mappers::mapper764::Mapper764;
 pub use crate::mappers::mapper767::Mapper767;
+pub use crate::mappers::rainbow::MapperRainbow;
+pub use crate::mappers::mapper800::Mapper800;
 
 pub fn mirror_h_or_v(horizontal: bool, address: u16) -> u16 {
     if horizontal {
@@ -730,6 +738,11 @@ pub trait Mapper: Send {
         false
     }
 
+    // post-store hook for mappers with a CPU-side DMA engine (e.g. mapper 800)
+    fn execute_dma(&mut self, _cart: &mut Cartridge, _ram: &mut [u8], _vram: &mut [u8]) -> bool {
+        false
+    }
+
     // battery-backed save data handling
     fn battery_save_data(&self, _cart: &Cartridge) -> Option<Vec<u8>> {
         None
@@ -851,7 +864,7 @@ pub fn create_mapper(
         17 => Box::new(MapperFfe::new(FfeConfig::mapper17(header, has_battery))),
         18 => Box::new(Mapper18::new()),
         19 => Box::new(Mapper19::new()),
-//      20 => Box::new(MapperFDS::new()),  (FDS assignment)
+    //  20 => Box::new(MapperFDS::new()),  (FDS assignment)
         21 => Box::new(Vrc2And4::new(VrcVariant::Mapper21)),
         22 => Box::new(Vrc2And4::new(VrcVariant::Mapper22)),
         23 => Box::new(Vrc2And4::new(VrcVariant::Mapper23)),
@@ -944,7 +957,7 @@ pub fn create_mapper(
         81 => Box::new(Mapper81::new()),
         82 => Box::new(Mapper82::new()),
         83 => Box::new(Mapper83::new(83, submapper_id)),
-//      84 => Box::new(Mapper40::new()), (no public references found)
+    //  84 => Box::new(Mapper40::new()), (no public references found)
         85 => Box::new(Vrc7::new(submapper_id)),
         86 => {
             let has_trainer = (header[6] & 4) != 0;
@@ -984,7 +997,7 @@ pub fn create_mapper(
         95 => Box::new(Mapper95::mapper95()),
         96 => Box::new(Mapper96::new(header)),
         97 => Box::new(Mapper97::new()),
-//      98 => Box::new(Mapper40::new()), (no public references found)
+    //  98 => Box::new(Mapper40::new()), (no public references found)
         99 => Box::new(Mapper99::new()),
         100 => Box::new(Mapper100::new()),
         101 => Box::new(Mapper101::new()),
@@ -1201,7 +1214,7 @@ pub fn create_mapper(
         244 => Box::new(Mapper244::new()),
         245 => Box::new(Mapper245::new()),
         246 => Box::new(Mapper246::new()),
-//      247 => Box::new(Mapper247::new()), (unassigned)
+    //  247 => Box::new(Mapper247::new()), (unassigned)
         248 => Box::new(Mapper248::new(prg_size)),
         249 => Box::new(Mapper249::new()),
         250 => Box::new(Mapper250::new()),
@@ -1629,6 +1642,161 @@ pub fn create_mapper(
         619 => Box::new(Mapper619::new()),
         620 => Box::new(Mapper620::new()),
         621 => Box::new(Mapper621::new(header, rom, rom_name, using_chr_ram, has_battery)),
+        622 => Box::new(Mapper622::new()),
+        623 => Box::new(Mapper623::new()),
+        624 => Box::new(Mapper624::new()),
+        625 => Box::new(Mapper625::new()),
+        626 => Box::new(Mapper626::new()),
+        627 => Box::new(Mapper627::new()),
+    //  628 => Box::new(Mapper628::new()), (unassigned)
+    //  629 => Box::new(Mapper629::new()), (unassigned)
+    //  630 => Box::new(Mapper630::new()), (unassigned)
+    //  631 => Box::new(Mapper631::new()), (unassigned)
+    //  632 => Box::new(Mapper632::new()), (unassigned)
+    //  633 => Box::new(Mapper633::new()), (unassigned)
+    //  634 => Box::new(Mapper634::new()), (unassigned)
+    //  635 => Box::new(Mapper635::new()), (unassigned)
+    //  636 => Box::new(Mapper636::new()), (unassigned)
+    //  637 => Box::new(Mapper637::new()), (unassigned)
+    //  638 => Box::new(Mapper638::new()), (unassigned)
+    //  639 => Box::new(Mapper639::new()), (unassigned)
+    //  640 => Box::new(Mapper640::new()), (unassigned)
+    //  641 => Box::new(Mapper641::new()), (unassigned)
+    //  642 => Box::new(Mapper642::new()), (unassigned)
+    //  643 => Box::new(Mapper643::new()), (unassigned)
+    //  644 => Box::new(Mapper644::new()), (unassigned)
+    //  645 => Box::new(Mapper645::new()), (unassigned)
+    //  646 => Box::new(Mapper646::new()), (unassigned)
+    //  647 => Box::new(Mapper647::new()), (unassigned)
+    //  648 => Box::new(Mapper648::new()), (unassigned)
+    //  649 => Box::new(Mapper649::new()), (unassigned)
+    //  650 => Box::new(Mapper650::new()), (unassigned)
+    //  651 => Box::new(Mapper651::new()), (unassigned)
+    //  652 => Box::new(Mapper652::new()), (unassigned)
+    //  653 => Box::new(Mapper653::new()), (unassigned)
+    //  654 => Box::new(Mapper654::new()), (unassigned)
+    //  655 => Box::new(Mapper655::new()), (unassigned)
+    //  656 => Box::new(Mapper656::new()), (unassigned)
+    //  657 => Box::new(Mapper657::new()), (unassigned)
+    //  658 => Box::new(Mapper658::new()), (unassigned)
+    //  659 => Box::new(Mapper659::new()), (unassigned)
+    //  660 => Box::new(Mapper660::new()), (unassigned)
+    //  661 => Box::new(Mapper661::new()), (unassigned)
+    //  662 => Box::new(Mapper662::new()), (unassigned)
+    //  663 => Box::new(Mapper663::new()), (unassigned)
+    //  664 => Box::new(Mapper664::new()), (unassigned)
+    //  665 => Box::new(Mapper665::new()), (unassigned)
+    //  666 => Box::new(Mapper666::new()), (unassigned)
+    //  667 => Box::new(Mapper667::new()), (unassigned)
+    //  668 => Box::new(Mapper668::new()), (unassigned)
+    //  669 => Box::new(Mapper669::new()), (unassigned)
+    //  670 => Box::new(Mapper670::new()), (unassigned)
+    //  671 => Box::new(Mapper671::new()), (unassigned)
+    //  672 => Box::new(Mapper672::new()), (unassigned)
+    //  673 => Box::new(Mapper673::new()), (unassigned)
+    //  674 => Box::new(Mapper674::new()), (unassigned)
+    //  675 => Box::new(Mapper675::new()), (unassigned)
+    //  676 => Box::new(Mapper676::new()), (unassigned)
+    //  677 => Box::new(Mapper677::new()), (unassigned)
+    //  678 => Box::new(Mapper678::new()), (unassigned)
+    //  679 => Box::new(Mapper679::new()), (unassigned)
+    //  680 => Box::new(Mapper680::new()), (unassigned)
+    //  681 => Box::new(Mapper681::new()), (unassigned)
+        682 => {
+            let is_nes20 = header.len() >= 16 && (header[7] & 0x0C) == 0x08;
+            let has_trainer = header.len() >= 16 && (header[6] & 4) != 0;
+            let trainer_len = if has_trainer { 512 } else { 0 };
+            let prg_len = if is_nes20 && (header[9] & 0x0F) == 0x0F {
+                let lo = header[4] as usize;
+                ((2 * (lo & 3) + 1) << (lo >> 2)) as usize
+            } else if is_nes20 {
+                ((header[4] as usize) | (((header[9] & 0x0F) as usize) << 8)) * 0x4000
+            } else {
+                header[4] as usize * 0x4000
+            };
+
+            let chr_len = if is_nes20 && (header[9] & 0xF0) == 0xF0 {
+                let lo = header[5] as usize;
+                ((2 * (lo & 3) + 1) << (lo >> 2)) as usize
+            } else if is_nes20 {
+                ((header[5] as usize) | (((header[9] & 0xF0) as usize) << 4)) * 0x2000
+            } else {
+                header[5] as usize * 0x2000
+            };
+
+            let prg_start = 16 + trainer_len;
+            let prg_end = (prg_start + prg_len).min(rom.len());
+            let chr_start = prg_end;
+            let chr_end = (chr_start + chr_len).min(rom.len());
+
+            let prg_slice = if prg_start < rom.len() { &rom[prg_start..prg_end] } else { &[] };
+            let chr_slice = if chr_start < rom.len() { &rom[chr_start..chr_end] } else { &[] };
+
+            Box::new(MapperRainbow::for_ines(
+                header,
+                submapper_id,
+                prg_slice,
+                chr_slice,
+                has_battery,
+            ))
+        }
+    //  683 => Box::new(Mapper683::new()), (unassigned)
+    //  684 => Box::new(Mapper684::new()), (unassigned)
+    //  685 => Box::new(Mapper685::new()), (unassigned)
+    //  686 => Box::new(Mapper686::new()), (unassigned)
+    //  687 => Box::new(Mapper687::new()), (unassigned)
+    //  688 => Box::new(Mapper688::new()), (unassigned)
+    //  689 => Box::new(Mapper689::new()), (unassigned)
+    //  690 => Box::new(Mapper690::new()), (unassigned)
+    //  691 => Box::new(Mapper691::new()), (unassigned)
+    //  692 => Box::new(Mapper692::new()), (unassigned)
+    //  693 => Box::new(Mapper693::new()), (unassigned)
+    //  694 => Box::new(Mapper694::new()), (unassigned)
+    //  695 => Box::new(Mapper695::new()), (unassigned)
+    //  696 => Box::new(Mapper696::new()), (unassigned)
+    //  697 => Box::new(Mapper697::new()), (unassigned)
+    //  698 => Box::new(Mapper698::new()), (unassigned)
+    //  699 => Box::new(Mapper699::new()), (unassigned)
+    //  700 => Box::new(Mapper700::new()), (unassigned)
+    //  701 => Box::new(Mapper701::new()), (unassigned)
+    //  702 => Box::new(Mapper702::new()), (unassigned)
+    //  703 => Box::new(Mapper703::new()), (unassigned)
+    //  704 => Box::new(Mapper704::new()), (unassigned)
+    //  705 => Box::new(Mapper705::new()), (unassigned)
+    //  706 => Box::new(Mapper706::new()), (unassigned)
+    //  707 => Box::new(Mapper707::new()), (unassigned)
+    //  708 => Box::new(Mapper708::new()), (unassigned)
+    //  709 => Box::new(Mapper709::new()), (unassigned)
+    //  710 => Box::new(Mapper710::new()), (unassigned)
+    //  711 => Box::new(Mapper711::new()), (unassigned)
+    //  712 => Box::new(Mapper712::new()), (unassigned)
+    //  713 => Box::new(Mapper713::new()), (unassigned)
+    //  714 => Box::new(Mapper714::new()), (unassigned)
+    //  715 => Box::new(Mapper715::new()), (unassigned)
+    //  716 => Box::new(Mapper716::new()), (unassigned)
+    //  717 => Box::new(Mapper717::new()), (unassigned)
+    //  718 => Box::new(Mapper718::new()), (unassigned)
+    //  719 => Box::new(Mapper719::new()), (unassigned)
+    //  720 => Box::new(Mapper720::new()), (unassigned)
+    //  721 => Box::new(Mapper721::new()), (unassigned)
+    //  722 => Box::new(Mapper722::new()), (unassigned)
+    //  723 => Box::new(Mapper723::new()), (unassigned)
+    //  724 => Box::new(Mapper724::new()), (unassigned)
+    //  725 => Box::new(Mapper725::new()), (unassigned)
+    //  726 => Box::new(Mapper726::new()), (unassigned)
+    //  727 => Box::new(Mapper727::new()), (unassigned)
+    //  728 => Box::new(Mapper728::new()), (unassigned)
+    //  729 => Box::new(Mapper729::new()), (unassigned)
+    //  730 => Box::new(Mapper730::new()), (unassigned)
+    //  731 => Box::new(Mapper731::new()), (unassigned)
+    //  732 => Box::new(Mapper732::new()), (unassigned)
+    //  733 => Box::new(Mapper733::new()), (unassigned)
+    //  734 => Box::new(Mapper734::new()), (unassigned)
+    //  735 => Box::new(Mapper735::new()), (unassigned)
+    //  736 => Box::new(Mapper736::new()), (unassigned)
+    //  737 => Box::new(Mapper737::new()), (unassigned)
+    //  738 => Box::new(Mapper738::new()), (unassigned)
+    //  739 => Box::new(Mapper739::new()), (unassigned)
         740 => Box::new(Mapper489::new()),
         741 => Box::new(Mapper570::new()),
         742 => Box::new(Mapper574::new()),
@@ -1665,6 +1833,8 @@ pub fn create_mapper(
         765 => Box::new(Mapper569::new()),
         766 => Box::new(Mapper499::new(header, rom, rom_name, using_chr_ram, has_battery)),
         767 => Box::new(Mapper767::new()),
+        // misc mapper
+        800 => Box::new(Mapper800::new()),
         _ => {
             return Err(format!("Mapper {} is currently unsupported", mapper_id));
         }
