@@ -772,44 +772,49 @@ impl Emulator {
 
     // VT03 4bpp helpers
 
+    #[inline(always)]
     fn vt03_4bpp_bg_enabled(&self) -> bool {
-        self.cart.as_ref().map_or(false, |c| c.mapper_chip.vt03_4bpp_bg())
+        self.vt03_4bpp_bg_cart
     }
 
+    #[inline(always)]
     fn vt03_4bpp_sp_enabled(&self) -> bool {
-        self.cart.as_ref().map_or(false, |c| c.mapper_chip.vt03_4bpp_sp())
+        self.vt03_4bpp_sp_cart
     }
 
+    #[inline(always)]
     fn is_vt32(&self) -> bool {
-        self.cart.as_ref().map_or(false, |c| c.mapper_chip.is_vt32())
+        self.is_vt32_cart
     }
 
+    #[inline(always)]
     fn is_um6578(&self) -> bool {
-        self.cart.as_ref().map_or(false, |c| c.mapper_chip.is_um6578())
+        self.is_um6578_cart
     }
 
+    #[inline(always)]
     fn is_um6578_4bpp(&self) -> bool {
-        self.is_um6578() && (self.um6578_reg2008 & 0x80) != 0
+        self.is_um6578_cart && (self.um6578_reg2008 & 0x80) != 0
     }
 
+    #[inline(always)]
     fn is_um6578_4bpp_sprites(&self) -> bool {
         self.is_um6578_4bpp() && self.ppu_sprite_x16
     }
 
+    #[inline(always)]
     fn vt369_enhanced_ppu(&self) -> bool {
-        self.cart
-            .as_ref()
-            .map_or(false, |c| c.mapper_chip.onebus_vt369_enhanced_ppu())
+        self.is_vt369_enhanced_ppu_cart
     }
 
+    #[inline(always)]
     fn vt369_hires_ppu(&self) -> bool {
-        self.vt369_enhanced_ppu() && (self.vt369_reg2000(0x1C) & 0x04) != 0
+        self.is_vt369_enhanced_ppu_cart && (self.vt369_reg2000(0x1C) & 0x04) != 0
     }
 
+    #[inline(always)]
     fn vt369_ppu(&self) -> bool {
-        self.cart
-            .as_ref()
-            .map_or(false, |c| c.mapper_chip.onebus_vt369_ppu())
+        self.is_vt369_ppu_cart
     }
 
     fn vt369_reg2000(&self, idx: usize) -> u8 {
@@ -2017,15 +2022,12 @@ impl Emulator {
                 let x = (self.ppu_dot as usize) - 4 - odd_offset;
                 let y = self.ppu_scanline as usize;
                 if x < 256 && y < 240 {
-                    let reg2000_10 = self.cart.as_ref().map_or(0, |c| c.mapper_chip.vt03_reg2000_10());
-                    let is_vt369 = self.vt369_ppu();
-                    let is_vt03 = self.vt03_4bpp_bg_enabled() || self.vt03_4bpp_sp_enabled() || (reg2000_10 & 0x80) != 0;
-                    if is_vt369 || is_vt03 || self.is_um6578() || self.vt369_enhanced_ppu() {
+                    let is_vt03_custom = self.vt03_4bpp_bg_cart || self.vt03_4bpp_sp_cart || (self.cart.as_ref().map_or(0, |c| c.mapper_chip.vt03_reg2000_10()) & 0x80) != 0;
+                    if self.is_vt369_ppu_cart || is_vt03_custom || self.is_um6578_cart || self.is_vt369_enhanced_ppu_cart {
                         self.screen[y * 256 + x] = self.prev_prev_prev_dot_color_rgb;
                     } else {
                         let pal_idx = (chosen_color | emphasis) % NES_PALETTE.len();
-                        let is_vs = self.cart.as_ref().map(|c| c.is_vs_system).unwrap_or(false);
-                        self.screen[y * 256 + x] = if is_vs {
+                        self.screen[y * 256 + x] = if self.is_vs_system_cart {
                             match self.vs_ppu_variant {
                                 0 => VS_RP2C04_0001_PALETTE[pal_idx],
                                 1 => VS_RP2C04_0002_PALETTE[pal_idx],

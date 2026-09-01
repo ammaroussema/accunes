@@ -23,7 +23,7 @@ mod vt32_palette;
 use region::Region;
 use emulator::Emulator;
 use std::sync::{Arc, Mutex, OnceLock, mpsc};
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 use std::rc::Rc;
 use std::cell::RefCell;
 use audio::AudioRingBuffer;
@@ -36,6 +36,34 @@ use winit::window::{WindowBuilder, Icon};
 use softbuffer::{Context, Surface};
 use font8x8::UnicodeFonts;
 use gilrs::Gilrs;
+
+#[cfg(windows)]
+#[link(name = "winmm")]
+extern "system" {
+    fn timeBeginPeriod(u_period: u32) -> u32;
+    fn timeEndPeriod(u_period: u32) -> u32;
+}
+
+pub struct TimerGuard(#[allow(dead_code)] u32);
+
+impl TimerGuard {
+    pub fn new(period_ms: u32) -> Self {
+        #[cfg(windows)]
+        unsafe {
+            timeBeginPeriod(period_ms);
+        }
+        TimerGuard(period_ms)
+    }
+}
+
+impl Drop for TimerGuard {
+    fn drop(&mut self) {
+        #[cfg(windows)]
+        unsafe {
+            timeEndPeriod(self.0);
+        }
+    }
+}
 
 const NES_WIDTH: u32 = 256;
 const NES_HEIGHT: u32 = 240;
@@ -685,7 +713,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.6.1";
+const APP_VERSION: &str = "1.6.2";
 
 fn strip_version_prefix(s: &str) -> &str {
     s.trim_start_matches(|c: char| c.is_ascii_alphabetic())
@@ -1186,7 +1214,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.6.1")
+        .with_title("AccuNES 1.6.2")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -1204,11 +1232,13 @@ fn main() {
     let zapper_y = Arc::new(Mutex::new(0.0f32));
     let zapper_trigger = Arc::new(AtomicBool::new(false));
     let expansion_zapper_trigger = Arc::new(AtomicBool::new(false));
+    let famicom_mic = Arc::new(AtomicBool::new(false));
     let zapper_bogo = Arc::new(AtomicU8::new(0));
     let paddle_x = Arc::new(Mutex::new([0u8; 3]));
     let paddle_button = Arc::new(Mutex::new([false; 3]));
     let powerpad_state = Arc::new(Mutex::new([0u16; 2]));
     let snes_state = Arc::new(Mutex::new([0u16; 2]));
+    let virtualboy_state = Arc::new(Mutex::new([0u16; 2]));
     let snes_mouse_delta_x = Arc::new(Mutex::new([0.0f32; 2]));
     let snes_mouse_delta_y = Arc::new(Mutex::new([0.0f32; 2]));
     let snes_mouse_buttons = Arc::new(Mutex::new([0u8; 2]));
@@ -1225,11 +1255,13 @@ fn main() {
         e.zapper_y = zapper_y.clone();
         e.zapper_trigger = zapper_trigger.clone();
         e.expansion_zapper_trigger = expansion_zapper_trigger.clone();
+        e.famicom_mic = famicom_mic.clone();
         e.zapper_bogo = zapper_bogo.clone();
         e.paddle_x = paddle_x.clone();
         e.paddle_button = paddle_button.clone();
         e.powerpad_state = powerpad_state.clone();
         e.snes_state = snes_state.clone();
+        e.virtualboy_state = virtualboy_state.clone();
         e.snes_mouse_delta_x = snes_mouse_delta_x.clone();
         e.snes_mouse_delta_y = snes_mouse_delta_y.clone();
         e.snes_mouse_buttons = snes_mouse_buttons.clone();
@@ -1305,6 +1337,7 @@ fn main() {
     let controller2_bindings = Rc::new(RefCell::new(config::load_bindings("controller2")));
     let zapper_trigger_binding = Rc::new(RefCell::new(config::load_zapper_trigger()));
     let expansion_zapper_trigger_binding = Rc::new(RefCell::new(config::load_expansion_zapper_trigger()));
+    let famicom_mic_binding = Rc::new(RefCell::new(config::load_famicom_mic()));
 
     let paddle1_button_binding = Rc::new(RefCell::new(config::load_paddle_button("controller1")));
     let paddle2_button_binding = Rc::new(RefCell::new(config::load_paddle_button("controller2")));
@@ -1317,6 +1350,8 @@ fn main() {
     let snes_mouse2_bindings = Rc::new(RefCell::new(config::load_snes_mouse_bindings("controller2")));
     let subor_mouse1_bindings = Rc::new(RefCell::new(config::load_subor_mouse_bindings("controller1")));
     let subor_mouse2_bindings = Rc::new(RefCell::new(config::load_subor_mouse_bindings("controller2")));
+    let vb1_bindings = Rc::new(RefCell::new(config::load_vb_bindings("controller1")));
+    let vb2_bindings = Rc::new(RefCell::new(config::load_vb_bindings("controller2")));
     let controller3_bindings = Rc::new(RefCell::new(config::load_bindings("controller3")));
     let controller4_bindings = Rc::new(RefCell::new(config::load_bindings("controller4")));
     let last_mouse_x = Rc::new(RefCell::new(0.0f64));
@@ -1413,9 +1448,10 @@ fn main() {
         let _ = std::fs::write(".recent_roms", "");
     }
 
-    let frame_count = Rc::new(RefCell::new(0));
+    let _frame_count = Rc::new(RefCell::new(0));
     let fps_update_time = Rc::new(RefCell::new(std::time::Instant::now()));
-    let current_fps = Rc::new(RefCell::new(0u32));
+    let current_fps = Arc::new(AtomicU32::new(0));
+    let emu_frame_count = Arc::new(AtomicU32::new(0));
 
     let window = Arc::new(window);
     let surface_clone = surface.clone();
@@ -1449,6 +1485,7 @@ fn main() {
     let zapper_y_clone = zapper_y.clone();
     let zapper_trigger_clone = zapper_trigger.clone();
     let expansion_zapper_trigger_clone = expansion_zapper_trigger.clone();
+    let famicom_mic_clone = famicom_mic.clone();
     let zapper_bogo_clone = zapper_bogo.clone();
     let paddle_x_clone = paddle_x.clone();
     let paddle_button_clone = paddle_button.clone();
@@ -1462,6 +1499,7 @@ fn main() {
     let subor_mouse_dy_clone = subor_mouse_dy.clone();
     let zapper_trigger_binding_clone = zapper_trigger_binding.clone();
     let expansion_zapper_trigger_binding_clone = expansion_zapper_trigger_binding.clone();
+    let famicom_mic_binding_clone = famicom_mic_binding.clone();
     let paddle1_button_binding_clone = paddle1_button_binding.clone();
     let paddle2_button_binding_clone = paddle2_button_binding.clone();
     let expansion_paddle_button_binding_clone = expansion_paddle_button_binding.clone();
@@ -1473,11 +1511,13 @@ fn main() {
     let snes_mouse2_bindings_clone = snes_mouse2_bindings.clone();
     let subor_mouse1_bindings_clone = subor_mouse1_bindings.clone();
     let subor_mouse2_bindings_clone = subor_mouse2_bindings.clone();
+    let vb1_bindings_clone = vb1_bindings.clone();
+    let vb2_bindings_clone = vb2_bindings.clone();
+    let virtualboy_state_clone = virtualboy_state.clone();
     let controller3_bindings_clone = controller3_bindings.clone();
     let controller4_bindings_clone = controller4_bindings.clone();
     let last_mouse_x_clone = last_mouse_x.clone();
     let last_mouse_y_clone = last_mouse_y.clone();
-    let frame_count_clone = frame_count.clone();
     let fps_update_time_clone = fps_update_time.clone();
     let current_fps_clone = current_fps.clone();
     let audio_enabled_clone = audio_enabled.clone();
@@ -1497,49 +1537,81 @@ fn main() {
     let (cmd_tx, cmd_rx) = mpsc::channel::<EmuCommand>();
     let exit_flag = Arc::new(AtomicBool::new(false));
     let rom_loaded_flag = Arc::new(AtomicBool::new(false));
+    let disk_inserted_flag = Arc::new(AtomicBool::new(false));
 
     let screen_buffer_clone = screen_buffer.clone();
     let rom_loaded_flag_clone = rom_loaded_flag.clone();
+    let disk_inserted_clone = disk_inserted_flag.clone();
 
     let emu_thread = emu.clone();
     let screen_out = screen_buffer.clone();
     let exit_for_thread = exit_flag.clone();
+    let emu_frame_count_thread = emu_frame_count.clone();
+    let current_fps_thread = current_fps.clone();
     let rom_loaded_for_thread = rom_loaded_flag.clone();
     let paused_thread = paused.clone();
+    let disk_inserted_flag_thread = disk_inserted_flag.clone();
+
+    let emu_frame_count_ui = emu_frame_count.clone();
 
     thread::spawn(move || {
-        let target_ntsc = Duration::from_secs_f64(1.0 / 60.0988);
-        let target_pal = Duration::from_secs_f64(1.0 / 50.0070);
+        let _timer_guard = TimerGuard::new(1);
+        let target_ntsc = Duration::from_secs_f64(1.0 / 60.0);
+        let target_pal = Duration::from_secs_f64(1.0 / 50.0);
+        let target_dendy = Duration::from_secs_f64(1.0 / 50.0);
+        let mut fps_count_local: u32 = 0;
+        let mut fps_time_local = Instant::now();
+        let mut next_deadline = Instant::now();
 
         loop {
             if exit_for_thread.load(Ordering::Relaxed) {
                 break;
             }
             if !rom_loaded_for_thread.load(Ordering::Relaxed) || paused_thread.load(Ordering::Relaxed) {
-                thread::sleep(Duration::from_millis(1));
+                thread::sleep(Duration::from_millis(2));
+                next_deadline = Instant::now();
                 continue;
             }
 
-            let frame_start = Instant::now();
-                        let target: Duration;
-            let mut audio_corr: f64 = 0.0;
+            let target: Duration;
             {
                 let mut e = emu_thread.lock().unwrap();
-                target = if e.is_pal() || e.is_dendy() { target_pal } else { target_ntsc };
+                target = if e.is_pal() {
+                    target_pal
+                } else if e.is_dendy() {
+                    target_dendy
+                } else {
+                    target_ntsc
+                };
 
                 while let Ok(cmd) = cmd_rx.try_recv() {
                     match cmd {
                         EmuCommand::Exit => { return; }
-                        EmuCommand::LoadCartridge(cart) => { e.load_cartridge(cart); }
+                        EmuCommand::LoadCartridge(cart) => {
+                            e.load_cartridge(cart);
+                            disk_inserted_flag_thread.store(e.disk_inserted(), Ordering::Relaxed);
+                        }
                         EmuCommand::Reset => { e.reset(); }
                         EmuCommand::PowerCycle(mode) => { e.power_cycle(mode); }
                         EmuCommand::InsertCoin(n) => { e.insert_coin(n); }
                         EmuCommand::ServiceButton => { e.service_button(); }
-                        EmuCommand::ChangeDisk => { e.change_disk(); }
-                        EmuCommand::EjectDisk => { e.eject_disk(); }
-                        EmuCommand::InsertDisk => { e.insert_disk(); }
+                        EmuCommand::ChangeDisk => {
+                            e.change_disk();
+                            disk_inserted_flag_thread.store(e.disk_inserted(), Ordering::Relaxed);
+                        }
+                        EmuCommand::EjectDisk => {
+                            e.eject_disk();
+                            disk_inserted_flag_thread.store(e.disk_inserted(), Ordering::Relaxed);
+                        }
+                        EmuCommand::InsertDisk => {
+                            e.insert_disk();
+                            disk_inserted_flag_thread.store(e.disk_inserted(), Ordering::Relaxed);
+                        }
                         EmuCommand::SavePrgRam => { e.save_prg_ram(); }
-                        EmuCommand::ClearCart => { e.clear_cart(); }
+                        EmuCommand::ClearCart => {
+                            e.clear_cart();
+                            disk_inserted_flag_thread.store(false, Ordering::Relaxed);
+                        }
                         EmuCommand::SetDipSwitches(val) => { e.set_dip_switches(val); }
                         EmuCommand::SetVsPpuVariant(v) => { e.set_vs_ppu_variant(v); }
                         EmuCommand::SetBarcode(rcode) => { e.set_barcode(&rcode); }
@@ -1550,41 +1622,43 @@ fn main() {
                 }
 
                 e.core_frame_advance();
+                disk_inserted_flag_thread.store(e.disk_inserted(), Ordering::Relaxed);
+                emu_frame_count_thread.fetch_add(1, Ordering::Relaxed);
 
                 let mut screen = screen_out.lock().unwrap();
                 screen.copy_from_slice(&e.screen);
-
-                if e.audio_enabled {
-                    if let Some(ref buffer) = e.audio_buffer {
-                        if let Ok(guard) = buffer.lock() {
-                            let level = guard.len();
-                            let rate = e.audio_host_sample_rate;
-                            if rate > 0.0 {
-                                let setpoint = rate * 0.035;
-                                let corr = ((level as f64) - setpoint) / rate;
-                                audio_corr = corr.clamp(-0.002, 0.002);
-                            }
-                        }
-                    }
-                }
+            }
+            fps_count_local += 1;
+            let elapsed_fps = fps_time_local.elapsed();
+            if elapsed_fps >= Duration::from_secs(1) {
+                let calculated_fps = (fps_count_local as f64 / elapsed_fps.as_secs_f64()).round() as u32;
+                current_fps_thread.store(calculated_fps, Ordering::Relaxed);
+                fps_count_local = 0;
+                fps_time_local = Instant::now();
             }
 
-            let frame_secs = (target.as_secs_f64() + audio_corr).max(0.0);
-            let deadline = frame_start + Duration::from_secs_f64(frame_secs);
-            let sleep_for = deadline.saturating_duration_since(Instant::now());
-            if sleep_for > Duration::ZERO {
-                if sleep_for > Duration::from_millis(2) {
-                    thread::sleep(sleep_for - Duration::from_millis(1));
+            next_deadline += target;
+            let now = Instant::now();
+            if now >= next_deadline {
+                if now > next_deadline + target * 3 {
+                    next_deadline = now;
                 }
-                while Instant::now() < deadline {
-                    thread::yield_now();
+            } else {
+                let remaining = next_deadline - now;
+                if remaining > Duration::from_micros(2000) {
+                    thread::sleep(remaining - Duration::from_micros(1500));
+                }
+                while Instant::now() < next_deadline {
+                    std::hint::spin_loop();
                 }
             }
         }
     });
 
+    let mut last_rendered_frame: u32 = u32::MAX;
+
     event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
+        *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(4));
 
         const GP_DEFAULTS: [&str; 10] = ["South", "East", "West", "North", "Select", "Start", "DPadUp", "DPadDown", "DPadLeft", "DPadRight"];
         while let Some(gilrs_event) = gilrs.as_mut().and_then(|g| g.next_event()) {
@@ -1618,6 +1692,9 @@ fn main() {
                         } else if c1t == config::ControllerType::SuborMouse {
                             subor_mouse1_bindings_clone.borrow_mut()[b] = btn_name.clone();
                             config::save_subor_mouse_binding(prefix, b, &btn_name);
+                        } else if c1t == config::ControllerType::VirtualBoy {
+                            vb1_bindings_clone.borrow_mut()[b] = btn_name.clone();
+                            config::save_vb_binding(prefix, b, &btn_name);
                         } else if c1t == config::ControllerType::Paddle {
                             *paddle1_button_binding_clone.borrow_mut() = btn_name.clone();
                             config::save_paddle_button("controller1", &btn_name);
@@ -1643,6 +1720,9 @@ fn main() {
                     } else if *controller2_type_clone.borrow() == config::ControllerType::SuborMouse {
                         subor_mouse2_bindings_clone.borrow_mut()[b] = btn_name.clone();
                         config::save_subor_mouse_binding(prefix, b, &btn_name);
+                    } else if *controller2_type_clone.borrow() == config::ControllerType::VirtualBoy {
+                        vb2_bindings_clone.borrow_mut()[b] = btn_name.clone();
+                        config::save_vb_binding(prefix, b, &btn_name);
                     } else if ctrl == 2 {
                         controller2_bindings_clone.borrow_mut()[b] = btn_name.clone();
                         config::save_binding(prefix, b, &btn_name);
@@ -1690,7 +1770,7 @@ fn main() {
             }
             // controller 2
             let mut matched2 = false;
-            if *controller2_type_clone.borrow() == config::ControllerType::Gamepad || *controller1_type_clone.borrow() == config::ControllerType::FourScore {
+            if *controller2_type_clone.borrow() == config::ControllerType::Gamepad || *controller2_type_clone.borrow() == config::ControllerType::FamicomGamepad || *controller1_type_clone.borrow() == config::ControllerType::FourScore {
                 let b2 = controller2_bindings_clone.borrow();
                 for (i, s) in b2.iter().enumerate() {
                     if s == &btn_name {
@@ -1705,7 +1785,7 @@ fn main() {
                     }
                 }
             }
-            if !matched2 && (*controller2_type_clone.borrow() == config::ControllerType::Gamepad || *controller1_type_clone.borrow() == config::ControllerType::FourScore) {
+            if !matched2 && (*controller2_type_clone.borrow() == config::ControllerType::Gamepad || *controller2_type_clone.borrow() == config::ControllerType::FamicomGamepad || *controller1_type_clone.borrow() == config::ControllerType::FourScore) {
                 for (i, &def) in GP_DEFAULTS.iter().enumerate() {
                     if def == btn_name {
                         let mask = BIT_MASKS[i];
@@ -1716,6 +1796,13 @@ fn main() {
                         }
                         break;
                     }
+                }
+            }
+            // famicom microphone
+            if *controller2_type_clone.borrow() == config::ControllerType::FamicomGamepad {
+                let mb = famicom_mic_binding_clone.borrow();
+                if &*mb == &btn_name {
+                    if pressed { famicom_mic_clone.store(true, Ordering::Relaxed); } else { famicom_mic_clone.store(false, Ordering::Relaxed); }
                 }
             }
             // controller 3 and 4 (four score)
@@ -1779,7 +1866,7 @@ fn main() {
                     }
                 }
             }
-            // expansion zapper trigger (Famicom Zapper on $4017)
+            // expansion zapper trigger
             {
                 let ezt = expansion_zapper_trigger_binding_clone.borrow();
                 if *ezt == btn_name {
@@ -1845,6 +1932,25 @@ fn main() {
                     if s == &btn_name {
                         let mut ss = snes_state_clone.lock().unwrap();
                         if pressed { ss[1] |= 1 << i; } else { ss[1] &= !(1 << i); }
+                    }
+                }
+            }
+            // virtual boy pad buttons
+            {
+                let v1 = vb1_bindings_clone.borrow();
+                for (i, s) in v1.iter().enumerate() {
+                    if s == &btn_name {
+                        let mut vs = virtualboy_state_clone.lock().unwrap();
+                        if pressed { vs[0] |= 1 << i; } else { vs[0] &= !(1 << i); }
+                    }
+                }
+            }
+            {
+                let v2 = vb2_bindings_clone.borrow();
+                for (i, s) in v2.iter().enumerate() {
+                    if s == &btn_name {
+                        let mut vs = virtualboy_state_clone.lock().unwrap();
+                        if pressed { vs[1] |= 1 << i; } else { vs[1] &= !(1 << i); }
                     }
                 }
             }
@@ -2027,6 +2133,9 @@ fn main() {
                             } else if c1t == config::ControllerType::SuborMouse {
                                 subor_mouse1_bindings_clone.borrow_mut()[btn] = key_str.clone();
                                 config::save_subor_mouse_binding(prefix, btn, &key_str);
+                            } else if c1t == config::ControllerType::VirtualBoy {
+                                vb1_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_vb_binding(prefix, btn, &key_str);
                             } else if c1t == config::ControllerType::Paddle {
                                 *paddle1_button_binding_clone.borrow_mut() = key_str.clone();
                                 config::save_paddle_button("controller1", &key_str);
@@ -2052,6 +2161,12 @@ fn main() {
                         } else if *controller2_type_clone.borrow() == config::ControllerType::SuborMouse {
                             subor_mouse2_bindings_clone.borrow_mut()[btn] = key_str.clone();
                             config::save_subor_mouse_binding(prefix, btn, &key_str);
+                        } else if *controller2_type_clone.borrow() == config::ControllerType::VirtualBoy {
+                            vb2_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                            config::save_vb_binding(prefix, btn, &key_str);
+                        } else if *controller2_type_clone.borrow() == config::ControllerType::FamicomGamepad && btn == 10 {
+                            *famicom_mic_binding_clone.borrow_mut() = key_str.clone();
+                            config::save_famicom_mic(&key_str);
                         } else if ctrl == 2 {
                             controller2_bindings_clone.borrow_mut()[btn] = key_str.clone();
                             config::save_binding(prefix, btn, &key_str);
@@ -2089,7 +2204,7 @@ fn main() {
                     if any_match {  }
                 }
                 // controller 2
-                if *controller2_type_clone.borrow() == config::ControllerType::Gamepad || *controller1_type_clone.borrow() == config::ControllerType::FourScore {
+                if *controller2_type_clone.borrow() == config::ControllerType::Gamepad || *controller2_type_clone.borrow() == config::ControllerType::FamicomGamepad || *controller1_type_clone.borrow() == config::ControllerType::FourScore {
                     let b2 = controller2_bindings_clone.borrow();
                     for (i, s) in b2.iter().enumerate() {
                         if s == &key_str {
@@ -2101,6 +2216,13 @@ fn main() {
                             }
                             break;
                         }
+                    }
+                }
+                // famicom microphone
+                if *controller2_type_clone.borrow() == config::ControllerType::FamicomGamepad {
+                    let mb = famicom_mic_binding_clone.borrow();
+                    if &*mb == &key_str {
+                        if pressed { famicom_mic_clone.store(true, Ordering::Relaxed); } else { famicom_mic_clone.store(false, Ordering::Relaxed); }
                     }
                 }
                 // controller 3 and 4 (four score)
@@ -2208,6 +2330,25 @@ fn main() {
                         if s == &key_str {
                             let mut ss = snes_state_clone.lock().unwrap();
                             if pressed { ss[1] |= 1 << i; } else { ss[1] &= !(1 << i); }
+                        }
+                    }
+                }
+                // virtual boy pad buttons
+                {
+                    let v1 = vb1_bindings_clone.borrow();
+                    for (i, s) in v1.iter().enumerate() {
+                        if s == &key_str {
+                            let mut vs = virtualboy_state_clone.lock().unwrap();
+                            if pressed { vs[0] |= 1 << i; } else { vs[0] &= !(1 << i); }
+                        }
+                    }
+                }
+                {
+                    let v2 = vb2_bindings_clone.borrow();
+                    for (i, s) in v2.iter().enumerate() {
+                        if s == &key_str {
+                            let mut vs = virtualboy_state_clone.lock().unwrap();
+                            if pressed { vs[1] |= 1 << i; } else { vs[1] &= !(1 << i); }
                         }
                     }
                 }
@@ -2356,6 +2497,19 @@ fn main() {
                                 break;
                             }
                         }
+                    } else if c1t == config::ControllerType::VirtualBoy {
+                        let cols = 4;
+                        let gap_x = (cw.saturating_sub(cols * btn_w)) / (cols + 1);
+                        for i in 0..config::VB_BUTTON_COUNT {
+                            let row = i / cols;
+                            let col = i % cols;
+                            let bx = cx + gap_x + col * (btn_w + gap_x);
+                            let by = grid_y0 + row * (btn_h + gap_y);
+                            if point_in_rect(mx, my, bx, by, btn_w, btn_h) {
+                                ms.hovered_ctrl_button = Some(i);
+                                break;
+                            }
+                        }
                     } else if c1t == config::ControllerType::FourScore || *controller2_type_clone.borrow() == config::ControllerType::FourScore {
                         let grid_h = 4 * (btn_h + gap_y) + btn_h;
                         for player in 0..2usize {
@@ -2445,6 +2599,19 @@ fn main() {
                                 break;
                             }
                         }
+                    } else if c2t == config::ControllerType::VirtualBoy {
+                        let cols = 4;
+                        let gap_x = (cw.saturating_sub(cols * btn_w)) / (cols + 1);
+                        for i in 0..config::VB_BUTTON_COUNT {
+                            let row = i / cols;
+                            let col = i % cols;
+                            let bx = cx + gap_x + col * (btn_w + gap_x);
+                            let by = grid_y0 + row * (btn_h + gap_y);
+                            if point_in_rect(mx, my, bx, by, btn_w, btn_h) {
+                                ms.hovered_ctrl_button = Some(i);
+                                break;
+                            }
+                        }
                     } else if c2t == config::ControllerType::FourScore {
                         let block_h = 4 * (btn_h + gap_y) + btn_h;
                         for player in 0..2usize {
@@ -2469,6 +2636,14 @@ fn main() {
                             if point_in_rect(mx, my, bx, by, btn_w, btn_h) {
                                 ms.hovered_ctrl_button = Some(i);
                                 break;
+                            }
+                        }
+                        if c2t == config::ControllerType::FamicomGamepad && ms.hovered_ctrl_button.is_none() {
+                            let mic_row = 5;
+                            let mic_y = grid_y0 + mic_row * (btn_h + gap_y);
+                            let mic_x = cx + (cw - btn_w) / 2;
+                            if point_in_rect(mx, my, mic_x, mic_y, btn_w, btn_h) {
+                                ms.hovered_ctrl_button = Some(10);
                             }
                         }
                     }
@@ -2640,6 +2815,9 @@ fn main() {
                             } else if c1t == config::ControllerType::SuborMouse {
                                 subor_mouse1_bindings_clone.borrow_mut()[b] = bs;
                                 config::save_subor_mouse_binding(prefix, b, &btn_str);
+                            } else if c1t == config::ControllerType::VirtualBoy {
+                                vb1_bindings_clone.borrow_mut()[b] = bs;
+                                config::save_vb_binding(prefix, b, &btn_str);
                             } else if c1t == config::ControllerType::Paddle {
                                 *paddle1_button_binding_clone.borrow_mut() = bs;
                                 config::save_paddle_button("controller1", &btn_str);
@@ -2665,6 +2843,12 @@ fn main() {
                             } else if *controller2_type_clone.borrow() == config::ControllerType::SuborMouse {
                                 subor_mouse2_bindings_clone.borrow_mut()[b] = bs;
                                 config::save_subor_mouse_binding(prefix, b, &btn_str);
+                            } else if *controller2_type_clone.borrow() == config::ControllerType::VirtualBoy {
+                                vb2_bindings_clone.borrow_mut()[b] = bs;
+                                config::save_vb_binding(prefix, b, &btn_str);
+                            } else if *controller2_type_clone.borrow() == config::ControllerType::FamicomGamepad && b == 10 {
+                                *famicom_mic_binding_clone.borrow_mut() = bs;
+                                config::save_famicom_mic(&btn_str);
                             } else if ctrl == 2 {
                                 controller2_bindings_clone.borrow_mut()[b] = bs;
                                 config::save_binding(prefix, b, &btn_str);
@@ -2816,6 +3000,25 @@ fn main() {
                             }
                         }
                     }
+                    // virtual boy pad buttons
+                    {
+                        let v1 = vb1_bindings_clone.borrow();
+                        for (i, s) in v1.iter().enumerate() {
+                            if s == &btn_str {
+                                let mut vs = virtualboy_state_clone.lock().unwrap();
+                                if pressed { vs[0] |= 1 << i; } else { vs[0] &= !(1 << i); }
+                            }
+                        }
+                    }
+                    {
+                        let v2 = vb2_bindings_clone.borrow();
+                        for (i, s) in v2.iter().enumerate() {
+                            if s == &btn_str {
+                                let mut vs = virtualboy_state_clone.lock().unwrap();
+                                if pressed { vs[1] |= 1 << i; } else { vs[1] &= !(1 << i); }
+                            }
+                        }
+                    }
                     // snes mouse buttons
                     {
                         let m1 = snes_mouse1_bindings_clone.borrow();
@@ -2855,7 +3058,7 @@ fn main() {
                         }
                     }
                     // controller 2 gamepad
-                    if *controller2_type_clone.borrow() == config::ControllerType::Gamepad || *controller1_type_clone.borrow() == config::ControllerType::FourScore {
+                    if *controller2_type_clone.borrow() == config::ControllerType::Gamepad || *controller2_type_clone.borrow() == config::ControllerType::FamicomGamepad || *controller1_type_clone.borrow() == config::ControllerType::FourScore {
                         let b2 = controller2_bindings_clone.borrow();
                         for (i, s) in b2.iter().enumerate() {
                             if s == &btn_str {
@@ -2867,6 +3070,13 @@ fn main() {
                                 }
                                 break;
                             }
+                        }
+                    }
+                    // famicom microphone
+                    if *controller2_type_clone.borrow() == config::ControllerType::FamicomGamepad {
+                        let mb = famicom_mic_binding_clone.borrow();
+                        if &*mb == &btn_str {
+                            if pressed { famicom_mic_clone.store(true, Ordering::Relaxed); } else { famicom_mic_clone.store(false, Ordering::Relaxed); }
                         }
                     }
                 }
@@ -3301,6 +3511,7 @@ fn main() {
                             let is_snesmouse1 = c1t == config::ControllerType::SNESMouse || c1t == config::ControllerType::SuborMouse;
                             let is_pp1 = c1t == config::ControllerType::PowerPadA || c1t == config::ControllerType::PowerPadB;
                             let is_snes1 = c1t == config::ControllerType::SNESPad;
+                            let is_vb1 = c1t == config::ControllerType::VirtualBoy;
                             if is_single1 {
                                 let total_w = 2 * btn_w + gap_x;
                                 let trig_bx = cx + (cw - total_w) / 2;
@@ -3343,6 +3554,19 @@ fn main() {
                                         break;
                                     }
                                 }
+                            } else if is_vb1 {
+                                let cols = 4;
+                                let gap_x = (cw.saturating_sub(cols * btn_w)) / (cols + 1);
+                                for i in 0..config::VB_BUTTON_COUNT {
+                                    let row = i / cols;
+                                    let col = i % cols;
+                                    let bx = cx + gap_x + col * (btn_w + gap_x);
+                                    let by = grid_y0 + row * (btn_h + gap_y);
+                                    if point_in_rect(mx, my, bx, by, btn_w, btn_h) {
+                                        clicked_rebind = Some(i);
+                                        break;
+                                    }
+                                }
                             } else if fs1 {
                                 let grid_h = 4 * (btn_h + gap_y) + btn_h;
                                 for player in 0..2usize {
@@ -3373,7 +3597,7 @@ fn main() {
                             let act_btn_w = (70.0 * sc).round() as usize;
                             let act_btn_h = (24.0 * sc).round() as usize;
                             let grid_h = 4 * (btn_h + gap_y) + btn_h;
-                            let last_row_bottom = if is_single1 || is_snesmouse1 { grid_y0 + btn_h } else if is_pp1 || is_snes1 { grid_y0 + 2 * (btn_h + gap_y) + btn_h } else if fs1 { grid_y0 + 2 * (grid_h + btn_h / 2) } else { grid_y0 + 4 * (btn_h + gap_y) + btn_h };
+                            let last_row_bottom = if is_single1 || is_snesmouse1 { grid_y0 + btn_h } else if is_pp1 || is_snes1 { grid_y0 + 2 * (btn_h + gap_y) + btn_h } else if is_vb1 { grid_y0 + 3 * (btn_h + gap_y) + btn_h } else if fs1 { grid_y0 + 2 * (grid_h + btn_h / 2) } else { grid_y0 + 4 * (btn_h + gap_y) + btn_h };
                             let act_y = last_row_bottom + (10.0 * sc).round() as usize;
                             let act_gap = (10.0 * sc).round() as usize;
                             let act_total = 2 * act_btn_w + act_gap;
@@ -3412,6 +3636,9 @@ fn main() {
                                 } else if is_snes1 {
                                     config::clear_snes_bindings("controller1");
                                     *snes1_bindings_clone.borrow_mut() = config::load_snes_bindings("controller1");
+                                } else if is_vb1 {
+                                    config::clear_vb_bindings("controller1");
+                                    *vb1_bindings_clone.borrow_mut() = config::load_vb_bindings("controller1");
                                 } else if fs1 {
                                     for pfx in &["controller1", "controller2", "controller3", "controller4"] {
                                         config::clear_bindings(pfx);
@@ -3444,6 +3671,9 @@ fn main() {
                                 } else if is_snes1 {
                                     config::reset_snes_bindings("controller1");
                                     *snes1_bindings_clone.borrow_mut() = config::load_snes_bindings("controller1");
+                                } else if is_vb1 {
+                                    config::reset_vb_bindings("controller1");
+                                    *vb1_bindings_clone.borrow_mut() = config::load_vb_bindings("controller1");
                                 } else if fs1 {
                                     for pfx in &["controller1", "controller2", "controller3", "controller4"] {
                                         config::reset_bindings(pfx);
@@ -3527,6 +3757,8 @@ fn main() {
                         let c2_h = if c2t_fs {
                             let fs_ch = tmp_g0 + 2 * (grid_h + btn_h / 2) + (40.0 * sc).round() as usize;
                             fs_ch.max(260)
+                        } else if *controller2_type_clone.borrow() == config::ControllerType::FamicomGamepad {
+                            (295.0 * sc).round() as usize
                         } else {
                             (260.0 * sc).round() as usize
                         };
@@ -3553,6 +3785,7 @@ fn main() {
                             let is_snesmouse2 = c2t == config::ControllerType::SNESMouse || c2t == config::ControllerType::SuborMouse;
                             let is_pp2 = c2t == config::ControllerType::PowerPadA || c2t == config::ControllerType::PowerPadB;
                             let is_snes2 = c2t == config::ControllerType::SNESPad;
+                            let is_vb2 = c2t == config::ControllerType::VirtualBoy;
                             if is_single2 {
                                 let total_w = 2 * btn_w + gap_x;
                                 let trig_bx = cx + (cw - total_w) / 2;
@@ -3595,6 +3828,19 @@ fn main() {
                                         break;
                                     }
                                 }
+                            } else if is_vb2 {
+                                let cols = 4;
+                                let gap_x = (cw.saturating_sub(cols * btn_w)) / (cols + 1);
+                                for i in 0..config::VB_BUTTON_COUNT {
+                                    let row = i / cols;
+                                    let col = i % cols;
+                                    let bx = cx + gap_x + col * (btn_w + gap_x);
+                                    let by = grid_y0 + row * (btn_h + gap_y);
+                                    if point_in_rect(mx, my, bx, by, btn_w, btn_h) {
+                                        clicked_rebind = Some(i);
+                                        break;
+                                    }
+                                }
                             } else if c2t == config::ControllerType::FourScore {
                                 let block_h = 4 * (btn_h + gap_y) + btn_h;
                                 for player in 0..2usize {
@@ -3621,10 +3867,18 @@ fn main() {
                                         break;
                                     }
                                 }
+                                if c2t == config::ControllerType::FamicomGamepad && clicked_rebind.is_none() {
+                                    let mic_row = 5;
+                                    let mic_y = grid_y0 + mic_row * (btn_h + gap_y);
+                                    let mic_x = cx + (cw - btn_w) / 2;
+                                    if point_in_rect(mx, my, mic_x, mic_y, btn_w, btn_h) {
+                                        clicked_rebind = Some(10);
+                                    }
+                                }
                             }
                             let act_btn_w = (70.0 * sc).round() as usize;
                             let act_btn_h = (24.0 * sc).round() as usize;
-                            let last_row_bottom = if is_single2 || is_snesmouse2 { grid_y0 + btn_h } else if is_pp2 || is_snes2 { grid_y0 + 2 * (btn_h + gap_y) + btn_h } else { grid_y0 + 4 * (btn_h + gap_y) + btn_h };
+                            let last_row_bottom = if is_single2 || is_snesmouse2 { grid_y0 + btn_h } else if is_pp2 || is_snes2 { grid_y0 + 2 * (btn_h + gap_y) + btn_h } else if is_vb2 { grid_y0 + 3 * (btn_h + gap_y) + btn_h } else if c2t == config::ControllerType::FamicomGamepad { grid_y0 + 5 * (btn_h + gap_y) + btn_h } else { grid_y0 + 4 * (btn_h + gap_y) + btn_h };
                             let act_y = last_row_bottom + (10.0 * sc).round() as usize;
                             let act_gap = (10.0 * sc).round() as usize;
                             let act_total = 2 * act_btn_w + act_gap;
@@ -3663,6 +3917,9 @@ fn main() {
                                 } else if is_snes2 {
                                     config::clear_snes_bindings("controller2");
                                     *snes2_bindings_clone.borrow_mut() = config::load_snes_bindings("controller2");
+                                } else if is_vb2 {
+                                    config::clear_vb_bindings("controller2");
+                                    *vb2_bindings_clone.borrow_mut() = config::load_vb_bindings("controller2");
                                 } else if c2t == config::ControllerType::FourScore {
                                     for pfx in &["controller1", "controller2", "controller3", "controller4"] {
                                         config::clear_bindings(pfx);
@@ -3695,6 +3952,9 @@ fn main() {
                                 } else if is_snes2 {
                                     config::reset_snes_bindings("controller2");
                                     *snes2_bindings_clone.borrow_mut() = config::load_snes_bindings("controller2");
+                                } else if is_vb2 {
+                                    config::reset_vb_bindings("controller2");
+                                    *vb2_bindings_clone.borrow_mut() = config::load_vb_bindings("controller2");
                                 } else if c2t == config::ControllerType::FourScore {
                                     for pfx in &["controller1", "controller2", "controller3", "controller4"] {
                                         config::reset_bindings(pfx);
@@ -3765,7 +4025,7 @@ fn main() {
                         }
                     } else if ms.show_input_settings {
                         let sc = ms.scale;
-                    let input_w = (420.0 * sc).round() as usize;
+                    let input_w = (480.0 * sc).round() as usize;
                     let input_h = (300.0 * sc).round() as usize;
                         let input_x = (width.saturating_sub(input_w)) / 2;
                         let input_y = (height.saturating_sub(input_h)) / 2;
@@ -3780,7 +4040,7 @@ fn main() {
                             paused_clone.store(false, Ordering::Relaxed);
                         } else {
                             let row_h = (22.0 * sc).round() as usize;
-                            let box_w = (80.0 * sc).round() as usize;
+                            let box_w = (165.0 * sc).round() as usize;
                             let configure_h = (24.0 * sc).round() as usize;
                             let col_gap = (10.0 * sc).round() as usize;
                             let col_w = (input_w - (10.0 * sc).round() as usize * 2 - col_gap) / 2;
@@ -3842,9 +4102,7 @@ fn main() {
                                 let exp_cfg_y = exp_title_y + row_h + (5.0 * sc).round() as usize;
                                 let exp_cfg_x = input_x + input_w.saturating_sub(box_w) / 2;
                                 let exp_type_y = exp_cfg_y + configure_h + (8.0 * sc).round() as usize;
-                                let exp_group_w = type_label_w + label_gap + box_w;
-                                let exp_group_x = input_x + input_w.saturating_sub(exp_group_w) / 2;
-                                let exp_type_box_x = exp_group_x + type_label_w + label_gap;
+                                let exp_type_box_x = exp_cfg_x;
                                 let dpad_y = exp_type_y + row_h + (15.0 * sc).round() as usize;
                                 let dpad_box_x = c2_cfg_x;
                                 if point_in_rect(mx, my, exp_cfg_x, exp_cfg_y, box_w, configure_h) {
@@ -4159,12 +4417,8 @@ fn main() {
                                 let dropdown_y = ms_mut.menu_height;
                                 let sc = ms_mut.scale;
                                 let pause_text = if paused_clone.load(Ordering::Relaxed) { "Resume" } else { "Pause" };
-                                let disk_label = if *rom_loaded_clone.borrow() {
-                                    if let Ok(e) = emu_clone.try_lock() {
-                                        if e.disk_inserted() { "Eject Disk" } else { "Insert Disk" }
-                                    } else {
-                                        "Insert Disk"
-                                    }
+                                let disk_label = if *rom_loaded_clone.borrow() && disk_inserted_clone.load(Ordering::Relaxed) {
+                                    "Eject Disk"
                                 } else {
                                     "Insert Disk"
                                 };
@@ -4180,7 +4434,7 @@ fn main() {
                                             }
                                             NesMenuItem::DipSwitches => {
                                                    if *rom_loaded_clone.borrow() {
-                                                       let dip_info = emu_clone.try_lock().ok().map(|e| (e.has_dip_switches(), e.memory_mapper(), e.prg_rom_crc32(), e.get_dip_switches()));
+                                                       let dip_info = emu_clone.lock().ok().map(|e| (e.has_dip_switches(), e.memory_mapper(), e.prg_rom_crc32(), e.get_dip_switches()));
                                                        if let Some((has_dip, mapper_id, crc, dip_val)) = dip_info {
                                                            if has_dip {
                                                                let game = load_dip_game(crc, mapper_id);
@@ -4212,11 +4466,12 @@ fn main() {
                                             }
                                             NesMenuItem::InsertEjectDisk => {
                                                 if *rom_loaded_clone.borrow() {
-                                                    let should_eject = emu_clone.try_lock().map_or(false, |e| e.disk_inserted());
-                                                    if should_eject {
+                                                    if disk_inserted_clone.load(Ordering::Relaxed) {
                                                         let _ = cmd_tx.send(EmuCommand::EjectDisk);
+                                                        disk_inserted_clone.store(false, Ordering::Relaxed);
                                                     } else {
                                                         let _ = cmd_tx.send(EmuCommand::InsertDisk);
+                                                        disk_inserted_clone.store(true, Ordering::Relaxed);
                                                     }
                                                 }
                                             }
@@ -4610,12 +4865,8 @@ fn main() {
                             let sc = ms_mut.scale;
                             let dropdown_w = item_w;
                             let pause_text = if paused_clone.load(Ordering::Relaxed) { "Resume" } else { "Pause" };
-                            let disk_label = if *rom_loaded_clone.borrow() {
-                                if let Ok(e) = emu_clone.try_lock() {
-                                    if e.disk_inserted() { "Eject Disk" } else { "Insert Disk" }
-                                } else {
-                                    "Insert Disk"
-                                }
+                            let disk_label = if *rom_loaded_clone.borrow() && disk_inserted_clone.load(Ordering::Relaxed) {
+                                "Eject Disk"
                             } else {
                                 "Insert Disk"
                             };
@@ -4691,17 +4942,34 @@ fn main() {
                     ms_mut.hovered_recent_index = None;
                 }
                 
-                window.request_redraw();
+                let cur_frame = emu_frame_count_ui.load(Ordering::Relaxed);
+                let menu_active = ms_mut.hovered_menu.is_some()
+                    || ms_mut.active_menu.is_some()
+                    || ms_mut.show_about
+                    || ms_mut.show_updates
+                    || ms_mut.show_dip_switches
+                    || ms_mut.show_general_settings
+                    || ms_mut.show_audio_settings
+                    || ms_mut.show_video_settings
+                    || ms_mut.show_input_settings
+                    || ms_mut.show_controller1_settings
+                    || ms_mut.show_controller2_settings
+                    || ms_mut.show_expansion_settings
+                    || ms_mut.show_confirm_exit_dialog
+                    || ms_mut.show_barcode_input
+                    || ms_mut.show_error
+                    || ms_mut.rebind_button.is_some();
+                if cur_frame != last_rendered_frame || menu_active {
+                    last_rendered_frame = cur_frame;
+                    window.request_redraw();
+                }
             }
 
             WinitEvent::RedrawRequested(_) => {
 
-                *frame_count_clone.borrow_mut() += 1;
                 let fps_elapsed = fps_update_time_clone.borrow().elapsed();
                 if fps_elapsed.as_secs() >= 1 {
-                    let fps = *frame_count_clone.borrow();
-                    *current_fps_clone.borrow_mut() = fps;
-                    *frame_count_clone.borrow_mut() = 0;
+                    let fps = current_fps_clone.load(Ordering::Relaxed);
                     *fps_update_time_clone.borrow_mut() = std::time::Instant::now();
                     let base_title = if let Some(ref rom_path) = *current_rom_clone.borrow() {
                         let mut filename = std::path::Path::new(rom_path)
@@ -4715,9 +4983,9 @@ fn main() {
                         } else if lower.ends_with(".fds") || lower.ends_with(".qd") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.6.1: {}", filename)
+                        format!("AccuNES 1.6.2: {}", filename)
                     } else {
-                        "AccuNES 1.6.1".to_string()
+                        "AccuNES 1.6.2".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -4778,7 +5046,7 @@ fn main() {
                 buffer.fill(colors.global_bg);
 
                 if *rom_loaded_clone.borrow() && height > menu_height && width > 0 {
-                    let emu_screen = screen_buffer_clone.lock().unwrap();
+                    let screen_data = screen_buffer_clone.lock().unwrap();
                     let nes_width = NES_WIDTH as usize;
                     let nes_height = NES_HEIGHT as usize;
 
@@ -4832,7 +5100,7 @@ fn main() {
                         if dest_start + dest_w <= buffer.len() {
                             for dx in 0..dest_w {
                                 let sx = x_mapping[dx];
-                                let pixel = emu_screen[src_row_offset + sx];
+                                let pixel = screen_data[src_row_offset + sx];
                                 buffer[dest_start + dx] = 0xFF000000u32 | (pixel & 0x00FFFFFFu32);
                             }
                         }
@@ -4985,8 +5253,8 @@ fn main() {
                         }
                         Menu::Nes => {
                             let pause_text = if paused_clone.load(Ordering::Relaxed) { "Resume" } else { "Pause" };
-                            let disk_label = if let Ok(e) = emu_clone.try_lock() {
-                                if e.disk_inserted() { "Eject Disk" } else { "Insert Disk" }
+                            let disk_label = if disk_inserted_clone.load(Ordering::Relaxed) {
+                                "Eject Disk"
                             } else {
                                 "Insert Disk"
                             };
@@ -5141,7 +5409,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.6.1",
+                        "Version: 1.6.2",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
@@ -5605,7 +5873,7 @@ fn main() {
                 }
 
                 if ms.show_input_settings {
-                    let input_w = (420.0 * scale).round() as usize;
+                    let input_w = (480.0 * scale).round() as usize;
                     let input_h = (300.0 * scale).round() as usize;
                     let input_x = (width.saturating_sub(input_w)) / 2;
                     let input_y = (height.saturating_sub(input_h)) / 2;
@@ -5615,7 +5883,7 @@ fn main() {
                     let title_bg = colors.dropdown_bg;
                     let window_border = colors.window_border;
                     let row_h = (22.0 * scale).round() as usize;
-                    let box_w = (90.0 * scale).round() as usize;
+                    let box_w = (165.0 * scale).round() as usize;
                     let col_gap = (10.0 * scale).round() as usize;
                     let configure_h = (24.0 * scale).round() as usize;
                     let col_w = (input_w - (10.0 * scale).round() as usize * 2 - col_gap) / 2;
@@ -5700,10 +5968,9 @@ fn main() {
                     let exp_cfg_color = if exp_type_enabled { menu_text } else { colors.disabled_text };
                     draw_text(&mut buffer, exp_cfg_x + ((box_w as f32 - cfg_vw2) / 2.0).round() as usize, exp_cfg_y + (7.0 * scale).round() as usize, width, cfg_label, exp_cfg_color, scale);
                     let exp_type_y = exp_cfg_y + configure_h + (8.0 * scale).round() as usize;
-                    let exp_group_w = type_label_w + label_gap + box_w;
-                    let exp_group_x = input_x + input_w.saturating_sub(exp_group_w) / 2;
+                    let exp_group_x = exp_cfg_x - type_label_w - label_gap;
                     draw_text(&mut buffer, exp_group_x, exp_type_y + (6.0 * scale).round() as usize, width, "Type:", menu_text, scale);
-                    let exp_type_box_x = exp_group_x + type_label_w + label_gap;
+                    let exp_type_box_x = exp_cfg_x;
                     let exp_val = expansion_type_clone.borrow().label();
                     let exp_type_hovered = point_in_rect(mouse_x, mouse_y, exp_type_box_x, exp_type_y, box_w, row_h);
                     let exp_type_bg = if exp_type_hovered { colors.box_bg_hover } else { colors.box_bg_default };
@@ -5852,6 +6119,29 @@ fn main() {
                             let key_vw = txt.len() as f32 * 8.0 * scale;
                             draw_text(&mut buffer, bx + ((btn_w as f32 - key_vw) / 2.0).round() as usize, by + (12.0 * scale).round() as usize, width, txt, menu_text, scale);
                         }
+                    } else if c1t == config::ControllerType::VirtualBoy {
+                        let vb_bindings = vb1_bindings_clone.borrow();
+                        let rebinding = ms.rebind_controller == Some(1);
+                        let cols = 4;
+                        let gap_x = (cw.saturating_sub(cols * btn_w)) / (cols + 1);
+                        for i in 0..config::VB_BUTTON_COUNT {
+                            let row = i / cols;
+                            let col = i % cols;
+                            let bx = cx + gap_x + col * (btn_w + gap_x);
+                            let by = grid_y0 + row * (btn_h + gap_y);
+                            let is_hovered = ms.hovered_ctrl_button == Some(i);
+                            let is_rebinding = rebinding && ms.rebind_button == Some(i);
+                            let txt = if is_rebinding { "?" } else { &vb_bindings[i] };
+                            let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                            let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                            draw_rect(&mut buffer, bx, by, btn_w, btn_h, width, border);
+                            draw_rect(&mut buffer, bx + 1, by + 1, btn_w - 2, btn_h - 2, width, bg);
+                            let lbl = config::VB_LABELS[i];
+                            let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                            draw_text(&mut buffer, bx + ((btn_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                            let key_vw = txt.len() as f32 * 8.0 * scale;
+                            draw_text(&mut buffer, bx + ((btn_w as f32 - key_vw) / 2.0).round() as usize, by + (12.0 * scale).round() as usize, width, txt, menu_text, scale);
+                        }
                     } else if c1t == config::ControllerType::FourScore || *controller2_type_clone.borrow() == config::ControllerType::FourScore {
                         let grid_h = 4 * (btn_h + gap_y) + btn_h;
                         let player_cfgs = [(1, &*controller1_bindings_clone.borrow(), "P1"), (2, &*controller2_bindings_clone.borrow(), "P2")];
@@ -5907,7 +6197,7 @@ fn main() {
                     let act_btn_w = (70.0 * scale).round() as usize;
                     let act_btn_h = (24.0 * scale).round() as usize;
                     let grid_h = 4 * (btn_h + gap_y) + btn_h;
-                    let last_row_bottom = if c1t == config::ControllerType::Zapper || c1t == config::ControllerType::SNESMouse { grid_y0 + btn_h } else if c1t == config::ControllerType::PowerPadA || c1t == config::ControllerType::PowerPadB || c1t == config::ControllerType::SNESPad { grid_y0 + 2 * (btn_h + gap_y) + btn_h } else if c1t == config::ControllerType::FourScore || *controller2_type_clone.borrow() == config::ControllerType::FourScore { grid_y0 + 2 * (grid_h + btn_h / 2) } else { grid_y0 + 4 * (btn_h + gap_y) + btn_h };
+                    let last_row_bottom = if c1t == config::ControllerType::Zapper || c1t == config::ControllerType::SNESMouse || c1t == config::ControllerType::SuborMouse { grid_y0 + btn_h } else if c1t == config::ControllerType::PowerPadA || c1t == config::ControllerType::PowerPadB || c1t == config::ControllerType::SNESPad { grid_y0 + 2 * (btn_h + gap_y) + btn_h } else if c1t == config::ControllerType::VirtualBoy { grid_y0 + 3 * (btn_h + gap_y) + btn_h } else if c1t == config::ControllerType::FourScore || *controller2_type_clone.borrow() == config::ControllerType::FourScore { grid_y0 + 2 * (grid_h + btn_h / 2) } else { grid_y0 + 4 * (btn_h + gap_y) + btn_h };
                     let act_y = last_row_bottom + (10.0 * scale).round() as usize;
                     let act_gap = (10.0 * scale).round() as usize;
                     let act_total = 2 * act_btn_w + act_gap;
@@ -5938,6 +6228,8 @@ fn main() {
                     let ch = if c2t == config::ControllerType::FourScore {
                         let fs_ch = tmp_g0 + 2 * (fs_block_h + btn_h / 2) + (40.0 * scale).round() as usize;
                         fs_ch.max(260)
+                    } else if c2t == config::ControllerType::FamicomGamepad {
+                        (295.0 * scale).round() as usize
                     } else {
                         (260.0 * scale).round() as usize
                     };
@@ -6051,6 +6343,29 @@ fn main() {
                             let key_vw = txt.len() as f32 * 8.0 * scale;
                             draw_text(&mut buffer, bx + ((btn_w as f32 - key_vw) / 2.0).round() as usize, by + (12.0 * scale).round() as usize, width, txt, menu_text, scale);
                         }
+                    } else if c2t == config::ControllerType::VirtualBoy {
+                        let vb_bindings = vb2_bindings_clone.borrow();
+                        let rebinding = ms.rebind_controller == Some(2);
+                        let cols = 4;
+                        let gap_x = (cw.saturating_sub(cols * btn_w)) / (cols + 1);
+                        for i in 0..config::VB_BUTTON_COUNT {
+                            let row = i / cols;
+                            let col = i % cols;
+                            let bx = cx + gap_x + col * (btn_w + gap_x);
+                            let by = grid_y0 + row * (btn_h + gap_y);
+                            let is_hovered = ms.hovered_ctrl_button == Some(i);
+                            let is_rebinding = rebinding && ms.rebind_button == Some(i);
+                            let txt = if is_rebinding { "?" } else { &vb_bindings[i] };
+                            let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                            let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                            draw_rect(&mut buffer, bx, by, btn_w, btn_h, width, border);
+                            draw_rect(&mut buffer, bx + 1, by + 1, btn_w - 2, btn_h - 2, width, bg);
+                            let lbl = config::VB_LABELS[i];
+                            let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                            draw_text(&mut buffer, bx + ((btn_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                            let key_vw = txt.len() as f32 * 8.0 * scale;
+                            draw_text(&mut buffer, bx + ((btn_w as f32 - key_vw) / 2.0).round() as usize, by + (12.0 * scale).round() as usize, width, txt, menu_text, scale);
+                        }
                     } else if c2t == config::ControllerType::FourScore {
                         let bindings_arr = [
                             controller3_bindings_clone.borrow(),
@@ -6105,10 +6420,27 @@ fn main() {
                             let key_vw = key_txt.len() as f32 * 8.0 * scale;
                             draw_text(&mut buffer, bx + ((btn_w as f32 - key_vw) / 2.0).round() as usize, by + (12.0 * scale).round() as usize, width, key_txt, menu_text, scale);
                         }
+                        if c2t == config::ControllerType::FamicomGamepad {
+                            let mic_row = 5;
+                            let mic_y = grid_y0 + mic_row * (btn_h + gap_y);
+                            let mic_x = cx + (cw - btn_w) / 2;
+                            let is_hovered = ms.hovered_ctrl_button == Some(10);
+                            let is_rebinding = rebinding && rebind_btn == Some(10);
+                            let mic_txt = if is_rebinding { "?".to_string() } else { famicom_mic_binding_clone.borrow().clone() };
+                            let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                            let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                            draw_rect(&mut buffer, mic_x, mic_y, btn_w, btn_h, width, border);
+                            draw_rect(&mut buffer, mic_x + 1, mic_y + 1, btn_w - 2, btn_h - 2, width, bg);
+                            let lbl = "Mic";
+                            let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                            draw_text(&mut buffer, mic_x + ((btn_w as f32 - lbl_vw) / 2.0).round() as usize, mic_y + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                            let key_vw = mic_txt.len() as f32 * 8.0 * scale;
+                            draw_text(&mut buffer, mic_x + ((btn_w as f32 - key_vw) / 2.0).round() as usize, mic_y + (12.0 * scale).round() as usize, width, &mic_txt, menu_text, scale);
+                        }
                     }
-                            let act_btn_w = (70.0 * scale).round() as usize;
+                    let act_btn_w = (70.0 * scale).round() as usize;
                             let act_btn_h = (24.0 * scale).round() as usize;
-                            let last_row_bottom = if c2t == config::ControllerType::Zapper || c2t == config::ControllerType::Paddle || c2t == config::ControllerType::SNESMouse || c2t == config::ControllerType::SuborMouse { grid_y0 + btn_h } else if c2t == config::ControllerType::PowerPadA || c2t == config::ControllerType::PowerPadB || c2t == config::ControllerType::SNESPad { grid_y0 + 2 * (btn_h + gap_y) + btn_h } else if c2t == config::ControllerType::FourScore { grid_y0 + 2 * (fs_block_h + btn_h / 2) } else { grid_y0 + 4 * (btn_h + gap_y) + btn_h };
+                            let last_row_bottom = if c2t == config::ControllerType::Zapper || c2t == config::ControllerType::Paddle || c2t == config::ControllerType::SNESMouse || c2t == config::ControllerType::SuborMouse { grid_y0 + btn_h } else if c2t == config::ControllerType::PowerPadA || c2t == config::ControllerType::PowerPadB || c2t == config::ControllerType::SNESPad { grid_y0 + 2 * (btn_h + gap_y) + btn_h } else if c2t == config::ControllerType::VirtualBoy { grid_y0 + 3 * (btn_h + gap_y) + btn_h } else if c2t == config::ControllerType::FourScore { grid_y0 + 2 * (fs_block_h + btn_h / 2) } else if c2t == config::ControllerType::FamicomGamepad { grid_y0 + 5 * (btn_h + gap_y) + btn_h } else { grid_y0 + 4 * (btn_h + gap_y) + btn_h };
                     let act_y = last_row_bottom + (10.0 * scale).round() as usize;
                     let act_gap = (10.0 * scale).round() as usize;
                     let act_total = 2 * act_btn_w + act_gap;
@@ -6388,7 +6720,7 @@ fn main() {
                 }
                 
                 if *fps_mode_clone.borrow() == config::FpsMode::Overlay {
-                    let fps_text = format!("{} FPS", *current_fps_clone.borrow());
+                    let fps_text = format!("{} FPS", current_fps_clone.load(Ordering::Relaxed));
                     let overlay_x = (10.0 * scale).round() as usize;
                     let overlay_y = menu_height + (10.0 * scale).round() as usize;
                     draw_text(&mut buffer, overlay_x, overlay_y, width, &fps_text, colors.menu_text, scale);

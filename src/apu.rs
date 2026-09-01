@@ -10,7 +10,7 @@ const NOISE_PERIOD_LUT_NTSC: [u16; 16] = [
 ];
 
 const NOISE_PERIOD_LUT_PAL: [u16; 16] = [
-    4, 7, 15, 30, 59, 89, 119, 149, 188, 236, 353, 472, 708, 944, 1889, 3779
+    4, 8, 14, 30, 60, 88, 118, 148, 188, 236, 354, 472, 708, 944, 1890, 3778
 ];
 
 const APU_CYCLE_LENGTH: u32 = 10000;
@@ -228,6 +228,12 @@ impl Emulator {
                     }
                     if self.controller2_type == crate::config::ControllerType::SNESMouse {
                         self.snes_mouse_readbit[1] = 0;
+                    }
+                    if self.controller1_type == crate::config::ControllerType::VirtualBoy {
+                        self.virtualboy_readbit[0] = 0;
+                    }
+                    if self.controller2_type == crate::config::ControllerType::VirtualBoy {
+                        self.virtualboy_readbit[1] = 0;
                     }
                 }
             } else {
@@ -585,7 +591,7 @@ impl Emulator {
             // pulse 1 sweep
             let p1_sweep_reg = self.apu_register[1];
             let p1_sweep_enabled = (p1_sweep_reg & 0x80) != 0;
-            let p1_sweep_period = (p1_sweep_reg >> 4) & 0x7;
+            let p1_sweep_period = ((p1_sweep_reg >> 4) & 0x7) + 1;
             let p1_sweep_shift = p1_sweep_reg & 0x7;
             let p1_current_period = (self.apu_register[2] as u16) | (((self.apu_register[3] & 0x7) as u16) << 8);
             let p1_target_period = self.pulse_target_period(1, p1_current_period, p1_sweep_reg);
@@ -614,7 +620,7 @@ impl Emulator {
             // pulse 2 sweep
             let p2_sweep_reg = self.apu_register[5];
             let p2_sweep_enabled = (p2_sweep_reg & 0x80) != 0;
-            let p2_sweep_period = (p2_sweep_reg >> 4) & 0x7;
+            let p2_sweep_period = ((p2_sweep_reg >> 4) & 0x7) + 1;
             let p2_sweep_shift = p2_sweep_reg & 0x7;
             let p2_current_period = (self.apu_register[6] as u16) | (((self.apu_register[7] & 0x7) as u16) << 8);
             let p2_target_period = self.pulse_target_period(2, p2_current_period, p2_sweep_reg);
@@ -680,13 +686,10 @@ impl Emulator {
                 self.audio_frame_cycle = 0;
             }
 
-            let available = blip.samples_available();
+            let mut available = blip.samples_available();
             if available == 0 {
                 return;
             }
-
-            let mut samples = vec![0i32; available];
-            blip.read_samples(&mut samples, available);
 
             let mut ring = if let Some(ref buffer) = self.audio_buffer {
                 buffer.lock().unwrap()
@@ -694,22 +697,25 @@ impl Emulator {
                 return;
             };
 
-            let target_samples = ((self.audio_host_sample_rate * 0.06) as usize).max(256);
-            for &s in &samples {
-                if ring.len() >= target_samples {
-                    break;
-                }
-                let mut v = (s as f32 / 32767.0) * self.master_volume;
-                if v > 1.0 {
-                    v = 1.0;
-                } else if v < -1.0 {
-                    v = -1.0;
-                }
-                if self.audio_depth == 8 {
-                    v = (v * 127.0).round() / 127.0;
-                }
-                if self.audio_enabled {
-                    ring.push(v);
+            let mut samples = [0i32; 1024];
+            while available > 0 {
+                let to_read = available.min(samples.len());
+                blip.read_samples(&mut samples[..to_read], to_read);
+                available -= to_read;
+
+                for &s in &samples[..to_read] {
+                    let mut v = (s as f32 / 32767.0) * self.master_volume;
+                    if v > 1.0 {
+                        v = 1.0;
+                    } else if v < -1.0 {
+                        v = -1.0;
+                    }
+                    if self.audio_depth == 8 {
+                        v = (v * 127.0).round() / 127.0;
+                    }
+                    if self.audio_enabled {
+                        ring.push(v);
+                    }
                 }
             }
         }

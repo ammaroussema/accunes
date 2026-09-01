@@ -432,6 +432,7 @@ pub fn save_theme(theme: &str) {
 pub enum ControllerType {
     None,
     Gamepad,
+    FamicomGamepad,
     Zapper,
     Paddle,
     PowerPadA,
@@ -440,13 +441,15 @@ pub enum ControllerType {
     SNESMouse,
     SuborMouse,
     FourScore,
+    VirtualBoy,
 }
 
 impl ControllerType {
     pub fn next(self) -> Self {
         match self {
             ControllerType::None => ControllerType::Gamepad,
-            ControllerType::Gamepad => ControllerType::Zapper,
+            ControllerType::Gamepad => ControllerType::FamicomGamepad,
+            ControllerType::FamicomGamepad => ControllerType::Zapper,
             ControllerType::Zapper => ControllerType::Paddle,
             ControllerType::Paddle => ControllerType::PowerPadA,
             ControllerType::PowerPadA => ControllerType::PowerPadB,
@@ -454,13 +457,15 @@ impl ControllerType {
             ControllerType::SNESPad => ControllerType::SNESMouse,
             ControllerType::SNESMouse => ControllerType::SuborMouse,
             ControllerType::SuborMouse => ControllerType::FourScore,
-            ControllerType::FourScore => ControllerType::None,
+            ControllerType::FourScore => ControllerType::VirtualBoy,
+            ControllerType::VirtualBoy => ControllerType::None,
         }
     }
     pub fn label(self) -> &'static str {
         match self {
             ControllerType::None => "None",
-            ControllerType::Gamepad => "Gamepad",
+            ControllerType::Gamepad => "NES Gamepad",
+            ControllerType::FamicomGamepad => "Famicom Gamepad",
             ControllerType::Zapper => "Zapper",
             ControllerType::Paddle => "Paddle",
             ControllerType::PowerPadA => "Power Pad A",
@@ -469,6 +474,7 @@ impl ControllerType {
             ControllerType::SNESMouse => "SNES Mouse",
             ControllerType::SuborMouse => "Subor Mouse",
             ControllerType::FourScore => "Four Score",
+            ControllerType::VirtualBoy => "Virtual Boy Gamepad",
         }
     }
 }
@@ -480,7 +486,8 @@ pub fn load_controller_type(key: &str) -> ControllerType {
             let trimmed = line.trim();
             if let Some(value) = trimmed.strip_prefix(&format!("{}=", key)) {
                 return match value.trim().to_lowercase().as_str() {
-                    "gamepad" => ControllerType::Gamepad,
+                    "gamepad" | "nes gamepad" | "nesgamepad" | "nes_gamepad" | "nes controller" => ControllerType::Gamepad,
+                    "famicomgamepad" | "famicom gamepad" | "famicom_gamepad" | "famicom controller" | "famicomcontroller" | "famicom" => ControllerType::FamicomGamepad,
                     "zapper" => ControllerType::Zapper,
                     "paddle" => ControllerType::Paddle,
                     "powerpada" | "power pad a" => ControllerType::PowerPadA,
@@ -489,6 +496,7 @@ pub fn load_controller_type(key: &str) -> ControllerType {
                     "snesmouse" | "snes mouse" => ControllerType::SNESMouse,
                     "subormouse" | "subor mouse" => ControllerType::SuborMouse,
                     "fourscore" | "four score" => ControllerType::FourScore,
+                    "virtualboy" | "virtual boy" | "virtualboygamepad" | "virtual boy gamepad" | "virtualboycontroller" | "virtual boy controller" | "virtualboypad" | "virtual boy pad" => ControllerType::VirtualBoy,
                     _ => ControllerType::None,
                 };
             }
@@ -501,6 +509,7 @@ pub fn save_controller_type(key: &str, ct: ControllerType) {
     let s = match ct {
         ControllerType::None => "none",
         ControllerType::Gamepad => "gamepad",
+        ControllerType::FamicomGamepad => "famicomgamepad",
         ControllerType::Zapper => "zapper",
         ControllerType::Paddle => "paddle",
         ControllerType::PowerPadA => "powerpada",
@@ -509,6 +518,7 @@ pub fn save_controller_type(key: &str, ct: ControllerType) {
         ControllerType::SNESMouse => "snesmouse",
         ControllerType::SuborMouse => "subormouse",
         ControllerType::FourScore => "fourscore",
+        ControllerType::VirtualBoy => "virtualboy",
     };
     upsert_config(key, s);
 }
@@ -523,9 +533,9 @@ pub enum ExpansionType {
 impl ExpansionType {
     pub fn next(self) -> Self {
         match self {
-            ExpansionType::None => ExpansionType::ArkanoidPaddle,
-            ExpansionType::ArkanoidPaddle => ExpansionType::FamicomZapper,
-            ExpansionType::FamicomZapper => ExpansionType::None,
+            ExpansionType::None => ExpansionType::FamicomZapper,
+            ExpansionType::FamicomZapper => ExpansionType::ArkanoidPaddle,
+            ExpansionType::ArkanoidPaddle => ExpansionType::None,
         }
     }
     pub fn label(self) -> &'static str {
@@ -659,6 +669,26 @@ pub fn load_expansion_zapper_trigger() -> String {
 
 pub fn save_expansion_zapper_trigger(key: &str) {
     upsert_config("expansion_zapper_trigger", key);
+}
+
+pub fn load_famicom_mic() -> String {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("famicom_mic=") {
+                return value.trim().to_string();
+            }
+            if let Some(value) = trimmed.strip_prefix("controller2_famicom_mic=") {
+                return value.trim().to_string();
+            }
+        }
+    }
+    "M".to_string()
+}
+
+pub fn save_famicom_mic(key: &str) {
+    upsert_config("famicom_mic", key);
 }
 
 pub fn load_paddle_button(prefix: &str) -> String {
@@ -830,4 +860,50 @@ pub fn reset_subor_mouse_bindings(prefix: &str) {
 
 pub fn clear_subor_mouse_bindings(prefix: &str) {
     clear_snes_mouse_bindings(prefix);
+}
+
+pub const VB_BUTTON_COUNT: usize = 14;
+pub const VB_BUTTONS: &[&str] = &["RDown","RLeft","Select","Start","LUp","LDown","LLeft","LRight","RRight","RUp","L","R","B","A"];
+pub const VB_LABELS: &[&str] = &["R-Down","R-Left","Select","Start","L-Up","L-Down","L-Left","L-Right","R-Right","R-Up","L","R","B","A"];
+
+pub fn load_vb_bindings(prefix: &str) -> [String; VB_BUTTON_COUNT] {
+    let mut b = [(); VB_BUTTON_COUNT].map(|_| String::new());
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            for (i, btn) in VB_BUTTONS.iter().enumerate() {
+                let key = format!("{}_{}", prefix, btn);
+                if let Some(v) = trimmed.strip_prefix(&key) {
+                    if let Some(value) = v.strip_prefix('=') {
+                        b[i] = value.trim().to_string();
+                    }
+                }
+            }
+        }
+    }
+    let defaults: [&str; VB_BUTTON_COUNT] = ["K","J","Space","Return","Up","Down","Left","Right","L","I","Q","W","X","Z"];
+    for (i, val) in defaults.iter().enumerate() {
+        if b[i].is_empty() {
+            b[i] = val.to_string();
+        }
+    }
+    b
+}
+
+pub fn save_vb_binding(prefix: &str, button: usize, key: &str) {
+    upsert_config(&format!("{}_{}", prefix, VB_BUTTONS[button]), key);
+}
+
+pub fn reset_vb_bindings(prefix: &str) {
+    let defaults: [&str; VB_BUTTON_COUNT] = ["K","J","Space","Return","Up","Down","Left","Right","L","I","Q","W","X","Z"];
+    for (i, val) in defaults.iter().enumerate() {
+        upsert_config(&format!("{}_{}", prefix, VB_BUTTONS[i]), val);
+    }
+}
+
+pub fn clear_vb_bindings(prefix: &str) {
+    for btn in VB_BUTTONS {
+        upsert_config(&format!("{}_{}", prefix, btn), "");
+    }
 }

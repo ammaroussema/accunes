@@ -414,6 +414,7 @@ pub struct Emulator {
     pub zapper_trigger: Arc<AtomicBool>,
     pub zapper_bogo: Arc<AtomicU8>,
     pub expansion_zapper_trigger: Arc<AtomicBool>,
+    pub famicom_mic: Arc<AtomicBool>,
     pub paddle_x: Arc<Mutex<[u8; 3]>>,
     pub paddle_button: Arc<Mutex<[bool; 3]>>,
     pub paddle_readbit: [u8; 3],
@@ -435,6 +436,8 @@ pub struct Emulator {
     pub controller_port3: Arc<AtomicU8>,
     pub controller_port4: Arc<AtomicU8>,
     pub fourscore_readbit: [u8; 2],
+    pub virtualboy_state: Arc<Mutex<[u16; 2]>>,
+    pub virtualboy_readbit: [u8; 2],
 
     pub controller1_type: config::ControllerType,
     pub controller2_type: config::ControllerType,
@@ -447,6 +450,13 @@ pub struct Emulator {
     pub region_preference: Region,
     pub resolved_region: Region,
 
+    pub is_um6578_cart: bool,
+    pub is_vt32_cart: bool,
+    pub is_vt369_ppu_cart: bool,
+    pub is_vt369_enhanced_ppu_cart: bool,
+    pub is_vs_system_cart: bool,
+    pub vt03_4bpp_bg_cart: bool,
+    pub vt03_4bpp_sp_cart: bool,
 }
 
 impl Emulator {
@@ -720,6 +730,7 @@ impl Emulator {
             zapper_x: Arc::new(Mutex::new(0.0)), zapper_y: Arc::new(Mutex::new(0.0)),
             zapper_trigger: Arc::new(AtomicBool::new(false)), zapper_bogo: Arc::new(AtomicU8::new(0)),
             expansion_zapper_trigger: Arc::new(AtomicBool::new(false)),
+            famicom_mic: Arc::new(AtomicBool::new(false)),
             paddle_x: Arc::new(Mutex::new([0; 3])), paddle_button: Arc::new(Mutex::new([false; 3])), paddle_readbit: [0; 3],
             powerpad_state: Arc::new(Mutex::new([0; 2])), powerpad_shift_data: [0; 2], powerpad_shift_count: [0; 2],
             snes_state: Arc::new(Mutex::new([0; 2])), snes_readbit: [0; 2],
@@ -733,6 +744,8 @@ impl Emulator {
             controller_port3: Arc::new(AtomicU8::new(0)),
             controller_port4: Arc::new(AtomicU8::new(0)),
             fourscore_readbit: [0; 2],
+            virtualboy_state: Arc::new(Mutex::new([0u16; 2])),
+            virtualboy_readbit: [0; 2],
             controller1_type: config::ControllerType::None,
             controller2_type: config::ControllerType::None,
             expansion_type: config::ExpansionType::None,
@@ -740,20 +753,34 @@ impl Emulator {
             screen: vec![0u32; 256 * 240],
             region_preference: Region::Auto,
             resolved_region: Region::Ntsc,
+            is_um6578_cart: false,
+            is_vt32_cart: false,
+            is_vt369_ppu_cart: false,
+            is_vt369_enhanced_ppu_cart: false,
+            is_vs_system_cart: false,
+            vt03_4bpp_bg_cart: false,
+            vt03_4bpp_sp_cart: false,
         }
     }
 
     pub fn load_cartridge(&mut self, cart: Cartridge) {
         self.resolved_region = self.compute_region(&cart.tv_system, &cart.name);
         let cpu_clock = self.cpu_clock();
-        self.cpu_ram_mask = if cart.mapper_chip.is_um6578() {
+        self.is_um6578_cart = cart.mapper_chip.is_um6578();
+        self.is_vt32_cart = cart.mapper_chip.is_vt32();
+        self.is_vt369_ppu_cart = cart.mapper_chip.onebus_vt369_ppu();
+        self.is_vt369_enhanced_ppu_cart = cart.mapper_chip.onebus_vt369_enhanced_ppu();
+        self.is_vs_system_cart = cart.is_vs_system;
+        self.vt03_4bpp_bg_cart = cart.mapper_chip.vt03_4bpp_bg();
+        self.vt03_4bpp_sp_cart = cart.mapper_chip.vt03_4bpp_sp();
+        self.cpu_ram_mask = if self.is_um6578_cart {
             0x1FFF
         } else if cart.mapper_chip.onebus_cpu_ram_4k() {
             0xFFF
         } else {
             0x7FF
         };
-        if cart.mapper_chip.is_um6578() {
+        if self.is_um6578_cart {
             self.apu_frame_counter_inhibit_irq = true;
             if cart.memory_mapper == 601 {
                 self.um6578_dma_page = 0x20;
@@ -763,15 +790,22 @@ impl Emulator {
         if let Some(old_cart) = old {
             std::thread::spawn(move || drop(old_cart));
         }
-                if let Some(ref mut cart) = self.cart {
+        if let Some(ref mut cart) = self.cart {
             cart.mapper_chip.set_cpu_clock(cpu_clock);
         }
         self.reset_audio();
     }
-        pub fn clear_cart(&mut self) {
+    pub fn clear_cart(&mut self) {
         if let Some(old) = self.cart.take() {
             std::thread::spawn(move || drop(old));
         }
+        self.is_um6578_cart = false;
+        self.is_vt32_cart = false;
+        self.is_vt369_ppu_cart = false;
+        self.is_vt369_enhanced_ppu_cart = false;
+        self.is_vs_system_cart = false;
+        self.vt03_4bpp_bg_cart = false;
+        self.vt03_4bpp_sp_cart = false;
         self.reset_audio();
     }
 
@@ -1008,6 +1042,11 @@ impl Emulator {
         }
         self.audio_frame_cycle = 0;
         self.audio_previous_output = 0;
+        self.filter_lp_prev_out = 0.0;
+        self.filter_hp1_prev_in = 0.0;
+        self.filter_hp1_prev_out = 0.0;
+        self.filter_hp2_prev_in = 0.0;
+        self.filter_hp2_prev_out = 0.0;
         let cpu_clock = self.cpu_clock();
         let host_rate = self.audio_host_sample_rate;
         if let Some(ref mut blip) = self.blip {
@@ -1128,12 +1167,27 @@ impl Emulator {
             }
         }
         self.frame_advance_reached_vblank = false;
-        while !self.frame_advance_reached_vblank {
-            self.emulator_core();
-        }
-
-        while self.ppu_scanline != 0 {
-            self.emulator_core();
+        if self.is_pal() {
+            while !self.frame_advance_reached_vblank {
+                self.emulator_core_pal();
+            }
+            while self.ppu_scanline != 0 {
+                self.emulator_core_pal();
+            }
+        } else if self.is_dendy() {
+            while !self.frame_advance_reached_vblank {
+                self.emulator_core_dendy();
+            }
+            while self.ppu_scanline != 0 {
+                self.emulator_core_dendy();
+            }
+        } else {
+            while !self.frame_advance_reached_vblank {
+                self.emulator_core_ntsc();
+            }
+            while self.ppu_scanline != 0 {
+                self.emulator_core_ntsc();
+            }
         }
     }
 
@@ -2025,7 +2079,4 @@ impl Emulator {
         Ok(())
     }
 }
-
-
-
 

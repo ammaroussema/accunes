@@ -262,7 +262,7 @@ impl Emulator {
                     if readbit == if w == 0 { 19 } else { 18 } { val = 1; }
                     self.fourscore_readbit[w] = self.fourscore_readbit[w].wrapping_add(1);
                     self.apu_controller_ports_strobed = false;
-                    let fs_byte = (val as u8) | (self.data_bus & 0xFE);
+                    let fs_byte = (val as u8) | (self.data_bus & 0xFE) | self.famicom_mic_bit(reg) | self.expansion_zapper_bits(reg) | self.expansion_paddle_bit(reg);
                     if self.do_oam_dma && self.data_pins_are_not_floating {
                         self.internal_bus = self.data_bus;
                         return self.data_bus;
@@ -287,6 +287,7 @@ impl Emulator {
                     if pb[idx] { paddle_val |= 1 << 3; }
                     drop(px); drop(pb);
                     paddle_val |= self.data_bus & 0xE7;
+                    paddle_val |= self.famicom_mic_bit(reg);
                     self.apu_controller_ports_strobed = false;
                     if self.do_oam_dma && self.data_pins_are_not_floating {
                         self.internal_bus = self.data_bus;
@@ -397,6 +398,30 @@ impl Emulator {
                     self.internal_bus = self.data_bus;
                     return self.data_bus;
                 }
+                if ctype == crate::config::ControllerType::VirtualBoy {
+                    let idx = (reg == 0x17) as usize;
+                    if self.apu_controller_ports_strobing {
+                        self.virtualboy_readbit[idx] = 0;
+                    }
+                    let vb_state_lock = self.virtualboy_state.lock().unwrap();
+                    let raw_val = (vb_state_lock[idx] & 0x3FFF) | 0x4000;
+                    let vb_val = if self.virtualboy_readbit[idx] < 16 {
+                        (raw_val >> self.virtualboy_readbit[idx]) & 1
+                    } else {
+                        1
+                    };
+                    drop(vb_state_lock);
+                    self.virtualboy_readbit[idx] = self.virtualboy_readbit[idx].wrapping_add(1);
+                    self.apu_controller_ports_strobed = false;
+                    let vb_byte = (vb_val as u8) | (self.data_bus & 0xFE);
+                    if self.do_oam_dma && self.data_pins_are_not_floating {
+                        self.internal_bus = self.data_bus;
+                        return self.data_bus;
+                    }
+                    self.data_bus = vb_byte;
+                    self.internal_bus = self.data_bus;
+                    return self.data_bus;
+                }
 
                 if self.apu_controller_ports_strobing {
                     self.controller_shift_register1 = self.controller_port1.load(Ordering::Relaxed);
@@ -435,7 +460,7 @@ impl Emulator {
                     pp_d3 = 0;
                     pp_d4 = 0;
                 }
-                let controller_read = (if sr_bit == 0 { 0u8 } else { 1 }) | pp_d3 | pp_d4 | (self.data_bus & 0xE0) | self.expansion_paddle_bit(reg) | self.expansion_zapper_bits(reg);
+                let controller_read = (if sr_bit == 0 { 0u8 } else { 1 }) | pp_d3 | pp_d4 | (self.data_bus & 0xE0) | self.expansion_paddle_bit(reg) | self.expansion_zapper_bits(reg) | self.famicom_mic_bit(reg);
 
                 // vs system quirks: let mapper adjust controller read if applicable
                 let adjusted = if let Some(cart) = self.cart.as_ref() {
@@ -502,6 +527,20 @@ impl Emulator {
             val |= 0x08;
         }
         val
+    }
+
+    fn famicom_mic_bit(&self, reg: u8) -> u8 {
+        if reg != 0x16 {
+            return 0;
+        }
+        if self.controller2_type != crate::config::ControllerType::FamicomGamepad {
+            return 0;
+        }
+        if self.famicom_mic.load(Ordering::Relaxed) {
+            0x04
+        } else {
+            0
+        }
     }
 
     /// cpu store
@@ -1042,5 +1081,5 @@ pub static APU_DMC_RATE_LUT_NTSC: [u16; 16] = [
 ];
 
 pub static APU_DMC_RATE_LUT_PAL: [u16; 16] = [
-    398, 354, 316, 298, 266, 236, 210, 199, 177, 149, 132, 119, 99, 78, 67, 50,
+    398, 354, 316, 298, 276, 236, 210, 198, 176, 148, 132, 118, 98, 78, 66, 50,
 ];
