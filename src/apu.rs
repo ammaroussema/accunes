@@ -13,7 +13,20 @@ const NOISE_PERIOD_LUT_PAL: [u16; 16] = [
     4, 7, 15, 30, 59, 89, 119, 149, 188, 236, 353, 472, 708, 944, 1889, 3779
 ];
 
+const APU_CYCLE_LENGTH: u32 = 10000;
+
 impl Emulator {
+    const SHIFT_TABLE_A: [u8; 12] = [8, 9, 0, 1, 11, 7, 4, 2, 10, 6, 5, 3];
+    const SHIFT_TABLE_B: [u8; 12] = [1, 0, 9, 8, 2, 4, 7, 11, 3, 5, 6, 10];
+
+    fn build_powerpad_data(s: u16, table: &[u8; 12]) -> u16 {
+        let mut data: u16 = 0;
+        for x in 0..12 {
+            data |= (((s >> x) & 1) as u16) << table[x];
+        }
+        data
+    }
+
     /// sweep periods
     pub fn pulse_target_period(&self, pulse_id: usize, current_period: u16, sweep_reg: u8) -> u16 {
         let shift = sweep_reg & 0x7;
@@ -30,7 +43,6 @@ impl Emulator {
         }
     }
 
-    /// audio output calculations
     pub fn mix_apu(&self) -> f32 {
         const PULSE_DUTY_TABLE: [[u8; 8]; 4] = [
             [0, 0, 0, 0, 0, 0, 0, 1],
@@ -110,34 +122,34 @@ impl Emulator {
         // --- dmc ---
         let dmc_val = self.apu_dmc_output as f32;
 
-        // apply per-channel volume multipliers
         let p1_val = p1_val * self.square1_volume;
         let p2_val = p2_val * self.square2_volume;
         let tri_val = tri_val * self.triangle_volume;
         let noise_val = noise_val * self.noise_volume;
         let dmc_val = dmc_val * self.pcm_volume;
 
-        // --- non-linear nes mixer formulas ---
-        let pulse_out = if p1_val + p2_val > 0.0 {
-            95.88 / ((8128.0 / (p1_val + p2_val)) + 100.0)
+        let square_output = p1_val + p2_val;
+        let tnd_output = dmc_val + 2.7516713261 * tri_val + 1.8493587125 * noise_val;
+
+        let square_volume = if square_output > 0.0 {
+            (95.88 * 5000.0) / (8128.0 / square_output + 100.0)
         } else {
             0.0
         };
 
-        let tnd_out = if tri_val / 8227.0 + noise_val / 12241.0 + dmc_val / 22638.0 > 0.0 {
-            159.79 / ((1.0 / (tri_val / 8227.0 + noise_val / 12241.0 + dmc_val / 22638.0)) + 100.0)
+        let tnd_volume = if tnd_output > 0.0 {
+            (159.79 * 5000.0) / (22638.0 / tnd_output + 100.0)
         } else {
             0.0
         };
 
-        // --- external audio from mappers ---
         let ext_val = if let Some(cart) = &self.cart {
             cart.mapper_chip.audio_sample()
         } else {
             0.0
         };
 
-        (pulse_out + tnd_out + (ext_val * 0.1)) * self.master_volume
+        square_volume + tnd_volume + (ext_val * 0.1 * 5000.0)
     }
 
     // apu emulation every cpu cycle
@@ -152,8 +164,6 @@ impl Emulator {
                 if self.controller1_shift_counter == 0 {
                     self.controller_shift_register1 <<= 1;
                     self.controller_shift_register1 |= 1;
-                    self.powerpad_shift_d3[0] = self.powerpad_shift_d3[0].wrapping_shl(1) | 1;
-                    self.powerpad_shift_d4[0] = self.powerpad_shift_d4[0].wrapping_shl(1) | 1;
                 }
             }
             if self.controller2_shift_counter > 0 {
@@ -161,8 +171,6 @@ impl Emulator {
                 if self.controller2_shift_counter == 0 {
                     self.controller_shift_register2 <<= 1;
                     self.controller_shift_register2 |= 1;
-                    self.powerpad_shift_d3[1] = self.powerpad_shift_d3[1].wrapping_shl(1) | 1;
-                    self.powerpad_shift_d4[1] = self.powerpad_shift_d4[1].wrapping_shl(1) | 1;
                 }
             }
         } else {
@@ -187,18 +195,26 @@ impl Emulator {
                     }
                     self.controller_shift_register1 = self.controller_port1.load(Ordering::Relaxed);
                     self.controller_shift_register2 = self.controller_port2.load(Ordering::Relaxed);
-                    // powerpad: latch d3/d4 shift registers from button state
+                    // powerpad
                     {
                         let pp = self.powerpad_state.lock().unwrap();
                         if self.controller1_type == crate::config::ControllerType::PowerPadA || self.controller1_type == crate::config::ControllerType::PowerPadB {
                             let s = pp[0];
-                            self.powerpad_shift_d3[0] = (((s >> 1) & 1) << 7 | ((s >> 0) & 1) << 6 | ((s >> 4) & 1) << 5 | ((s >> 8) & 1) << 4 | ((s >> 5) & 1) << 3 | ((s >> 9) & 1) << 2 | ((s >> 10) & 1) << 1 | ((s >> 6) & 1)) as u8;
-                            self.powerpad_shift_d4[0] = (((s >> 3) & 1) << 7 | ((s >> 2) & 1) << 6 | ((s >> 11) & 1) << 5 | ((s >> 7) & 1) << 4) as u8;
+                            self.powerpad_shift_data[0] = if self.controller1_type == crate::config::ControllerType::PowerPadA {
+                                Self::build_powerpad_data(s, &Self::SHIFT_TABLE_A)
+                            } else {
+                                Self::build_powerpad_data(s, &Self::SHIFT_TABLE_B)
+                            };
+                            self.powerpad_shift_count[0] = 0;
                         }
                         if self.controller2_type == crate::config::ControllerType::PowerPadA || self.controller2_type == crate::config::ControllerType::PowerPadB {
                             let s = pp[1];
-                            self.powerpad_shift_d3[1] = (((s >> 1) & 1) << 7 | ((s >> 0) & 1) << 6 | ((s >> 4) & 1) << 5 | ((s >> 8) & 1) << 4 | ((s >> 5) & 1) << 3 | ((s >> 9) & 1) << 2 | ((s >> 10) & 1) << 1 | ((s >> 6) & 1)) as u8;
-                            self.powerpad_shift_d4[1] = (((s >> 3) & 1) << 7 | ((s >> 2) & 1) << 6 | ((s >> 11) & 1) << 5 | ((s >> 7) & 1) << 4) as u8;
+                            self.powerpad_shift_data[1] = if self.controller2_type == crate::config::ControllerType::PowerPadA {
+                                Self::build_powerpad_data(s, &Self::SHIFT_TABLE_A)
+                            } else {
+                                Self::build_powerpad_data(s, &Self::SHIFT_TABLE_B)
+                            };
+                            self.powerpad_shift_count[1] = 0;
                         }
                     }
                     if self.controller1_type == crate::config::ControllerType::SNESPad {
@@ -641,61 +657,60 @@ impl Emulator {
         self.apu_length_counter_halt_triangle = (self.apu_register[8] & 0x80) != 0;
         self.apu_length_counter_halt_noise = (self.apu_register[0xC] & 0x20) != 0;
 
-        // downsample and queue audio sample
-        if let Some(ref buffer) = self.audio_buffer {
-            // accumulate mix on every cpu cycle for anti-aliasing
-            let current_mix = self.mix_apu();
-            self.audio_sample_accumulator += current_mix;
-            self.audio_sample_count += 1.0;
+        let current_mix = self.mix_apu();
+        if let Some(ref mut blip) = self.blip {
+            let cur = (current_mix * 4.0) as i32;
+            let delta = cur - self.audio_previous_output;
+            self.audio_previous_output = cur;
+            if delta != 0 {
+                blip.add_delta(self.audio_frame_cycle, delta);
+            }
+        }
+        self.audio_frame_cycle = self.audio_frame_cycle.wrapping_add(1);
 
-            self.audio_cycles_accumulator += 1.0;
+        if self.audio_frame_cycle >= APU_CYCLE_LENGTH - 1 {
+            self.flush_audio_frame();
+        }
+    }
 
-            let cycles_per_sample = self.cpu_clock() / self.audio_host_sample_rate;
-            if self.audio_cycles_accumulator >= cycles_per_sample {
-                let avg_sample = self.audio_sample_accumulator / self.audio_sample_count;
+    pub fn flush_audio_frame(&mut self) {
+        if let Some(ref mut blip) = self.blip {
+            if self.audio_frame_cycle > 0 {
+                blip.end_frame(self.audio_frame_cycle);
+                self.audio_frame_cycle = 0;
+            }
 
-                // --- audio filters ---
-                // 1. low-pass filter
-                let lp_out = self.filter_lp_prev_out + self.filter_lp_alpha * (avg_sample - self.filter_lp_prev_out);
-                self.filter_lp_prev_out = lp_out;
+            let available = blip.samples_available();
+            if available == 0 {
+                return;
+            }
 
-                // 2. high-pass filter 1 (440 Hz)
-                let hp1_out = self.filter_hp1_prev_out + self.filter_hp1_alpha * (lp_out - self.filter_hp1_prev_in);
-                self.filter_hp1_prev_in = lp_out;
-                self.filter_hp1_prev_out = hp1_out;
+            let mut samples = vec![0i32; available];
+            blip.read_samples(&mut samples, available);
 
-                // 3. high-pass filter 2 (90 Hz)
-                let hp2_out = self.filter_hp2_prev_out + self.filter_hp2_alpha * (hp1_out - self.filter_hp2_prev_in);
-                self.filter_hp2_prev_in = hp1_out;
-                self.filter_hp2_prev_out = hp2_out;
+            let mut ring = if let Some(ref buffer) = self.audio_buffer {
+                buffer.lock().unwrap()
+            } else {
+                return;
+            };
 
-                let mut filtered_sample = hp2_out;
-
-                // soft-clip to prevent harsh crackling from out-of-range samples
-                if filtered_sample > 1.0 {
-                    filtered_sample = 1.0;
-                } else if filtered_sample < -1.0 {
-                    filtered_sample = -1.0;
+            let target_samples = ((self.audio_host_sample_rate * 0.06) as usize).max(256);
+            for &s in &samples {
+                if ring.len() >= target_samples {
+                    break;
                 }
-
-                // apply audio depth
+                let mut v = (s as f32 / 32767.0) * self.master_volume;
+                if v > 1.0 {
+                    v = 1.0;
+                } else if v < -1.0 {
+                    v = -1.0;
+                }
                 if self.audio_depth == 8 {
-                    filtered_sample = (filtered_sample * 127.0).round() / 127.0;
+                    v = (v * 127.0).round() / 127.0;
                 }
-
                 if self.audio_enabled {
-                    let queue_limit = ((self.audio_host_sample_rate * 0.5) as usize).max(24000);
-                    let mut queue = buffer.lock().unwrap();
-                    if queue.len() < queue_limit {
-                        queue.push_back(filtered_sample);
-                    } else {
-                        queue.pop_front();
-                        queue.push_back(filtered_sample);
-                    }
+                    ring.push(v);
                 }
-                self.audio_cycles_accumulator -= cycles_per_sample;
-                self.audio_sample_accumulator = 0.0;
-                self.audio_sample_count = 0.0;
             }
         }
     }

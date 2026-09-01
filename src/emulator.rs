@@ -344,11 +344,14 @@ pub struct Emulator {
     pub dpcm_up: bool,
     pub apu_silent: bool,
 
-    pub audio_buffer: Option<std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<f32>>>>,
+        pub audio_buffer: Option<std::sync::Arc<std::sync::Mutex<crate::audio::AudioRingBuffer>>>,
     pub audio_cycles_accumulator: f64,
     pub audio_sample_accumulator: f32,
     pub audio_sample_count: f32,
     pub audio_host_sample_rate: f64,
+    pub blip: Option<crate::blip::BlipBuf>,
+    pub audio_frame_cycle: u32,
+    pub audio_previous_output: i32,
 
     pub master_volume: f32,
     pub square1_volume: f32,
@@ -410,12 +413,13 @@ pub struct Emulator {
     pub zapper_y: Arc<Mutex<f32>>,
     pub zapper_trigger: Arc<AtomicBool>,
     pub zapper_bogo: Arc<AtomicU8>,
-    pub paddle_x: Arc<Mutex<[u8; 2]>>,
-    pub paddle_button: Arc<Mutex<[bool; 2]>>,
-    pub paddle_readbit: [u8; 2],
+    pub expansion_zapper_trigger: Arc<AtomicBool>,
+    pub paddle_x: Arc<Mutex<[u8; 3]>>,
+    pub paddle_button: Arc<Mutex<[bool; 3]>>,
+    pub paddle_readbit: [u8; 3],
     pub powerpad_state: Arc<Mutex<[u16; 2]>>,
-    pub powerpad_shift_d3: [u8; 2],
-    pub powerpad_shift_d4: [u8; 2],
+    pub powerpad_shift_data: [u16; 2],
+    pub powerpad_shift_count: [u8; 2],
     pub snes_state: Arc<Mutex<[u16; 2]>>,
     pub snes_readbit: [u8; 2],
     pub snes_mouse_state: [u32; 2],
@@ -434,6 +438,7 @@ pub struct Emulator {
 
     pub controller1_type: config::ControllerType,
     pub controller2_type: config::ControllerType,
+    pub expansion_type: config::ExpansionType,
 
     pub frame_advance_reached_vblank: bool,
 
@@ -664,6 +669,9 @@ impl Emulator {
             audio_sample_accumulator: 0.0,
             audio_sample_count: 0.0,
             audio_host_sample_rate: 44100.0,
+            blip: None,
+            audio_frame_cycle: 0,
+            audio_previous_output: 0,
             master_volume: 1.0,
             square1_volume: 1.0,
             square2_volume: 1.0,
@@ -711,8 +719,9 @@ impl Emulator {
             data_pins_are_not_floating: false,
             zapper_x: Arc::new(Mutex::new(0.0)), zapper_y: Arc::new(Mutex::new(0.0)),
             zapper_trigger: Arc::new(AtomicBool::new(false)), zapper_bogo: Arc::new(AtomicU8::new(0)),
-            paddle_x: Arc::new(Mutex::new([0; 2])), paddle_button: Arc::new(Mutex::new([false; 2])), paddle_readbit: [0; 2],
-            powerpad_state: Arc::new(Mutex::new([0; 2])), powerpad_shift_d3: [0xFF; 2], powerpad_shift_d4: [0xFF; 2],
+            expansion_zapper_trigger: Arc::new(AtomicBool::new(false)),
+            paddle_x: Arc::new(Mutex::new([0; 3])), paddle_button: Arc::new(Mutex::new([false; 3])), paddle_readbit: [0; 3],
+            powerpad_state: Arc::new(Mutex::new([0; 2])), powerpad_shift_data: [0; 2], powerpad_shift_count: [0; 2],
             snes_state: Arc::new(Mutex::new([0; 2])), snes_readbit: [0; 2],
             snes_mouse_state: [0; 2], snes_mouse_readbit: [0; 2],
             snes_mouse_delta_x: Arc::new(Mutex::new([0.0; 2])), snes_mouse_delta_y: Arc::new(Mutex::new([0.0; 2])),
@@ -726,6 +735,7 @@ impl Emulator {
             fourscore_readbit: [0; 2],
             controller1_type: config::ControllerType::None,
             controller2_type: config::ControllerType::None,
+            expansion_type: config::ExpansionType::None,
             frame_advance_reached_vblank: false,
             screen: vec![0u32; 256 * 240],
             region_preference: Region::Auto,
@@ -753,14 +763,16 @@ impl Emulator {
         if let Some(old_cart) = old {
             std::thread::spawn(move || drop(old_cart));
         }
-        if let Some(ref mut cart) = self.cart {
+                if let Some(ref mut cart) = self.cart {
             cart.mapper_chip.set_cpu_clock(cpu_clock);
         }
+        self.reset_audio();
     }
-    pub fn clear_cart(&mut self) {
+        pub fn clear_cart(&mut self) {
         if let Some(old) = self.cart.take() {
             std::thread::spawn(move || drop(old));
         }
+        self.reset_audio();
     }
 
     pub fn set_region_preference(&mut self, region: Region) {
@@ -772,6 +784,7 @@ impl Emulator {
         if let Some(ref mut cart) = self.cart {
             cart.mapper_chip.set_cpu_clock(cpu_clock);
         }
+        self.reset();
     }
 
     fn compute_region(&self, tv_system: &TvSystem, filename: &str) -> Region {
@@ -914,10 +927,11 @@ impl Emulator {
             if (cart.memory_mapper == 6 || cart.memory_mapper == 17) && !cart.trainer.is_empty() {
                 crate::mappers::ffe::install_trainer(&cart.trainer, &mut cart.prg_ram);
             }
-            let saved_dip = cart.mapper_chip.get_dip_switches();
+                        let saved_dip = cart.mapper_chip.get_dip_switches();
             cart.mapper_chip.reset();
             cart.mapper_chip.set_dip_switches(saved_dip);
         }
+        self.reset_audio();
     }
 
     pub fn save_prg_ram(&self) {
@@ -953,7 +967,7 @@ impl Emulator {
 
     pub fn set_audio_output(
         &mut self,
-        buffer: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<f32>>>,
+                buffer: std::sync::Arc<std::sync::Mutex<crate::audio::AudioRingBuffer>>,
         sample_rate: f64,
     ) {
         self.audio_buffer = Some(buffer);
@@ -961,12 +975,45 @@ impl Emulator {
 
         let sr = sample_rate as f32;
         let dt = 1.0 / sr;
+        
+        let mut blip = crate::blip::BlipBuf::new(crate::blip::BlipBuf::MAX_FRAME);
+        blip.set_rates(self.cpu_clock(), sample_rate);
+        self.blip = Some(blip);
 
         self.filter_lp_alpha = dt / ((1.0 / (2.0 * std::f32::consts::PI * 14000.0)) + dt);
 
         self.filter_hp1_alpha = (1.0 / (2.0 * std::f32::consts::PI * 440.0)) / ((1.0 / (2.0 * std::f32::consts::PI * 440.0)) + dt);
 
-        self.filter_hp2_alpha = (1.0 / (2.0 * std::f32::consts::PI * 90.0)) / ((1.0 / (2.0 * std::f32::consts::PI * 90.0)) + dt);
+                self.filter_hp2_alpha = (1.0 / (2.0 * std::f32::consts::PI * 90.0)) / ((1.0 / (2.0 * std::f32::consts::PI * 90.0)) + dt);
+
+        self.audio_cycles_accumulator = 0.0;
+        self.audio_sample_accumulator = 0.0;
+        self.audio_sample_count = 0.0;
+        self.audio_frame_cycle = 0;
+        self.audio_previous_output = 0;
+        if let Some(ref mut blip) = self.blip {
+            blip.clear();
+        }
+        self.reset_audio();
+    }
+
+    pub fn reset_audio(&mut self) {
+        if let Some(ref buffer) = self.audio_buffer {
+            let prime =
+                ((self.audio_host_sample_rate * 0.03) as usize).max(256);
+            if let Ok(mut ring) = buffer.lock() {
+                ring.clear_and_reset();
+                ring.fill_silence(prime);
+            }
+        }
+        self.audio_frame_cycle = 0;
+        self.audio_previous_output = 0;
+        let cpu_clock = self.cpu_clock();
+        let host_rate = self.audio_host_sample_rate;
+        if let Some(ref mut blip) = self.blip {
+            blip.set_rates(cpu_clock, host_rate);
+            blip.clear();
+        }
     }
 
     pub fn change_disk(&mut self) {
@@ -1530,6 +1577,8 @@ impl Emulator {
         out.extend_from_slice(&self.audio_sample_accumulator.to_le_bytes());
         out.extend_from_slice(&self.audio_sample_count.to_le_bytes());
         out.extend_from_slice(&self.audio_host_sample_rate.to_le_bytes());
+        out.extend_from_slice(&self.audio_frame_cycle.to_le_bytes());
+        out.extend_from_slice(&self.audio_previous_output.to_le_bytes());
         out.extend_from_slice(&self.filter_lp_alpha.to_le_bytes());
         out.extend_from_slice(&self.filter_lp_prev_out.to_le_bytes());
         out.extend_from_slice(&self.filter_hp1_alpha.to_le_bytes());
@@ -1569,6 +1618,21 @@ impl Emulator {
         out.push(self.controller_shift_register2);
         out.push(self.controller1_shift_counter);
         out.push(self.controller2_shift_counter);
+        out.extend_from_slice(&self.powerpad_shift_data[0].to_le_bytes());
+        out.extend_from_slice(&self.powerpad_shift_data[1].to_le_bytes());
+        out.push(self.powerpad_shift_count[0]);
+        out.push(self.powerpad_shift_count[1]);
+        out.push(self.paddle_readbit[0]);
+        out.push(self.paddle_readbit[1]);
+        out.push(self.paddle_readbit[2]);
+        out.push(self.snes_readbit[0]);
+        out.push(self.snes_readbit[1]);
+        out.push(self.snes_mouse_readbit[0]);
+        out.push(self.snes_mouse_readbit[1]);
+        out.push(self.subor_mouse_latch[0]);
+        out.push(self.subor_mouse_latch[1]);
+        out.push(self.fourscore_readbit[0]);
+        out.push(self.fourscore_readbit[1]);
         out.push(if self.data_pins_are_not_floating { 1 } else { 0 });
         out.push(if self.frame_advance_reached_vblank { 1 } else { 0 });
         if let Some(cart) = &self.cart {
@@ -1859,6 +1923,11 @@ impl Emulator {
         self.audio_sample_accumulator = f32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
         self.audio_sample_count = f32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
         self.audio_host_sample_rate = f64::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?, read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        self.audio_frame_cycle = u32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        self.audio_previous_output = i32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        let mut blip = crate::blip::BlipBuf::new(crate::blip::BlipBuf::MAX_FRAME);
+        blip.set_rates(self.cpu_clock(), self.audio_host_sample_rate);
+        self.blip = Some(blip);
         self.filter_lp_alpha = f32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
         self.filter_lp_prev_out = f32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
         self.filter_hp1_alpha = f32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
@@ -1898,6 +1967,21 @@ impl Emulator {
         self.controller_shift_register2 = read_u8()?;
         self.controller1_shift_counter = read_u8()?;
         self.controller2_shift_counter = read_u8()?;
+        self.powerpad_shift_data[0] = u16::from_le_bytes([read_u8()?, read_u8()?]);
+        self.powerpad_shift_data[1] = u16::from_le_bytes([read_u8()?, read_u8()?]);
+        self.powerpad_shift_count[0] = read_u8()?;
+        self.powerpad_shift_count[1] = read_u8()?;
+        self.paddle_readbit[0] = read_u8()?;
+        self.paddle_readbit[1] = read_u8()?;
+        self.paddle_readbit[2] = read_u8()?;
+        self.snes_readbit[0] = read_u8()?;
+        self.snes_readbit[1] = read_u8()?;
+        self.snes_mouse_readbit[0] = read_u8()?;
+        self.snes_mouse_readbit[1] = read_u8()?;
+        self.subor_mouse_latch[0] = read_u8()?;
+        self.subor_mouse_latch[1] = read_u8()?;
+        self.fourscore_readbit[0] = read_u8()?;
+        self.fourscore_readbit[1] = read_u8()?;
         self.data_pins_are_not_floating = read_u8()? != 0;
         self.frame_advance_reached_vblank = read_u8()? != 0;
         let mapper_len = u32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]) as usize;

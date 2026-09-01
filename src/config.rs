@@ -513,6 +513,56 @@ pub fn save_controller_type(key: &str, ct: ControllerType) {
     upsert_config(key, s);
 }
 
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum ExpansionType {
+    None,
+    ArkanoidPaddle,
+    FamicomZapper,
+}
+
+impl ExpansionType {
+    pub fn next(self) -> Self {
+        match self {
+            ExpansionType::None => ExpansionType::ArkanoidPaddle,
+            ExpansionType::ArkanoidPaddle => ExpansionType::FamicomZapper,
+            ExpansionType::FamicomZapper => ExpansionType::None,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            ExpansionType::None => "None",
+            ExpansionType::ArkanoidPaddle => "Paddle",
+            ExpansionType::FamicomZapper => "Zapper",
+        }
+    }
+}
+
+pub fn load_expansion_type() -> ExpansionType {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("expansion_type=") {
+                return match value.trim().to_lowercase().as_str() {
+                    "arkanoidpaddle" | "arkanoid paddle" | "paddle" => ExpansionType::ArkanoidPaddle,
+                    "famicomzapper" | "famicom zapper" | "famicom_zapper" | "zapper" => ExpansionType::FamicomZapper,
+                    _ => ExpansionType::None,
+                };
+            }
+        }
+    }
+    ExpansionType::None
+}
+
+pub fn save_expansion_type(et: ExpansionType) {
+    let s = match et {
+        ExpansionType::None => "none",
+        ExpansionType::ArkanoidPaddle => "arkanoidpaddle",
+        ExpansionType::FamicomZapper => "famicomzapper",
+    };
+    upsert_config("expansion_type", s);
+}
+
 pub fn load_allow_opposing_dpad() -> bool {
     let path = config_path();
     if let Ok(content) = std::fs::read_to_string(&path) {
@@ -592,6 +642,23 @@ pub fn load_zapper_trigger() -> String {
 
 pub fn save_zapper_trigger(key: &str) {
     upsert_config("controller2_zapper_trigger", key);
+}
+
+pub fn load_expansion_zapper_trigger() -> String {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("expansion_zapper_trigger=") {
+                return value.trim().to_string();
+            }
+        }
+    }
+    "MouseLeft".to_string()
+}
+
+pub fn save_expansion_zapper_trigger(key: &str) {
+    upsert_config("expansion_zapper_trigger", key);
 }
 
 pub fn load_paddle_button(prefix: &str) -> String {

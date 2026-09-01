@@ -86,8 +86,6 @@ launch AccuNES and use the menu to open a valid nes rom file (`.nes`, `.fds`, `.
 ## Future
 
 possible future additions:
-- more mappers!
-- famicom expansion port!
 - cheats!
 - tas record/playback!
 

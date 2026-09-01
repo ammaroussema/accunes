@@ -330,6 +330,7 @@ impl Emulator {
                     if !self.zapper_check_hit() {
                         zapper_val |= 0x08;
                     }
+                    zapper_val |= self.expansion_zapper_bits(reg);
                     let zapper_read = zapper_val | (self.data_bus & 0xE0);
 
                     self.apu_controller_ports_strobed = false;
@@ -415,9 +416,26 @@ impl Emulator {
                 self.apu_controller_ports_strobed = false;
                 let idx = (reg == 0x17) as usize;
                 let is_pp = ctype == crate::config::ControllerType::PowerPadA || ctype == crate::config::ControllerType::PowerPadB;
-                let pp_d3 = if is_pp { (self.powerpad_shift_d3[idx] & 0x80) >> 3 } else { 0 };
-                let pp_d4 = if is_pp { (self.powerpad_shift_d4[idx] & 0x80) >> 2 } else { 0 };
-                let controller_read = (if sr_bit == 0 { 0u8 } else { 1 }) | pp_d3 | pp_d4 | (self.data_bus & 0xE0);
+                let pp_d3;
+                let pp_d4;
+                if is_pp {
+                    let count = self.powerpad_shift_count[idx] as usize;
+                    pp_d3 = if count >= 8 {
+                        0x08
+                    } else {
+                        (((self.powerpad_shift_data[idx] >> count) & 1) as u8) << 3
+                    };
+                    pp_d4 = if count >= 4 {
+                        0x10
+                    } else {
+                        (((self.powerpad_shift_data[idx] >> (count + 8)) & 1) as u8) << 4
+                    };
+                    self.powerpad_shift_count[idx] = self.powerpad_shift_count[idx].wrapping_add(1);
+                } else {
+                    pp_d3 = 0;
+                    pp_d4 = 0;
+                }
+                let controller_read = (if sr_bit == 0 { 0u8 } else { 1 }) | pp_d3 | pp_d4 | (self.data_bus & 0xE0) | self.expansion_paddle_bit(reg) | self.expansion_zapper_bits(reg);
 
                 // vs system quirks: let mapper adjust controller read if applicable
                 let adjusted = if let Some(cart) = self.cart.as_ref() {
@@ -442,6 +460,48 @@ impl Emulator {
 
         self.internal_bus = self.data_bus;
         self.data_bus
+    }
+
+    // expansion port!
+    fn expansion_paddle_bit(&mut self, reg: u8) -> u8 {
+        if self.expansion_type != crate::config::ExpansionType::ArkanoidPaddle {
+            return 0;
+        }
+        let idx = 2usize;
+        let bit = if reg == 0x17 {
+            let px = self.paddle_x.lock().unwrap();
+            let b = if self.paddle_readbit[idx] < 8 {
+                ((px[idx] >> (7 - self.paddle_readbit[idx])) & 1) << 1
+            } else {
+                2
+            };
+            drop(px);
+            if self.paddle_readbit[idx] < 8 {
+                self.paddle_readbit[idx] += 1;
+            }
+            b
+        } else {
+            let pb = self.paddle_button.lock().unwrap();
+            if pb[idx] { 2 } else { 0 }
+        };
+        bit
+    }
+
+    fn expansion_zapper_bits(&self, reg: u8) -> u8 {
+        if self.expansion_type != crate::config::ExpansionType::FamicomZapper {
+            return 0;
+        }
+        if reg != 0x17 {
+            return 0;
+        }
+        let mut val = 0u8;
+        if self.expansion_zapper_trigger.load(Ordering::Relaxed) {
+            val |= 0x10;
+        }
+        if !self.zapper_check_hit() {
+            val |= 0x08;
+        }
+        val
     }
 
     /// cpu store
@@ -483,6 +543,7 @@ impl Emulator {
             if (input & 1) != 0 {
                 self.paddle_readbit[0] = 0;
                 self.paddle_readbit[1] = 0;
+                self.paddle_readbit[2] = 0;
                 self.snes_readbit[0] = 0;
                 self.snes_readbit[1] = 0;
                 self.snes_mouse_readbit[0] = 0;
