@@ -8,10 +8,11 @@ a cycle-accurate NES/Famicom emulator for windows, written in rust and focused o
 - **scanline accurate ppu at half cycle level accuracy**!!! (sprite/bg rendering, accurate vblank and nmi timing, sprite eval, open bus and oam dma edge cases all handled!!!)
 - **accurate apu at cycle at half cycle level accuracy**!!! (all channels implemented, irqs, dmc, controller strobing, clocking and dmc dma edge cases are handled!!!)
 - passes **ALL ACCURACYCOIN tests!** (141/141 as of today!!) passes **all blargg tests** too!!
-- also as of today, a whopping **~646 mappers** are supported!!! (this was and still is very challenging to implement, some mappers may not be fully working yet but i think i'm making good progress on matching something like nintendulator's insane mapper counts!!!)
+- also as of today, a whopping **~646 mappers** are supported!!! (let me know if i missed any/if any are slightly broken!!!)
 - **saving/loading** save states, **per game slots** system + **quick save/quick load** systems!
 - **battery backed ram** saving for games that need it!
-- **nes gamepads, zappers, power pads, snes gamepads, snes mouse, subor mouse and four score** controller types supported!
+- **nes gamepads, famicom gamepads, famicom microphone, zapper, paddle, power pads, snes gamepad, snes mouse, subor mouse, virtual boy gamepad and four score** controller types supported!
+- **famicom zapper, paddle, family trainer, 2/4-player adapters, oeka kid tablet, konami hyper shot, family basic keyboard, party tap and pachinko controller** expansion port types supported!
 - supports **windows x64, x32 and ARM** devices!
 
 

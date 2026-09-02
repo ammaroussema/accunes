@@ -528,23 +528,13 @@ pub enum ExpansionType {
     None,
     ArkanoidPaddle,
     FamicomZapper,
-}
-
-impl ExpansionType {
-    pub fn next(self) -> Self {
-        match self {
-            ExpansionType::None => ExpansionType::FamicomZapper,
-            ExpansionType::FamicomZapper => ExpansionType::ArkanoidPaddle,
-            ExpansionType::ArkanoidPaddle => ExpansionType::None,
-        }
-    }
-    pub fn label(self) -> &'static str {
-        match self {
-            ExpansionType::None => "None",
-            ExpansionType::ArkanoidPaddle => "Paddle",
-            ExpansionType::FamicomZapper => "Zapper",
-        }
-    }
+    OekaKidsTablet,
+    FamilyTrainerA,
+    FamilyTrainerB,
+    KonamiHyperShot,
+    FamilyBasicKeyboard,
+    PartyTap,
+    PachinkoController,
 }
 
 pub fn load_expansion_type() -> ExpansionType {
@@ -556,6 +546,13 @@ pub fn load_expansion_type() -> ExpansionType {
                 return match value.trim().to_lowercase().as_str() {
                     "arkanoidpaddle" | "arkanoid paddle" | "paddle" => ExpansionType::ArkanoidPaddle,
                     "famicomzapper" | "famicom zapper" | "famicom_zapper" | "zapper" => ExpansionType::FamicomZapper,
+                    "oekakidstablet" | "oeka kids tablet" | "oeka_kids_tablet" | "oeka" | "tablet" => ExpansionType::OekaKidsTablet,
+                    "familytrainera" | "family trainer a" | "family_trainer_a" | "familytrainersidea" | "fta" => ExpansionType::FamilyTrainerA,
+                    "familytrainerb" | "family trainer b" | "family_trainer_b" | "familytrainersideb" | "ftb" => ExpansionType::FamilyTrainerB,
+                    "konamihypershot" | "konami hyper shot" | "konami_hyper_shot" | "hypershot" | "hyper shot" => ExpansionType::KonamiHyperShot,
+                    "familybasickeyboard" | "family basic keyboard" | "family_basic_keyboard" | "fbkeyboard" | "familybasic" => ExpansionType::FamilyBasicKeyboard,
+                    "partytap" | "party tap" | "party_tap" => ExpansionType::PartyTap,
+                    "pachinko" | "pachinko controller" | "pachinko_controller" => ExpansionType::PachinkoController,
                     _ => ExpansionType::None,
                 };
             }
@@ -569,8 +566,166 @@ pub fn save_expansion_type(et: ExpansionType) {
         ExpansionType::None => "none",
         ExpansionType::ArkanoidPaddle => "arkanoidpaddle",
         ExpansionType::FamicomZapper => "famicomzapper",
+        ExpansionType::OekaKidsTablet => "oekakidstablet",
+        ExpansionType::FamilyTrainerA => "familytrainera",
+        ExpansionType::FamilyTrainerB => "familytrainerb",
+        ExpansionType::KonamiHyperShot => "konamihypershot",
+        ExpansionType::FamilyBasicKeyboard => "familybasickeyboard",
+        ExpansionType::PartyTap => "partytap",
+        ExpansionType::PachinkoController => "pachinko",
     };
     upsert_config("expansion_type", s);
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum ExpansionAdapterType {
+    None,
+    TwoPlayer,
+    FourPlayer,
+}
+
+pub fn load_expansion_adapter_type() -> ExpansionAdapterType {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("expansion_adapter_type=") {
+                return match value.trim().to_lowercase().as_str() {
+                    "twoplayer" | "2player" | "2-player" | "2 player" => ExpansionAdapterType::TwoPlayer,
+                    "fourplayer" | "4player" | "4-player" | "4 player" => ExpansionAdapterType::FourPlayer,
+                    _ => ExpansionAdapterType::None,
+                };
+            }
+        }
+    }
+    ExpansionAdapterType::None
+}
+
+pub fn save_expansion_adapter_type(at: ExpansionAdapterType) {
+    let s = match at {
+        ExpansionAdapterType::None => "none",
+        ExpansionAdapterType::TwoPlayer => "twoplayer",
+        ExpansionAdapterType::FourPlayer => "fourplayer",
+    };
+    upsert_config("expansion_adapter_type", s);
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum ExpansionPortType {
+    None,
+    ArkanoidPaddle,
+    FamicomZapper,
+    OekaKidsTablet,
+    FamilyTrainerA,
+    FamilyTrainerB,
+    KonamiHyperShot,
+    FamilyBasicKeyboard,
+    PartyTap,
+    PachinkoController,
+    TwoPlayerAdapter,
+    FourPlayerAdapter,
+}
+
+impl ExpansionPortType {
+    pub fn next(self) -> Self {
+        match self {
+            ExpansionPortType::None => ExpansionPortType::FamicomZapper,
+            ExpansionPortType::FamicomZapper => ExpansionPortType::ArkanoidPaddle,
+            ExpansionPortType::ArkanoidPaddle => ExpansionPortType::OekaKidsTablet,
+            ExpansionPortType::OekaKidsTablet => ExpansionPortType::FamilyTrainerA,
+            ExpansionPortType::FamilyTrainerA => ExpansionPortType::FamilyTrainerB,
+            ExpansionPortType::FamilyTrainerB => ExpansionPortType::KonamiHyperShot,
+            ExpansionPortType::KonamiHyperShot => ExpansionPortType::FamilyBasicKeyboard,
+            ExpansionPortType::FamilyBasicKeyboard => ExpansionPortType::PartyTap,
+            ExpansionPortType::PartyTap => ExpansionPortType::PachinkoController,
+            ExpansionPortType::PachinkoController => ExpansionPortType::TwoPlayerAdapter,
+            ExpansionPortType::TwoPlayerAdapter => ExpansionPortType::FourPlayerAdapter,
+            ExpansionPortType::FourPlayerAdapter => ExpansionPortType::None,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            ExpansionPortType::None => "None",
+            ExpansionPortType::ArkanoidPaddle => "Paddle",
+            ExpansionPortType::FamicomZapper => "Zapper",
+            ExpansionPortType::OekaKidsTablet => "Oeka Kids Tablet",
+            ExpansionPortType::FamilyTrainerA => "Family Trainer A",
+            ExpansionPortType::FamilyTrainerB => "Family Trainer B",
+            ExpansionPortType::KonamiHyperShot => "Hyper Shot",
+            ExpansionPortType::FamilyBasicKeyboard => "Family Basic",
+            ExpansionPortType::PartyTap => "Party Tap",
+            ExpansionPortType::PachinkoController => "Pachinko",
+            ExpansionPortType::TwoPlayerAdapter => "2-Player Adapter",
+            ExpansionPortType::FourPlayerAdapter => "4-Player Adapter",
+        }
+    }
+    pub fn is_adapter(self) -> bool {
+        matches!(self, ExpansionPortType::TwoPlayerAdapter | ExpansionPortType::FourPlayerAdapter)
+    }
+}
+
+pub fn save_expansion_port_type(et: ExpansionPortType) -> (ExpansionType, ExpansionAdapterType) {
+    let (dev, adap) = match et {
+        ExpansionPortType::None => (ExpansionType::None, ExpansionAdapterType::None),
+        ExpansionPortType::ArkanoidPaddle => (ExpansionType::ArkanoidPaddle, ExpansionAdapterType::None),
+        ExpansionPortType::FamicomZapper => (ExpansionType::FamicomZapper, ExpansionAdapterType::None),
+        ExpansionPortType::OekaKidsTablet => (ExpansionType::OekaKidsTablet, ExpansionAdapterType::None),
+        ExpansionPortType::FamilyTrainerA => (ExpansionType::FamilyTrainerA, ExpansionAdapterType::None),
+        ExpansionPortType::FamilyTrainerB => (ExpansionType::FamilyTrainerB, ExpansionAdapterType::None),
+        ExpansionPortType::KonamiHyperShot => (ExpansionType::KonamiHyperShot, ExpansionAdapterType::None),
+        ExpansionPortType::FamilyBasicKeyboard => (ExpansionType::FamilyBasicKeyboard, ExpansionAdapterType::None),
+        ExpansionPortType::PartyTap => (ExpansionType::PartyTap, ExpansionAdapterType::None),
+        ExpansionPortType::PachinkoController => (ExpansionType::PachinkoController, ExpansionAdapterType::None),
+        ExpansionPortType::TwoPlayerAdapter => (ExpansionType::None, ExpansionAdapterType::TwoPlayer),
+        ExpansionPortType::FourPlayerAdapter => (ExpansionType::None, ExpansionAdapterType::FourPlayer),
+    };
+    save_expansion_type(dev);
+    save_expansion_adapter_type(adap);
+    (dev, adap)
+}
+
+pub fn load_expansion_adapter_bindings(port: usize) -> [String; GAMEPAD_BUTTON_COUNT] {
+    let prefix = match port {
+        0 => "expansion1",
+        1 => "expansion2",
+        2 => "expansion3",
+        3 => "expansion4",
+        _ => "expansion1",
+    };
+    load_bindings(prefix)
+}
+
+pub fn save_expansion_adapter_binding(port: usize, button: usize, key: &str) {
+    let prefix = match port {
+        0 => "expansion1",
+        1 => "expansion2",
+        2 => "expansion3",
+        3 => "expansion4",
+        _ => "expansion1",
+    };
+    save_binding(prefix, button, key);
+}
+
+pub fn clear_expansion_adapter_bindings(port: usize) {
+    let prefix = match port {
+        0 => "expansion1",
+        1 => "expansion2",
+        2 => "expansion3",
+        3 => "expansion4",
+        _ => "expansion1",
+    };
+    clear_bindings(prefix);
+}
+
+pub fn reset_expansion_adapter_bindings(port: usize) {
+    let prefix = match port {
+        0 => "expansion1",
+        1 => "expansion2",
+        2 => "expansion3",
+        3 => "expansion4",
+        _ => "expansion1",
+    };
+    reset_bindings(prefix);
 }
 
 pub fn load_allow_opposing_dpad() -> bool {
@@ -671,6 +826,23 @@ pub fn save_expansion_zapper_trigger(key: &str) {
     upsert_config("expansion_zapper_trigger", key);
 }
 
+pub fn load_expansion_oeka_click() -> String {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("expansion_oeka_click=") {
+                return value.trim().to_string();
+            }
+        }
+    }
+    "MouseLeft".to_string()
+}
+
+pub fn save_expansion_oeka_click(key: &str) {
+    upsert_config("expansion_oeka_click", key);
+}
+
 pub fn load_famicom_mic() -> String {
     let path = config_path();
     if let Ok(content) = std::fs::read_to_string(&path) {
@@ -746,6 +918,228 @@ pub fn load_powerpad_bindings(prefix: &str) -> [String; POWERPAD_BUTTON_COUNT] {
         }
     }
     let defaults: [&str; POWERPAD_BUTTON_COUNT] = ["1","2","3","4","5","6","7","8","9","0","Minus","Equals"];
+    for (i, val) in defaults.iter().enumerate() {
+        if b[i].is_empty() {
+            b[i] = val.to_string();
+        }
+    }
+    b
+}
+
+impl ExpansionType {
+    pub fn is_family_trainer(self) -> bool {
+        matches!(self, ExpansionType::FamilyTrainerA | ExpansionType::FamilyTrainerB)
+    }
+    pub fn is_hyper_shot(self) -> bool {
+        matches!(self, ExpansionType::KonamiHyperShot)
+    }
+    pub fn is_family_basic(self) -> bool {
+        matches!(self, ExpansionType::FamilyBasicKeyboard)
+    }
+    pub fn is_party_tap(self) -> bool {
+        matches!(self, ExpansionType::PartyTap)
+    }
+    pub fn is_pachinko(self) -> bool {
+        matches!(self, ExpansionType::PachinkoController)
+    }
+}
+
+pub const HYPER_SHOT_BUTTON_COUNT: usize = 4;
+pub const HYPER_SHOT_BUTTONS: &[&str] = &["P1R", "P1J", "P2R", "P2J"];
+pub const HYPER_SHOT_LABELS: &[&str] = &["P1 Run", "P1 Jump", "P2 Run", "P2 Jump"];
+
+pub fn save_hyper_shot_binding(prefix: &str, button: usize, key: &str) {
+    upsert_config(&format!("{}_{}", prefix, HYPER_SHOT_BUTTONS[button]), key);
+}
+
+pub fn clear_hyper_shot_bindings(prefix: &str) {
+    for btn in HYPER_SHOT_BUTTONS {
+        upsert_config(&format!("{}_{}", prefix, btn), "");
+    }
+}
+
+pub fn reset_hyper_shot_bindings(prefix: &str) {
+    let defaults: [&str; HYPER_SHOT_BUTTON_COUNT] = ["Z", "X", "N", "M"];
+    for (i, val) in defaults.iter().enumerate() {
+        upsert_config(&format!("{}_{}", prefix, HYPER_SHOT_BUTTONS[i]), val);
+    }
+}
+
+pub fn load_hyper_shot_bindings(prefix: &str) -> [String; HYPER_SHOT_BUTTON_COUNT] {
+    let mut b = [(); HYPER_SHOT_BUTTON_COUNT].map(|_| String::new());
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            for (i, btn) in HYPER_SHOT_BUTTONS.iter().enumerate() {
+                let key = format!("{}_{}", prefix, btn);
+                if let Some(v) = trimmed.strip_prefix(&key) {
+                    if let Some(value) = v.strip_prefix('=') {
+                        b[i] = value.trim().to_string();
+                    }
+                }
+            }
+        }
+    }
+    let defaults: [&str; HYPER_SHOT_BUTTON_COUNT] = ["Z", "X", "N", "M"];
+    for (i, val) in defaults.iter().enumerate() {
+        if b[i].is_empty() {
+            b[i] = val.to_string();
+        }
+    }
+    b
+}
+
+pub const FAMILY_BASIC_BUTTON_COUNT: usize = 72;
+pub const FAMILY_BASIC_BUTTONS: &[&str] = &[
+    "A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z",
+    "N0","N1","N2","N3","N4","N5","N6","N7","N8","N9",
+    "Return","Space","Del","Ins","Esc","Ctrl","RSHIFT","LSHIFT","RBracket","LBracket","Up","Down","Left","Right",
+    "Dot","Comma","Colon","SemiColon","Under","Slash","Minus","Caret","F1","F2","F3","F4","F5","F6","F7","F8","Yen","Stop","At","Grph","ClrHome","Kana",
+];
+pub const FAMILY_BASIC_LABELS: &[&str] = &[
+    "A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z",
+    "0","1","2","3","4","5","6","7","8","9",
+    "Return","Space","Del","Ins","Esc","Ctrl","R Shift","L Shift","]","[","Up","Down","Left","Right",
+    ".",",",":",";","_","/","-","^","F1","F2","F3","F4","F5","F6","F7","F8","Yen","Stop","@","Graph","Home","Kana",
+];
+
+pub fn save_family_basic_binding(prefix: &str, button: usize, key: &str) {
+    upsert_config(&format!("{}_{}", prefix, FAMILY_BASIC_BUTTONS[button]), key);
+}
+
+pub fn clear_family_basic_bindings(prefix: &str) {
+    for btn in FAMILY_BASIC_BUTTONS {
+        upsert_config(&format!("{}_{}", prefix, btn), "");
+    }
+}
+
+pub fn reset_family_basic_bindings(prefix: &str) {
+    let defaults: [&str; FAMILY_BASIC_BUTTON_COUNT] = [
+        "A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z",
+        "0","1","2","3","4","5","6","7","8","9",
+        "Enter","Space","Delete","Insert","Escape","LeftControl","RightShift","LeftShift","RightBracket","LeftBracket","Up","Down","Left","Right",
+        ".",",",":",";","_","/","-","^","F1","F2","F3","F4","F5","F6","F7","F8","Backslash",".","At","LeftAlt","Home","Kana",
+    ];
+    for (i, val) in defaults.iter().enumerate() {
+        upsert_config(&format!("{}_{}", prefix, FAMILY_BASIC_BUTTONS[i]), val);
+    }
+}
+
+pub fn load_family_basic_bindings(prefix: &str) -> [String; FAMILY_BASIC_BUTTON_COUNT] {
+    let mut b = [(); FAMILY_BASIC_BUTTON_COUNT].map(|_| String::new());
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            for (i, btn) in FAMILY_BASIC_BUTTONS.iter().enumerate() {
+                let key = format!("{}_{}", prefix, btn);
+                if let Some(v) = trimmed.strip_prefix(&key) {
+                    if let Some(value) = v.strip_prefix('=') {
+                        b[i] = value.trim().to_string();
+                    }
+                }
+            }
+        }
+    }
+    let defaults: [&str; FAMILY_BASIC_BUTTON_COUNT] = [
+        "A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z",
+        "0","1","2","3","4","5","6","7","8","9",
+        "Enter","Space","Delete","Insert","Escape","LeftControl","RightShift","LeftShift","RightBracket","LeftBracket","Up","Down","Left","Right",
+        ".",",",":",";","_","/","-","^","F1","F2","F3","F4","F5","F6","F7","F8","Backslash",".","At","LeftAlt","Home","Kana",
+    ];
+    for (i, val) in defaults.iter().enumerate() {
+        if b[i].is_empty() {
+            b[i] = val.to_string();
+        }
+    }
+    b
+}
+
+pub const PARTY_TAP_BUTTON_COUNT: usize = 6;
+pub const PARTY_TAP_BUTTONS: &[&str] = &["B1","B2","B3","B4","B5","B6"];
+pub const PARTY_TAP_LABELS: &[&str] = &["1","2","3","4","5","6"];
+
+pub fn save_party_tap_binding(prefix: &str, button: usize, key: &str) {
+    upsert_config(&format!("{}_{}", prefix, PARTY_TAP_BUTTONS[button]), key);
+}
+
+pub fn clear_party_tap_bindings(prefix: &str) {
+    for btn in PARTY_TAP_BUTTONS {
+        upsert_config(&format!("{}_{}", prefix, btn), "");
+    }
+}
+
+pub fn reset_party_tap_bindings(prefix: &str) {
+    let defaults: [&str; PARTY_TAP_BUTTON_COUNT] = ["1","2","3","4","5","6"];
+    for (i, val) in defaults.iter().enumerate() {
+        upsert_config(&format!("{}_{}", prefix, PARTY_TAP_BUTTONS[i]), val);
+    }
+}
+
+pub fn load_party_tap_bindings(prefix: &str) -> [String; PARTY_TAP_BUTTON_COUNT] {
+    let mut b = [(); PARTY_TAP_BUTTON_COUNT].map(|_| String::new());
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            for (i, btn) in PARTY_TAP_BUTTONS.iter().enumerate() {
+                let key = format!("{}_{}", prefix, btn);
+                if let Some(v) = trimmed.strip_prefix(&key) {
+                    if let Some(value) = v.strip_prefix('=') {
+                        b[i] = value.trim().to_string();
+                    }
+                }
+            }
+        }
+    }
+    let defaults: [&str; PARTY_TAP_BUTTON_COUNT] = ["1","2","3","4","5","6"];
+    for (i, val) in defaults.iter().enumerate() {
+        if b[i].is_empty() {
+            b[i] = val.to_string();
+        }
+    }
+    b
+}
+
+pub const PACHINKO_BUTTON_COUNT: usize = 2;
+pub const PACHINKO_BUTTONS: &[&str] = &["Press","Release"];
+pub const PACHINKO_LABELS: &[&str] = &["Press","Release"];
+
+pub fn save_pachinko_binding(prefix: &str, button: usize, key: &str) {
+    upsert_config(&format!("{}_{}", prefix, PACHINKO_BUTTONS[button]), key);
+}
+
+pub fn clear_pachinko_bindings(prefix: &str) {
+    for btn in PACHINKO_BUTTONS {
+        upsert_config(&format!("{}_{}", prefix, btn), "");
+    }
+}
+
+pub fn reset_pachinko_bindings(prefix: &str) {
+    let defaults: [&str; PACHINKO_BUTTON_COUNT] = ["C","V"];
+    for (i, val) in defaults.iter().enumerate() {
+        upsert_config(&format!("{}_{}", prefix, PACHINKO_BUTTONS[i]), val);
+    }
+}
+
+pub fn load_pachinko_bindings(prefix: &str) -> [String; PACHINKO_BUTTON_COUNT] {
+    let mut b = [(); PACHINKO_BUTTON_COUNT].map(|_| String::new());
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            for (i, btn) in PACHINKO_BUTTONS.iter().enumerate() {
+                let key = format!("{}_{}", prefix, btn);
+                if let Some(v) = trimmed.strip_prefix(&key) {
+                    if let Some(value) = v.strip_prefix('=') {
+                        b[i] = value.trim().to_string();
+                    }
+                }
+            }
+        }
+    }
+    let defaults: [&str; PACHINKO_BUTTON_COUNT] = ["C","V"];
     for (i, val) in defaults.iter().enumerate() {
         if b[i].is_empty() {
             b[i] = val.to_string();
@@ -864,7 +1258,35 @@ pub fn clear_subor_mouse_bindings(prefix: &str) {
 
 pub const VB_BUTTON_COUNT: usize = 14;
 pub const VB_BUTTONS: &[&str] = &["RDown","RLeft","Select","Start","LUp","LDown","LLeft","LRight","RRight","RUp","L","R","B","A"];
-pub const VB_LABELS: &[&str] = &["R-Down","R-Left","Select","Start","L-Up","L-Down","L-Left","L-Right","R-Right","R-Up","L","R","B","A"];
+pub const VB_DISPLAY_ORDER: &[usize] = &[13, 12, 2, 3, 10, 11, 4, 5, 6, 7, 9, 0, 1, 8];
+pub const VB_LABELS: &[&str] = &["A","B","Select","Start","L","R","L-Up","L-Down","L-Left","L-Right","R-Up","R-Down","R-Left","R-Right"];
+
+pub fn vb_serial_from_menu(menu_idx: usize) -> usize {
+    VB_DISPLAY_ORDER[menu_idx]
+}
+
+pub fn filter_vb_opposing(state: &mut u16) {
+    if (*state & (1 << 4)) != 0 && (*state & (1 << 5)) != 0 {
+        *state &= !((1 << 4) | (1 << 5));
+    }
+    if (*state & (1 << 6)) != 0 && (*state & (1 << 7)) != 0 {
+        *state &= !((1 << 6) | (1 << 7));
+    }
+    if (*state & (1 << 9)) != 0 && (*state & (1 << 0)) != 0 {
+        *state &= !((1 << 9) | (1 << 0));
+    }
+    if (*state & (1 << 1)) != 0 && (*state & (1 << 8)) != 0 {
+        *state &= !((1 << 1) | (1 << 8));
+    }
+}
+
+pub fn build_vb_state(raw_state: u16) -> u16 {
+    let mut s = raw_state;
+    filter_vb_opposing(&mut s);
+    s | (1 << 14)
+}
+
+const VB_DEFAULT_BINDINGS: [&str; VB_BUTTON_COUNT] = ["K","J","Space","Return","Up","Down","Left","Right","L","I","Q","W","X","Z"];
 
 pub fn load_vb_bindings(prefix: &str) -> [String; VB_BUTTON_COUNT] {
     let mut b = [(); VB_BUTTON_COUNT].map(|_| String::new());
@@ -873,7 +1295,7 @@ pub fn load_vb_bindings(prefix: &str) -> [String; VB_BUTTON_COUNT] {
         for line in content.lines() {
             let trimmed = line.trim();
             for (i, btn) in VB_BUTTONS.iter().enumerate() {
-                let key = format!("{}_{}", prefix, btn);
+                let key = format!("{}_vb_{}", prefix, btn);
                 if let Some(v) = trimmed.strip_prefix(&key) {
                     if let Some(value) = v.strip_prefix('=') {
                         b[i] = value.trim().to_string();
@@ -882,8 +1304,7 @@ pub fn load_vb_bindings(prefix: &str) -> [String; VB_BUTTON_COUNT] {
             }
         }
     }
-    let defaults: [&str; VB_BUTTON_COUNT] = ["K","J","Space","Return","Up","Down","Left","Right","L","I","Q","W","X","Z"];
-    for (i, val) in defaults.iter().enumerate() {
+    for (i, val) in VB_DEFAULT_BINDINGS.iter().enumerate() {
         if b[i].is_empty() {
             b[i] = val.to_string();
         }
@@ -892,18 +1313,19 @@ pub fn load_vb_bindings(prefix: &str) -> [String; VB_BUTTON_COUNT] {
 }
 
 pub fn save_vb_binding(prefix: &str, button: usize, key: &str) {
-    upsert_config(&format!("{}_{}", prefix, VB_BUTTONS[button]), key);
+    upsert_config(&format!("{}_vb_{}", prefix, VB_BUTTONS[button]), key);
 }
 
 pub fn reset_vb_bindings(prefix: &str) {
-    let defaults: [&str; VB_BUTTON_COUNT] = ["K","J","Space","Return","Up","Down","Left","Right","L","I","Q","W","X","Z"];
-    for (i, val) in defaults.iter().enumerate() {
-        upsert_config(&format!("{}_{}", prefix, VB_BUTTONS[i]), val);
+    for (i, val) in VB_DEFAULT_BINDINGS.iter().enumerate() {
+        upsert_config(&format!("{}_vb_{}", prefix, VB_BUTTONS[i]), val);
     }
 }
 
 pub fn clear_vb_bindings(prefix: &str) {
     for btn in VB_BUTTONS {
-        upsert_config(&format!("{}_{}", prefix, btn), "");
+        upsert_config(&format!("{}_vb_{}", prefix, btn), "");
     }
 }
+
+

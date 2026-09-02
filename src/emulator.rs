@@ -414,6 +414,27 @@ pub struct Emulator {
     pub zapper_trigger: Arc<AtomicBool>,
     pub zapper_bogo: Arc<AtomicU8>,
     pub expansion_zapper_trigger: Arc<AtomicBool>,
+    pub oeka_click: Arc<AtomicBool>,
+    pub oeka_strobe: bool,
+    pub oeka_shift: bool,
+    pub oeka_state_buffer: u32,
+    pub family_trainer_state: Arc<Mutex<[u8; 12]>>,
+    pub family_trainer_ignore_rows: u8,
+    pub hyper_shot_state: Arc<Mutex<[u8; 4]>>,
+    pub hyper_shot_enable_p1: bool,
+    pub hyper_shot_enable_p2: bool,
+    pub family_basic_state: Arc<Mutex<[u8; 72]>>,
+    pub family_basic_row: u8,
+    pub family_basic_column: u8,
+    pub family_basic_enabled: bool,
+    pub party_tap_state: Arc<Mutex<[u8; 6]>>,
+    pub party_tap_buffer: u8,
+    pub party_tap_read_count: u8,
+    pub party_tap_strobe: bool,
+    pub pachinko_state: Arc<Mutex<[u8; 10]>>,
+    pub pachinko_analog: u8,
+    pub pachinko_buffer: u16,
+    pub pachinko_strobe: bool,
     pub famicom_mic: Arc<AtomicBool>,
     pub paddle_x: Arc<Mutex<[u8; 3]>>,
     pub paddle_button: Arc<Mutex<[bool; 3]>>,
@@ -437,11 +458,15 @@ pub struct Emulator {
     pub controller_port4: Arc<AtomicU8>,
     pub fourscore_readbit: [u8; 2],
     pub virtualboy_state: Arc<Mutex<[u16; 2]>>,
+    pub virtualboy_state_buffer: [u16; 2],
     pub virtualboy_readbit: [u8; 2],
 
     pub controller1_type: config::ControllerType,
     pub controller2_type: config::ControllerType,
     pub expansion_type: config::ExpansionType,
+    pub expansion_adapter_type: config::ExpansionAdapterType,
+    pub expansion_adapter_ports: [Arc<AtomicU8>; 4],
+    pub expansion_adapter_shift_register: [u8; 4],
 
     pub frame_advance_reached_vblank: bool,
 
@@ -730,6 +755,13 @@ impl Emulator {
             zapper_x: Arc::new(Mutex::new(0.0)), zapper_y: Arc::new(Mutex::new(0.0)),
             zapper_trigger: Arc::new(AtomicBool::new(false)), zapper_bogo: Arc::new(AtomicU8::new(0)),
             expansion_zapper_trigger: Arc::new(AtomicBool::new(false)),
+            oeka_click: Arc::new(AtomicBool::new(false)),
+            oeka_strobe: false, oeka_shift: false, oeka_state_buffer: 0,
+            family_trainer_state: Arc::new(Mutex::new([0; 12])), family_trainer_ignore_rows: 0,
+            hyper_shot_state: Arc::new(Mutex::new([0; 4])), hyper_shot_enable_p1: true, hyper_shot_enable_p2: true,
+            family_basic_state: Arc::new(Mutex::new([0; 72])), family_basic_row: 0, family_basic_column: 0, family_basic_enabled: false,
+            party_tap_state: Arc::new(Mutex::new([0; 6])), party_tap_buffer: 0, party_tap_read_count: 0, party_tap_strobe: false,
+            pachinko_state: Arc::new(Mutex::new([0; 10])), pachinko_analog: 0, pachinko_buffer: 0, pachinko_strobe: false,
             famicom_mic: Arc::new(AtomicBool::new(false)),
             paddle_x: Arc::new(Mutex::new([0; 3])), paddle_button: Arc::new(Mutex::new([false; 3])), paddle_readbit: [0; 3],
             powerpad_state: Arc::new(Mutex::new([0; 2])), powerpad_shift_data: [0; 2], powerpad_shift_count: [0; 2],
@@ -745,10 +777,14 @@ impl Emulator {
             controller_port4: Arc::new(AtomicU8::new(0)),
             fourscore_readbit: [0; 2],
             virtualboy_state: Arc::new(Mutex::new([0u16; 2])),
+            virtualboy_state_buffer: [0u16; 2],
             virtualboy_readbit: [0; 2],
             controller1_type: config::ControllerType::None,
             controller2_type: config::ControllerType::None,
             expansion_type: config::ExpansionType::None,
+            expansion_adapter_type: config::ExpansionAdapterType::None,
+            expansion_adapter_ports: [Arc::new(AtomicU8::new(0)), Arc::new(AtomicU8::new(0)), Arc::new(AtomicU8::new(0)), Arc::new(AtomicU8::new(0))],
+            expansion_adapter_shift_register: [0; 4],
             frame_advance_reached_vblank: false,
             screen: vec![0u32; 256 * 240],
             region_preference: Region::Auto,
@@ -1687,6 +1723,38 @@ impl Emulator {
         out.push(self.subor_mouse_latch[1]);
         out.push(self.fourscore_readbit[0]);
         out.push(self.fourscore_readbit[1]);
+        out.push(self.expansion_adapter_ports[0].load(Ordering::Relaxed));
+        out.push(self.expansion_adapter_ports[1].load(Ordering::Relaxed));
+        out.push(self.expansion_adapter_ports[2].load(Ordering::Relaxed));
+        out.push(self.expansion_adapter_ports[3].load(Ordering::Relaxed));
+        out.push(self.expansion_adapter_shift_register[0]);
+        out.push(self.expansion_adapter_shift_register[1]);
+        out.push(self.expansion_adapter_shift_register[2]);
+        out.push(self.expansion_adapter_shift_register[3]);
+        out.push(if self.oeka_strobe { 1 } else { 0 });
+        out.push(if self.oeka_shift { 1 } else { 0 });
+        out.extend_from_slice(&self.oeka_state_buffer.to_le_bytes());
+        out.push(self.family_trainer_ignore_rows);
+        out.extend_from_slice(&self.family_trainer_state.lock().unwrap()[..]);
+        out.extend_from_slice(&self.hyper_shot_state.lock().unwrap()[..]);
+        out.push(if self.hyper_shot_enable_p1 { 1 } else { 0 });
+        out.push(if self.hyper_shot_enable_p2 { 1 } else { 0 });
+        out.extend_from_slice(&self.family_basic_state.lock().unwrap()[..]);
+        out.push(self.family_basic_row);
+        out.push(self.family_basic_column);
+        out.push(if self.family_basic_enabled { 1 } else { 0 });
+        out.extend_from_slice(&self.party_tap_state.lock().unwrap()[..]);
+        out.push(self.party_tap_buffer);
+        out.push(self.party_tap_read_count);
+        out.push(if self.party_tap_strobe { 1 } else { 0 });
+        out.extend_from_slice(&self.pachinko_state.lock().unwrap()[..]);
+        out.push(self.pachinko_analog);
+        out.extend_from_slice(&self.pachinko_buffer.to_le_bytes());
+        out.push(if self.pachinko_strobe { 1 } else { 0 });
+        out.push(self.virtualboy_readbit[0]);
+        out.push(self.virtualboy_readbit[1]);
+        out.extend_from_slice(&self.virtualboy_state_buffer[0].to_le_bytes());
+        out.extend_from_slice(&self.virtualboy_state_buffer[1].to_le_bytes());
         out.push(if self.data_pins_are_not_floating { 1 } else { 0 });
         out.push(if self.frame_advance_reached_vblank { 1 } else { 0 });
         if let Some(cart) = &self.cart {
@@ -2036,6 +2104,58 @@ impl Emulator {
         self.subor_mouse_latch[1] = read_u8()?;
         self.fourscore_readbit[0] = read_u8()?;
         self.fourscore_readbit[1] = read_u8()?;
+        self.expansion_adapter_ports[0].store(read_u8()?, Ordering::Relaxed);
+        self.expansion_adapter_ports[1].store(read_u8()?, Ordering::Relaxed);
+        self.expansion_adapter_ports[2].store(read_u8()?, Ordering::Relaxed);
+        self.expansion_adapter_ports[3].store(read_u8()?, Ordering::Relaxed);
+        self.expansion_adapter_shift_register[0] = read_u8()?;
+        self.expansion_adapter_shift_register[1] = read_u8()?;
+        self.expansion_adapter_shift_register[2] = read_u8()?;
+        self.expansion_adapter_shift_register[3] = read_u8()?;
+        self.oeka_strobe = read_u8()? != 0;
+        self.oeka_shift = read_u8()? != 0;
+        self.oeka_state_buffer = u32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        self.family_trainer_ignore_rows = read_u8()?;
+        let mut ft_state = self.family_trainer_state.lock().unwrap();
+        for slot in ft_state.iter_mut() {
+            *slot = read_u8()?;
+        }
+        drop(ft_state);
+        let mut hs_state = self.hyper_shot_state.lock().unwrap();
+        for slot in hs_state.iter_mut() {
+            *slot = read_u8()?;
+        }
+        drop(hs_state);
+        self.hyper_shot_enable_p1 = read_u8()? != 0;
+        self.hyper_shot_enable_p2 = read_u8()? != 0;
+        let mut fb_state = self.family_basic_state.lock().unwrap();
+        for slot in fb_state.iter_mut() {
+            *slot = read_u8()?;
+        }
+        drop(fb_state);
+        self.family_basic_row = read_u8()?;
+        self.family_basic_column = read_u8()?;
+        self.family_basic_enabled = read_u8()? != 0;
+        let mut pt_state = self.party_tap_state.lock().unwrap();
+        for slot in pt_state.iter_mut() {
+            *slot = read_u8()?;
+        }
+        drop(pt_state);
+        self.party_tap_buffer = read_u8()?;
+        self.party_tap_read_count = read_u8()?;
+        self.party_tap_strobe = read_u8()? != 0;
+        let mut pc_state = self.pachinko_state.lock().unwrap();
+        for slot in pc_state.iter_mut() {
+            *slot = read_u8()?;
+        }
+        drop(pc_state);
+        self.pachinko_analog = read_u8()?;
+        self.pachinko_buffer = u16::from_le_bytes([read_u8()?, read_u8()?]);
+        self.pachinko_strobe = read_u8()? != 0;
+        self.virtualboy_readbit[0] = read_u8()?;
+        self.virtualboy_readbit[1] = read_u8()?;
+        self.virtualboy_state_buffer[0] = u16::from_le_bytes([read_u8()?, read_u8()?]);
+        self.virtualboy_state_buffer[1] = u16::from_le_bytes([read_u8()?, read_u8()?]);
         self.data_pins_are_not_floating = read_u8()? != 0;
         self.frame_advance_reached_vblank = read_u8()? != 0;
         let mapper_len = u32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]) as usize;

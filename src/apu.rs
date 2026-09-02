@@ -193,8 +193,19 @@ impl Emulator {
                                 | ((self.zapper_check_hit() as u8) << 1), Ordering::Relaxed);
                         }
                     }
-                    self.controller_shift_register1 = self.controller_port1.load(Ordering::Relaxed);
-                    self.controller_shift_register2 = self.controller_port2.load(Ordering::Relaxed);
+                    if self.expansion_adapter_type == crate::config::ExpansionAdapterType::TwoPlayer {
+                        self.controller_shift_register1 = self.expansion_adapter_ports[0].load(Ordering::Relaxed);
+                        self.controller_shift_register2 = self.expansion_adapter_ports[1].load(Ordering::Relaxed);
+                    } else if self.expansion_adapter_type == crate::config::ExpansionAdapterType::FourPlayer {
+                        for p in 0..4usize {
+                            self.expansion_adapter_shift_register[p] = self.expansion_adapter_ports[p].load(Ordering::Relaxed);
+                        }
+                        self.fourscore_readbit[0] = 0;
+                        self.fourscore_readbit[1] = 0;
+                    } else {
+                        self.controller_shift_register1 = self.controller_port1.load(Ordering::Relaxed);
+                        self.controller_shift_register2 = self.controller_port2.load(Ordering::Relaxed);
+                    }
                     // powerpad
                     {
                         let pp = self.powerpad_state.lock().unwrap();
@@ -231,9 +242,15 @@ impl Emulator {
                     }
                     if self.controller1_type == crate::config::ControllerType::VirtualBoy {
                         self.virtualboy_readbit[0] = 0;
+                        let vb_lock = self.virtualboy_state.lock().unwrap();
+                        self.virtualboy_state_buffer[0] = crate::config::build_vb_state(vb_lock[0]);
+                        drop(vb_lock);
                     }
                     if self.controller2_type == crate::config::ControllerType::VirtualBoy {
                         self.virtualboy_readbit[1] = 0;
+                        let vb_lock = self.virtualboy_state.lock().unwrap();
+                        self.virtualboy_state_buffer[1] = crate::config::build_vb_state(vb_lock[1]);
+                        drop(vb_lock);
                     }
                 }
             } else {

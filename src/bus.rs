@@ -248,6 +248,95 @@ impl Emulator {
                 self.clearing_apu_frame_interrupt = true;
                 return self.internal_bus; // $4015 read does not affect the external data bus
             } else if reg == 0x16 || reg == 0x17 {
+                // oeka kids tablet
+                if reg == 0x17 && self.expansion_type == crate::config::ExpansionType::OekaKidsTablet {
+                    let oeka_val = self.expansion_oeka_bits(reg) | (self.data_bus & 0xE0);
+                    self.apu_controller_ports_strobed = false;
+                    if self.do_oam_dma && self.data_pins_are_not_floating {
+                        self.internal_bus = self.data_bus;
+                        return self.data_bus;
+                    }
+                    self.data_bus = oeka_val;
+                    self.internal_bus = self.data_bus;
+                    return self.data_bus;
+                }
+                // family trainer
+                if reg == 0x17 && self.expansion_type.is_family_trainer() {
+                    let ft_val = self.expansion_family_trainer_bits() | (self.data_bus & 0xE0);
+                    self.apu_controller_ports_strobed = false;
+                    if self.do_oam_dma && self.data_pins_are_not_floating {
+                        self.internal_bus = self.data_bus;
+                        return self.data_bus;
+                    }
+                    self.data_bus = ft_val;
+                    self.internal_bus = self.data_bus;
+                    return self.data_bus;
+                }
+                // konami hyper shot
+                if reg == 0x17 && self.expansion_type.is_hyper_shot() {
+                    let hs_val = self.expansion_hyper_shot_bits() | (self.data_bus & 0xE0);
+                    self.apu_controller_ports_strobed = false;
+                    if self.do_oam_dma && self.data_pins_are_not_floating {
+                        self.internal_bus = self.data_bus;
+                        return self.data_bus;
+                    }
+                    self.data_bus = hs_val;
+                    self.internal_bus = self.data_bus;
+                    return self.data_bus;
+                }
+                // family basic keyboard
+                if reg == 0x17 && self.expansion_type.is_family_basic() {
+                    let fb_val = self.expansion_family_basic_bits() | (self.data_bus & 0xE0);
+                    self.apu_controller_ports_strobed = false;
+                    if self.do_oam_dma && self.data_pins_are_not_floating {
+                        self.internal_bus = self.data_bus;
+                        return self.data_bus;
+                    }
+                    self.data_bus = fb_val;
+                    self.internal_bus = self.data_bus;
+                    return self.data_bus;
+                }
+                // party tap
+                if reg == 0x17 && self.expansion_type.is_party_tap() {
+                    if self.party_tap_strobe {
+                        self.refresh_party_tap_buffer();
+                    }
+                    let val = if self.party_tap_read_count < 2 {
+                        let v = (self.party_tap_buffer & 0x07) << 2;
+                        self.party_tap_buffer >>= 3;
+                        self.party_tap_read_count += 1;
+                        v
+                    } else {
+                        0x14
+                    };
+                    let pt_val = val | (self.data_bus & 0xE0);
+                    self.apu_controller_ports_strobed = false;
+                    if self.do_oam_dma && self.data_pins_are_not_floating {
+                        self.internal_bus = self.data_bus;
+                        return self.data_bus;
+                    }
+                    self.data_bus = pt_val;
+                    self.internal_bus = self.data_bus;
+                    return self.data_bus;
+                }
+                // pachinko controller
+                if reg == 0x16 && self.expansion_type.is_pachinko() {
+                    if self.pachinko_strobe {
+                        self.refresh_pachinko_buffer();
+                    }
+                    let bit = (self.pachinko_buffer & 1) as u8;
+                    let val = bit << 1;
+                    self.pachinko_buffer >>= 1;
+                    let pach_val = (val & 0x02) | (self.data_bus & 0xFD);
+                    self.apu_controller_ports_strobed = false;
+                    if self.do_oam_dma && self.data_pins_are_not_floating {
+                        self.internal_bus = self.data_bus;
+                        return self.data_bus;
+                    }
+                    self.data_bus = pach_val;
+                    self.internal_bus = self.data_bus;
+                    return self.data_bus;
+                }
                 // four score: if either port has fourscore, use the extended 4-player controls
                 if self.controller1_type == crate::config::ControllerType::FourScore || self.controller2_type == crate::config::ControllerType::FourScore {
                     let w = (reg == 0x17) as usize;
@@ -262,7 +351,7 @@ impl Emulator {
                     if readbit == if w == 0 { 19 } else { 18 } { val = 1; }
                     self.fourscore_readbit[w] = self.fourscore_readbit[w].wrapping_add(1);
                     self.apu_controller_ports_strobed = false;
-                    let fs_byte = (val as u8) | (self.data_bus & 0xFE) | self.famicom_mic_bit(reg) | self.expansion_zapper_bits(reg) | self.expansion_paddle_bit(reg);
+                    let fs_byte = (val as u8) | (self.data_bus & 0xFE) | self.famicom_mic_bit(reg) | self.expansion_zapper_bits(reg) | self.expansion_paddle_bit(reg) | self.expansion_oeka_bits(reg);
                     if self.do_oam_dma && self.data_pins_are_not_floating {
                         self.internal_bus = self.data_bus;
                         return self.data_bus;
@@ -270,6 +359,81 @@ impl Emulator {
                     self.data_bus = fs_byte;
                     self.internal_bus = self.data_bus;
                     return self.data_bus;
+                }
+                // famicom 2-player expansion adapter
+                if self.expansion_adapter_type == crate::config::ExpansionAdapterType::TwoPlayer {
+                    if self.apu_controller_ports_strobing {
+                        self.controller_shift_register1 = self.expansion_adapter_ports[0].load(Ordering::Relaxed);
+                        self.controller_shift_register2 = self.expansion_adapter_ports[1].load(Ordering::Relaxed);
+                    }
+                    let sr = if reg == 0x16 {
+                        self.controller_shift_register1
+                    } else {
+                        self.controller_shift_register2
+                    };
+                    let bit1 = ((sr >> 7) & 1) << 1;
+                    if reg == 0x16 {
+                        self.controller1_shift_counter = 2;
+                    } else {
+                        self.controller2_shift_counter = 2;
+                    }
+                    self.apu_controller_ports_strobed = false;
+                    let val = bit1 | (self.data_bus & 0xFD);
+                    if self.do_oam_dma && self.data_pins_are_not_floating {
+                        self.internal_bus = self.data_bus;
+                        return self.data_bus;
+                    }
+                    self.data_bus = val;
+                    self.internal_bus = self.data_bus;
+                    return self.data_bus;
+                }
+                // famicom 4-player adapter
+                if self.expansion_adapter_type == crate::config::ExpansionAdapterType::FourPlayer {
+                    let w = (reg - 0x16) as usize;
+                    let readbit = self.fourscore_readbit[w];
+
+                    if readbit < 8 {
+                        let sr_idx = w; 
+                        let bit0 = (self.expansion_adapter_shift_register[sr_idx] >> 7) & 1;
+                        self.expansion_adapter_shift_register[sr_idx] = (self.expansion_adapter_shift_register[sr_idx] << 1) | 1;
+                        self.fourscore_readbit[w] = readbit.wrapping_add(1);
+                        self.apu_controller_ports_strobed = false;
+                        let val = (bit0 << 1) | (self.data_bus & 0xFD);
+                        if self.do_oam_dma && self.data_pins_are_not_floating {
+                            self.internal_bus = self.data_bus;
+                            return self.data_bus;
+                        }
+                        self.data_bus = val;
+                        self.internal_bus = self.data_bus;
+                        return self.data_bus;
+                    } else if readbit < 16 {
+                        let sr_idx = w + 2; 
+                        let bit0 = (self.expansion_adapter_shift_register[sr_idx] >> 7) & 1;
+                        self.expansion_adapter_shift_register[sr_idx] = (self.expansion_adapter_shift_register[sr_idx] << 1) | 1;
+                        self.fourscore_readbit[w] = readbit.wrapping_add(1);
+                        self.apu_controller_ports_strobed = false;
+                        let val = (bit0 << 1) | (self.data_bus & 0xFD);
+                        if self.do_oam_dma && self.data_pins_are_not_floating {
+                            self.internal_bus = self.data_bus;
+                            return self.data_bus;
+                        }
+                        self.data_bus = val;
+                        self.internal_bus = self.data_bus;
+                        return self.data_bus;
+                    } else {
+                        let sig_val = if w == 0 { 0x04u8 } else { 0x08u8 };
+                        let sig_bit = ((sig_val >> (readbit - 16)) & 1) << 1;
+                        self.fourscore_readbit[w] = readbit.wrapping_add(1);
+                        self.apu_controller_ports_strobed = false;
+                        let val = sig_bit | (self.data_bus & 0xFD);
+                        if self.do_oam_dma && self.data_pins_are_not_floating {
+                            self.internal_bus = self.data_bus;
+                            return self.data_bus;
+                        }
+                        self.data_bus = val;
+                        self.internal_bus = self.data_bus;
+                        return self.data_bus;
+                    }
                 }
                 // arkanoid paddle on port 1 ($4016)
                 if reg == 0x16 && self.controller1_type == crate::config::ControllerType::Paddle {
@@ -332,6 +496,7 @@ impl Emulator {
                         zapper_val |= 0x08;
                     }
                     zapper_val |= self.expansion_zapper_bits(reg);
+                    zapper_val |= self.expansion_oeka_bits(reg);
                     let zapper_read = zapper_val | (self.data_bus & 0xE0);
 
                     self.apu_controller_ports_strobed = false;
@@ -402,18 +567,18 @@ impl Emulator {
                     let idx = (reg == 0x17) as usize;
                     if self.apu_controller_ports_strobing {
                         self.virtualboy_readbit[idx] = 0;
+                        let vb_state_lock = self.virtualboy_state.lock().unwrap();
+                        self.virtualboy_state_buffer[idx] = crate::config::build_vb_state(vb_state_lock[idx]);
+                        drop(vb_state_lock);
                     }
-                    let vb_state_lock = self.virtualboy_state.lock().unwrap();
-                    let raw_val = (vb_state_lock[idx] & 0x3FFF) | 0x4000;
-                    let vb_val = if self.virtualboy_readbit[idx] < 16 {
-                        (raw_val >> self.virtualboy_readbit[idx]) & 1
-                    } else {
-                        1
-                    };
-                    drop(vb_state_lock);
+
+                    let bit = self.virtualboy_state_buffer[idx] & 1;
+                    self.virtualboy_state_buffer[idx] >>= 1;
+                    self.virtualboy_state_buffer[idx] |= 0x8000;
+
                     self.virtualboy_readbit[idx] = self.virtualboy_readbit[idx].wrapping_add(1);
                     self.apu_controller_ports_strobed = false;
-                    let vb_byte = (vb_val as u8) | (self.data_bus & 0xFE);
+                    let vb_byte = (bit as u8) | (self.data_bus & 0xFE) | self.famicom_mic_bit(reg) | self.expansion_zapper_bits(reg) | self.expansion_paddle_bit(reg) | self.expansion_oeka_bits(reg);
                     if self.do_oam_dma && self.data_pins_are_not_floating {
                         self.internal_bus = self.data_bus;
                         return self.data_bus;
@@ -460,7 +625,7 @@ impl Emulator {
                     pp_d3 = 0;
                     pp_d4 = 0;
                 }
-                let controller_read = (if sr_bit == 0 { 0u8 } else { 1 }) | pp_d3 | pp_d4 | (self.data_bus & 0xE0) | self.expansion_paddle_bit(reg) | self.expansion_zapper_bits(reg) | self.famicom_mic_bit(reg);
+                let controller_read = (if sr_bit == 0 { 0u8 } else { 1 }) | pp_d3 | pp_d4 | (self.data_bus & 0xE0) | self.expansion_paddle_bit(reg) | self.expansion_zapper_bits(reg) | self.expansion_oeka_bits(reg) | self.famicom_mic_bit(reg);
 
                 // vs system quirks: let mapper adjust controller read if applicable
                 let adjusted = if let Some(cart) = self.cart.as_ref() {
@@ -529,6 +694,139 @@ impl Emulator {
         val
     }
 
+    fn expansion_oeka_bits(&self, reg: u8) -> u8 {
+        if self.expansion_type != crate::config::ExpansionType::OekaKidsTablet {
+            return 0;
+        }
+        if reg != 0x17 {
+            return 0;
+        }
+        if self.apu_controller_ports_strobing {
+            if self.oeka_shift {
+                if self.oeka_state_buffer & 0x40000 != 0 {
+                    0x00
+                } else {
+                    0x08
+                }
+            } else {
+                0x04
+            }
+        } else {
+            0x00
+        }
+    }
+
+    fn expansion_family_trainer_bits(&self) -> u8 {
+        if !self.expansion_type.is_family_trainer() {
+            return 0;
+        }
+        let pressed = self.family_trainer_state.lock().unwrap();
+        let mut col = [0u8; 4];
+        for j in 0..3usize {
+            if (self.family_trainer_ignore_rows >> (2 - j)) & 0x01 != 0 {
+                continue;
+            }
+            for i in 0..4usize {
+                col[i] |= pressed[j * 4 + i];
+            }
+        }
+        let output = !((col[0] << 4) | (col[1] << 3) | (col[2] << 2) | (col[3] << 1)) & 0x1E;
+        output
+    }
+
+    fn expansion_hyper_shot_bits(&self) -> u8 {
+        if !self.expansion_type.is_hyper_shot() {
+            return 0;
+        }
+        let pressed = self.hyper_shot_state.lock().unwrap();
+        let mut output = 0u8;
+        if self.hyper_shot_enable_p1 {
+            if pressed[1] != 0 { output |= 0x02; }
+            if pressed[0] != 0 { output |= 0x04; }
+        }
+        if self.hyper_shot_enable_p2 {
+            if pressed[3] != 0 { output |= 0x08; }
+            if pressed[2] != 0 { output |= 0x10; }
+        }
+        output
+    }
+
+    fn expansion_family_basic_bits(&self) -> u8 {
+        if !self.expansion_type.is_family_basic() {
+            return 0;
+        }
+        if !self.family_basic_enabled {
+            return 0;
+        }
+        if self.family_basic_row >= 10 {
+            return 0;
+        }
+        const KEY_MATRIX: [u8; 72] = [
+            65, 36, 45, 44, 71, 42, 66, 67,
+            64, 68, 52, 53, 54, 55, 56, 57,
+            63, 14, 11, 10, 50, 51, 15, 26,
+            62, 8, 20, 9, 12, 13, 35, 34,
+            61, 24, 6, 7, 1, 21, 33, 32,
+            60, 19, 17, 3, 5, 2, 31, 30,
+            59, 22, 18, 0, 23, 25, 4, 29,
+            58, 40, 16, 41, 43, 69, 27, 28,
+            70, 46, 49, 48, 47, 37, 38, 39,
+        ];
+        let pressed = self.family_basic_state.lock().unwrap();
+        let row = self.family_basic_row as usize;
+        let col = self.family_basic_column as usize;
+        if row == 9 {
+            return 0;
+        }
+        let base = row * 8 + if col != 0 { 4 } else { 0 };
+        let mut result: u8 = 0;
+        for i in 0..4 {
+            if pressed[KEY_MATRIX[base + i] as usize] != 0 {
+                result |= 0x10;
+            }
+            result >>= 1;
+        }
+        ((!result) << 1) & 0x1E
+    }
+
+    fn refresh_party_tap_buffer(&mut self) {
+        let pressed = self.party_tap_state.lock().unwrap();
+        let mut buf = 0u8;
+        for i in 0..6 {
+            if pressed[i] != 0 {
+                buf |= 1 << i;
+            }
+        }
+        self.party_tap_buffer = buf;
+        self.party_tap_read_count = 0;
+    }
+
+    fn refresh_pachinko_buffer(&mut self) {
+        let (press, release) = {
+            let s = self.pachinko_state.lock().unwrap();
+            (s[0] != 0, s[1] != 0)
+        };
+        if self.pachinko_analog < 0x63 && press {
+            self.pachinko_analog = self.pachinko_analog.wrapping_add(1);
+        } else if self.pachinko_analog > 0 && release {
+            self.pachinko_analog = self.pachinko_analog.wrapping_sub(1);
+        }
+        let a = self.pachinko_analog;
+        let rev = ((a & 0x01) << 7) | ((a & 0x02) << 5) | ((a & 0x04) << 3) | ((a & 0x08) << 1) | ((a & 0x10) >> 1) | ((a & 0x20) >> 3) | ((a & 0x40) >> 5) | ((a & 0x80) >> 7);
+        let p1 = self.controller_port1.load(Ordering::Relaxed);
+        let mut ctrl: u8 = 0;
+        if p1 & 0x80 != 0 { ctrl |= 1 << 0; }
+        if p1 & 0x40 != 0 { ctrl |= 1 << 1; }
+        if p1 & 0x10 != 0 { ctrl |= 1 << 2; }
+        if p1 & 0x20 != 0 { ctrl |= 1 << 3; }
+        if p1 & 0x08 != 0 { ctrl |= 1 << 4; }
+        if p1 & 0x04 != 0 { ctrl |= 1 << 5; }
+        if p1 & 0x02 != 0 { ctrl |= 1 << 6; }
+        if p1 & 0x01 != 0 { ctrl |= 1 << 7; }
+        let high = (!rev) as u16;
+        self.pachinko_buffer = (ctrl as u16) | (high << 8);
+    }
+
     fn famicom_mic_bit(&self, reg: u8) -> u8 {
         if reg != 0x16 {
             return 0;
@@ -578,7 +876,62 @@ impl Emulator {
         } else if address >= 0x4000 && address <= 0x4015 {
             self.store_apu_registers(address, input);
         } else if address == 0x4016 {
+            let prev_strobing = self.apu_controller_ports_strobing;
             self.apu_controller_ports_strobing = (input & 1) != 0;
+            if self.expansion_type.is_family_trainer() {
+                self.family_trainer_ignore_rows = input & 0x07;
+            }
+            if self.expansion_type.is_hyper_shot() {
+                self.hyper_shot_enable_p2 = (input & 0x02) == 0;
+                self.hyper_shot_enable_p1 = (input & 0x04) == 0;
+            }
+            if self.expansion_type.is_family_basic() {
+                let prev_col = self.family_basic_column;
+                let col = (input & 0x02) >> 1;
+                if col == 0 && prev_col != 0 {
+                    self.family_basic_row = (self.family_basic_row + 1) % 10;
+                }
+                self.family_basic_column = col;
+                if (input & 0x01) != 0 {
+                    self.family_basic_row = 0;
+                }
+                self.family_basic_enabled = (input & 0x04) != 0;
+            }
+            if self.expansion_type.is_party_tap() {
+                let new_strobe = (input & 0x01) != 0;
+                let prev = self.party_tap_strobe;
+                self.party_tap_strobe = new_strobe;
+                if prev && !new_strobe {
+                    self.refresh_party_tap_buffer();
+                }
+            }
+            if self.expansion_type.is_pachinko() {
+                let new_strobe = (input & 0x01) != 0;
+                let prev = self.pachinko_strobe;
+                self.pachinko_strobe = new_strobe;
+                if prev && !new_strobe {
+                    self.refresh_pachinko_buffer();
+                }
+            }
+            if self.expansion_type == crate::config::ExpansionType::OekaKidsTablet {
+                let new_strobe = (input & 1) != 0;
+                let shift = ((input >> 1) & 1) != 0;
+                if new_strobe {
+                    if !self.oeka_shift && shift {
+                        self.oeka_state_buffer <<= 1;
+                    }
+                    self.oeka_shift = shift;
+                } else {
+                    let zx = *self.zapper_x.lock().unwrap();
+                    let zy = *self.zapper_y.lock().unwrap();
+                    let nes_x = (zx * 239.0).round().clamp(0.0, 239.0) as u8;
+                    let nes_y = (zy * 255.0).round().clamp(0.0, 255.0) as u8;
+                    let touch = 1u32;
+                    let click = if self.oeka_click.load(Ordering::Relaxed) { 1u32 } else { 0u32 };
+                    self.oeka_state_buffer = ((nes_x as u32) << 10) | ((nes_y as u32) << 2) | (touch << 1) | click;
+                }
+                self.oeka_strobe = new_strobe;
+            }
             if (input & 1) != 0 {
                 self.paddle_readbit[0] = 0;
                 self.paddle_readbit[1] = 0;
@@ -589,6 +942,22 @@ impl Emulator {
                 self.snes_mouse_readbit[1] = 0;
                 self.fourscore_readbit[0] = 0;
                 self.fourscore_readbit[1] = 0;
+                self.virtualboy_readbit[0] = 0;
+                self.virtualboy_readbit[1] = 0;
+                if self.expansion_adapter_type == crate::config::ExpansionAdapterType::TwoPlayer {
+                    self.controller_shift_register1 = self.expansion_adapter_ports[0].load(Ordering::Relaxed);
+                    self.controller_shift_register2 = self.expansion_adapter_ports[1].load(Ordering::Relaxed);
+                } else if self.expansion_adapter_type == crate::config::ExpansionAdapterType::FourPlayer {
+                    for p in 0..4usize {
+                        self.expansion_adapter_shift_register[p] = self.expansion_adapter_ports[p].load(Ordering::Relaxed);
+                    }
+                }
+                {
+                    let vb_state_lock = self.virtualboy_state.lock().unwrap();
+                    for p in 0..2usize {
+                        self.virtualboy_state_buffer[p] = crate::config::build_vb_state(vb_state_lock[p]);
+                    }
+                }
                 // latch accumulated mouse deltas into state
                 {
                     let dx_lock = &mut *self.snes_mouse_delta_x.lock().unwrap();
@@ -624,6 +993,15 @@ impl Emulator {
                         self.subor_mouse_latch[p] = latch;
                     }
                 }
+            } else if prev_strobing {
+                self.virtualboy_readbit[0] = 0;
+                self.virtualboy_readbit[1] = 0;
+                {
+                    let vb_state_lock = self.virtualboy_state.lock().unwrap();
+                    for p in 0..2usize {
+                        self.virtualboy_state_buffer[p] = crate::config::build_vb_state(vb_state_lock[p]);
+                    }
+                }
             }
             if self.cart.as_ref().is_some_and(|c| matches!(c.memory_mapper, 99 | 604)) {
                 let cart = self.cart.as_mut().unwrap();
@@ -632,6 +1010,25 @@ impl Emulator {
                 self.cart.as_mut().unwrap().mapper_chip = mapper;
             }
         } else if address == 0x4017 {
+            if self.expansion_type.is_family_trainer() {
+                self.family_trainer_ignore_rows = input & 0x07;
+            }
+            if self.expansion_type.is_hyper_shot() {
+                self.hyper_shot_enable_p2 = (input & 0x02) == 0;
+                self.hyper_shot_enable_p1 = (input & 0x04) == 0;
+            }
+            if self.expansion_type.is_family_basic() {
+                let prev_col = self.family_basic_column;
+                let col = (input & 0x02) >> 1;
+                if col == 0 && prev_col != 0 {
+                    self.family_basic_row = (self.family_basic_row + 1) % 10;
+                }
+                self.family_basic_column = col;
+                if (input & 0x01) != 0 {
+                    self.family_basic_row = 0;
+                }
+                self.family_basic_enabled = (input & 0x04) != 0;
+            }
             self.apu_frame_counter_mode = (input & 0x80) != 0;
             self.apu_frame_counter_inhibit_irq = (input & 0x40) != 0;
             if self.apu_frame_counter_mode {

@@ -411,6 +411,7 @@ struct MenuState {
     show_controller1_settings: bool,
     show_controller2_settings: bool,
     show_expansion_settings: bool,
+    adapter_pair: Option<usize>,
     rebind_controller: Option<u8>,
     rebind_button: Option<usize>,
     hovered_ctrl_button: Option<usize>,
@@ -467,6 +468,7 @@ impl MenuState {
             show_controller1_settings: false,
             show_controller2_settings: false,
             show_expansion_settings: false,
+            adapter_pair: None,
             rebind_controller: None,
             rebind_button: None,
             hovered_ctrl_button: None,
@@ -713,7 +715,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.6.2";
+const APP_VERSION: &str = "1.6.3";
 
 fn strip_version_prefix(s: &str) -> &str {
     s.trim_start_matches(|c: char| c.is_ascii_alphabetic())
@@ -1214,7 +1216,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.6.2")
+        .with_title("AccuNES 1.6.3")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -1228,10 +1230,20 @@ fn main() {
     let controller_port2 = Arc::new(AtomicU8::new(0));
     let controller_port3 = Arc::new(AtomicU8::new(0));
     let controller_port4 = Arc::new(AtomicU8::new(0));
+    let expansion_adapter_port1 = Arc::new(AtomicU8::new(0));
+    let expansion_adapter_port2 = Arc::new(AtomicU8::new(0));
+    let expansion_adapter_port3 = Arc::new(AtomicU8::new(0));
+    let expansion_adapter_port4 = Arc::new(AtomicU8::new(0));
     let zapper_x = Arc::new(Mutex::new(0.0f32));
     let zapper_y = Arc::new(Mutex::new(0.0f32));
     let zapper_trigger = Arc::new(AtomicBool::new(false));
     let expansion_zapper_trigger = Arc::new(AtomicBool::new(false));
+    let oeka_click = Arc::new(AtomicBool::new(false));
+    let family_trainer_state = Arc::new(Mutex::new([0u8; 12]));
+    let hyper_shot_state = Arc::new(Mutex::new([0u8; 4]));
+    let family_basic_state = Arc::new(Mutex::new([0u8; 72]));
+    let party_tap_state = Arc::new(Mutex::new([0u8; 6]));
+    let pachinko_state = Arc::new(Mutex::new([0u8; 10]));
     let famicom_mic = Arc::new(AtomicBool::new(false));
     let zapper_bogo = Arc::new(AtomicU8::new(0));
     let paddle_x = Arc::new(Mutex::new([0u8; 3]));
@@ -1251,10 +1263,17 @@ fn main() {
         e.controller_port2 = controller_port2.clone();
         e.controller_port3 = controller_port3.clone();
         e.controller_port4 = controller_port4.clone();
+        e.expansion_adapter_ports = [expansion_adapter_port1.clone(), expansion_adapter_port2.clone(), expansion_adapter_port3.clone(), expansion_adapter_port4.clone()];
         e.zapper_x = zapper_x.clone();
         e.zapper_y = zapper_y.clone();
         e.zapper_trigger = zapper_trigger.clone();
         e.expansion_zapper_trigger = expansion_zapper_trigger.clone();
+        e.oeka_click = oeka_click.clone();
+        e.family_trainer_state = family_trainer_state.clone();
+        e.hyper_shot_state = hyper_shot_state.clone();
+        e.family_basic_state = family_basic_state.clone();
+        e.party_tap_state = party_tap_state.clone();
+        e.pachinko_state = pachinko_state.clone();
         e.famicom_mic = famicom_mic.clone();
         e.zapper_bogo = zapper_bogo.clone();
         e.paddle_x = paddle_x.clone();
@@ -1329,14 +1348,22 @@ fn main() {
     let controller1_type = Rc::new(RefCell::new(config::load_controller_type("controller1_type")));
     let controller2_type = Rc::new(RefCell::new(config::load_controller_type("controller2_type")));
     let expansion_type = Rc::new(RefCell::new(config::load_expansion_type()));
+    let expansion_adapter_type = Rc::new(RefCell::new(config::load_expansion_adapter_type()));
     emu.lock().unwrap().controller1_type = *controller1_type.borrow();
     emu.lock().unwrap().controller2_type = *controller2_type.borrow();
     emu.lock().unwrap().expansion_type = *expansion_type.borrow();
+    emu.lock().unwrap().expansion_adapter_type = *expansion_adapter_type.borrow();
     let allow_opposing_dpad = Rc::new(RefCell::new(config::load_allow_opposing_dpad()));
     let controller1_bindings = Rc::new(RefCell::new(config::load_bindings("controller1")));
     let controller2_bindings = Rc::new(RefCell::new(config::load_bindings("controller2")));
     let zapper_trigger_binding = Rc::new(RefCell::new(config::load_zapper_trigger()));
     let expansion_zapper_trigger_binding = Rc::new(RefCell::new(config::load_expansion_zapper_trigger()));
+    let expansion_oeka_click_binding = Rc::new(RefCell::new(config::load_expansion_oeka_click()));
+    let family_trainer_bindings = Rc::new(RefCell::new(config::load_powerpad_bindings("familytrainer")));
+    let hyper_shot_bindings = Rc::new(RefCell::new(config::load_hyper_shot_bindings("hypershot")));
+    let family_basic_bindings = Rc::new(RefCell::new(config::load_family_basic_bindings("familybasic")));
+    let party_tap_bindings = Rc::new(RefCell::new(config::load_party_tap_bindings("partytap")));
+    let pachinko_bindings = Rc::new(RefCell::new(config::load_pachinko_bindings("pachinko")));
     let famicom_mic_binding = Rc::new(RefCell::new(config::load_famicom_mic()));
 
     let paddle1_button_binding = Rc::new(RefCell::new(config::load_paddle_button("controller1")));
@@ -1354,6 +1381,10 @@ fn main() {
     let vb2_bindings = Rc::new(RefCell::new(config::load_vb_bindings("controller2")));
     let controller3_bindings = Rc::new(RefCell::new(config::load_bindings("controller3")));
     let controller4_bindings = Rc::new(RefCell::new(config::load_bindings("controller4")));
+    let expansion1_bindings = Rc::new(RefCell::new(config::load_expansion_adapter_bindings(0)));
+    let expansion2_bindings = Rc::new(RefCell::new(config::load_expansion_adapter_bindings(1)));
+    let expansion3_bindings = Rc::new(RefCell::new(config::load_expansion_adapter_bindings(2)));
+    let expansion4_bindings = Rc::new(RefCell::new(config::load_expansion_adapter_bindings(3)));
     let last_mouse_x = Rc::new(RefCell::new(0.0f64));
     let last_mouse_y = Rc::new(RefCell::new(0.0f64));
     let menu_state = Rc::new(RefCell::new(MenuState::new()));
@@ -1481,10 +1512,20 @@ fn main() {
     let controller_port2_clone = controller_port2.clone();
     let controller_port3_clone = controller_port3.clone();
     let controller_port4_clone = controller_port4.clone();
+    let expansion_adapter_port1_clone = expansion_adapter_port1.clone();
+    let expansion_adapter_port2_clone = expansion_adapter_port2.clone();
+    let expansion_adapter_port3_clone = expansion_adapter_port3.clone();
+    let expansion_adapter_port4_clone = expansion_adapter_port4.clone();
     let zapper_x_clone = zapper_x.clone();
     let zapper_y_clone = zapper_y.clone();
     let zapper_trigger_clone = zapper_trigger.clone();
     let expansion_zapper_trigger_clone = expansion_zapper_trigger.clone();
+    let oeka_click_clone = oeka_click.clone();
+    let family_trainer_state_clone = family_trainer_state.clone();
+    let hyper_shot_state_clone = hyper_shot_state.clone();
+    let family_basic_state_clone = family_basic_state.clone();
+    let party_tap_state_clone = party_tap_state.clone();
+    let pachinko_state_clone = pachinko_state.clone();
     let famicom_mic_clone = famicom_mic.clone();
     let zapper_bogo_clone = zapper_bogo.clone();
     let paddle_x_clone = paddle_x.clone();
@@ -1499,6 +1540,12 @@ fn main() {
     let subor_mouse_dy_clone = subor_mouse_dy.clone();
     let zapper_trigger_binding_clone = zapper_trigger_binding.clone();
     let expansion_zapper_trigger_binding_clone = expansion_zapper_trigger_binding.clone();
+    let expansion_oeka_click_binding_clone = expansion_oeka_click_binding.clone();
+    let family_trainer_bindings_clone = family_trainer_bindings.clone();
+    let hyper_shot_bindings_clone = hyper_shot_bindings.clone();
+    let family_basic_bindings_clone = family_basic_bindings.clone();
+    let party_tap_bindings_clone = party_tap_bindings.clone();
+    let pachinko_bindings_clone = pachinko_bindings.clone();
     let famicom_mic_binding_clone = famicom_mic_binding.clone();
     let paddle1_button_binding_clone = paddle1_button_binding.clone();
     let paddle2_button_binding_clone = paddle2_button_binding.clone();
@@ -1516,6 +1563,11 @@ fn main() {
     let virtualboy_state_clone = virtualboy_state.clone();
     let controller3_bindings_clone = controller3_bindings.clone();
     let controller4_bindings_clone = controller4_bindings.clone();
+    let expansion1_bindings_clone = expansion1_bindings.clone();
+    let expansion2_bindings_clone = expansion2_bindings.clone();
+    let expansion3_bindings_clone = expansion3_bindings.clone();
+    let expansion4_bindings_clone = expansion4_bindings.clone();
+    let expansion_adapter_type_clone = expansion_adapter_type.clone();
     let last_mouse_x_clone = last_mouse_x.clone();
     let last_mouse_y_clone = last_mouse_y.clone();
     let fps_update_time_clone = fps_update_time.clone();
@@ -1656,6 +1708,8 @@ fn main() {
     });
 
     let mut last_rendered_frame: u32 = u32::MAX;
+    let mut last_rendered_mouse: (usize, usize) = (usize::MAX, usize::MAX);
+    let mut last_menu_active: bool = false;
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(4));
@@ -1678,7 +1732,21 @@ fn main() {
                     ms_mut.rebind_controller = None;
                     ms_mut.rebind_button = None;
                     let prefix = if ctrl == 1 { "controller1" } else { "controller2" };
-                    if ctrl == 1 {
+                    if *expansion_adapter_type_clone.borrow() != config::ExpansionAdapterType::None
+                        && ms_mut.show_expansion_settings {
+                        let pair = ms_mut.adapter_pair.unwrap_or(0);
+                        let pl = pair * 2 + (ctrl as usize).checked_sub(1).unwrap_or(0);
+                        let port_bindings = match pl {
+                            0 => Some(&mut *expansion1_bindings_clone.borrow_mut()),
+                            1 => Some(&mut *expansion2_bindings_clone.borrow_mut()),
+                            2 => Some(&mut *expansion3_bindings_clone.borrow_mut()),
+                            _ => Some(&mut *expansion4_bindings_clone.borrow_mut()),
+                        };
+                        if let Some(bindings) = port_bindings {
+                            bindings[b] = btn_name.clone();
+                            config::save_expansion_adapter_binding(pl, b, &btn_name);
+                        }
+                    } else if ctrl == 1 {
                         let c1t = *controller1_type_clone.borrow();
                         if c1t == config::ControllerType::PowerPadA || c1t == config::ControllerType::PowerPadB {
                             powerpad1_bindings_clone.borrow_mut()[b] = btn_name.clone();
@@ -1693,8 +1761,9 @@ fn main() {
                             subor_mouse1_bindings_clone.borrow_mut()[b] = btn_name.clone();
                             config::save_subor_mouse_binding(prefix, b, &btn_name);
                         } else if c1t == config::ControllerType::VirtualBoy {
-                            vb1_bindings_clone.borrow_mut()[b] = btn_name.clone();
-                            config::save_vb_binding(prefix, b, &btn_name);
+                            let s = config::vb_serial_from_menu(b);
+                            vb1_bindings_clone.borrow_mut()[s] = btn_name.clone();
+                            config::save_vb_binding(prefix, s, &btn_name);
                         } else if c1t == config::ControllerType::Paddle {
                             *paddle1_button_binding_clone.borrow_mut() = btn_name.clone();
                             config::save_paddle_button("controller1", &btn_name);
@@ -1721,8 +1790,9 @@ fn main() {
                         subor_mouse2_bindings_clone.borrow_mut()[b] = btn_name.clone();
                         config::save_subor_mouse_binding(prefix, b, &btn_name);
                     } else if *controller2_type_clone.borrow() == config::ControllerType::VirtualBoy {
-                        vb2_bindings_clone.borrow_mut()[b] = btn_name.clone();
-                        config::save_vb_binding(prefix, b, &btn_name);
+                        let s = config::vb_serial_from_menu(b);
+                        vb2_bindings_clone.borrow_mut()[s] = btn_name.clone();
+                        config::save_vb_binding(prefix, s, &btn_name);
                     } else if ctrl == 2 {
                         controller2_bindings_clone.borrow_mut()[b] = btn_name.clone();
                         config::save_binding(prefix, b, &btn_name);
@@ -1854,6 +1924,35 @@ fn main() {
                     }
                 }
             }
+            // expansion adapters
+            if *expansion_adapter_type_clone.borrow() != config::ExpansionAdapterType::None {
+                let exp_bindings = [
+                    expansion1_bindings_clone.borrow(),
+                    expansion2_bindings_clone.borrow(),
+                    expansion3_bindings_clone.borrow(),
+                    expansion4_bindings_clone.borrow(),
+                ];
+                let exp_ports = [
+                    &expansion_adapter_port1_clone,
+                    &expansion_adapter_port2_clone,
+                    &expansion_adapter_port3_clone,
+                    &expansion_adapter_port4_clone,
+                ];
+                for (pi, bindings) in exp_bindings.iter().enumerate() {
+                    for (i, s) in bindings.iter().enumerate() {
+                        if s == &btn_name {
+                            let mask = BIT_MASKS[i];
+                            let port = exp_ports[pi];
+                            if pressed { port.fetch_or(mask, Ordering::Relaxed); } else { port.fetch_and(!mask, Ordering::Relaxed); }
+                            if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
+                                if port.load(Ordering::Relaxed) & 0x03 == 0x03 { port.fetch_and(!mask, Ordering::Relaxed); }
+                                if port.load(Ordering::Relaxed) & 0x0C == 0x0C { port.fetch_and(!mask, Ordering::Relaxed); }
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
             // zapper trigger (also vs zapper trigger)
             {
                 let zt = zapper_trigger_binding_clone.borrow();
@@ -1875,6 +1974,65 @@ fn main() {
                         zapper_bogo_clone.store(3, Ordering::Relaxed);
                     } else {
                         expansion_zapper_trigger_clone.store(false, Ordering::Relaxed);
+                    }
+                }
+            }
+            // oeka kids tablet click
+            {
+                let okt = expansion_oeka_click_binding_clone.borrow();
+                if *okt == btn_name {
+                    oeka_click_clone.store(pressed, Ordering::Relaxed);
+                }
+            }
+            // family trainer buttons
+            if expansion_type_clone.borrow().is_family_trainer() {
+                let ft = family_trainer_bindings_clone.borrow();
+                let side_b = *expansion_type_clone.borrow() == config::ExpansionType::FamilyTrainerB;
+                let mut ft_lock = family_trainer_state_clone.lock().unwrap();
+                for (i, s) in ft.iter().enumerate() {
+                    if s == &btn_name {
+                        let idx = if side_b { (i / 4) * 4 + (3 - (i % 4)) } else { i };
+                        ft_lock[idx] = if pressed { 1 } else { 0 };
+                    }
+                }
+            }
+            // konami hyper shot buttons
+            if expansion_type_clone.borrow().is_hyper_shot() {
+                let hs = hyper_shot_bindings_clone.borrow();
+                let mut hs_lock = hyper_shot_state_clone.lock().unwrap();
+                for (i, s) in hs.iter().enumerate() {
+                    if s == &btn_name {
+                        hs_lock[i] = if pressed { 1 } else { 0 };
+                    }
+                }
+            }
+            // family basic keyboard buttons
+            if expansion_type_clone.borrow().is_family_basic() {
+                let fb = family_basic_bindings_clone.borrow();
+                let mut fb_lock = family_basic_state_clone.lock().unwrap();
+                for (i, s) in fb.iter().enumerate() {
+                    if s == &btn_name {
+                        fb_lock[i] = if pressed { 1 } else { 0 };
+                    }
+                }
+            }
+            // party tap buttons
+            if expansion_type_clone.borrow().is_party_tap() {
+                let pt = party_tap_bindings_clone.borrow();
+                let mut pt_lock = party_tap_state_clone.lock().unwrap();
+                for (i, s) in pt.iter().enumerate() {
+                    if s == &btn_name {
+                        pt_lock[i] = if pressed { 1 } else { 0 };
+                    }
+                }
+            }
+            // pachinko controller buttons
+            if expansion_type_clone.borrow().is_pachinko() {
+                let pc = pachinko_bindings_clone.borrow();
+                let mut pc_lock = pachinko_state_clone.lock().unwrap();
+                for (i, s) in pc.iter().enumerate() {
+                    if s == &btn_name {
+                        pc_lock[i] = if pressed { 1 } else { 0 };
                     }
                 }
             }
@@ -2116,6 +2274,38 @@ fn main() {
                             } else if *expansion_type_clone.borrow() == config::ExpansionType::FamicomZapper {
                                 *expansion_zapper_trigger_binding_clone.borrow_mut() = key_str.clone();
                                 config::save_expansion_zapper_trigger(&key_str);
+                            } else if *expansion_type_clone.borrow() == config::ExpansionType::OekaKidsTablet {
+                                *expansion_oeka_click_binding_clone.borrow_mut() = key_str.clone();
+                                config::save_expansion_oeka_click(&key_str);
+                            } else if expansion_type_clone.borrow().is_family_trainer() {
+                                family_trainer_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_powerpad_binding("familytrainer", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_hyper_shot() {
+                                hyper_shot_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_hyper_shot_binding("hypershot", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_family_basic() {
+                                family_basic_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_family_basic_binding("familybasic", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_party_tap() {
+                                party_tap_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_party_tap_binding("partytap", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_pachinko() {
+                                pachinko_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_pachinko_binding("pachinko", btn, &key_str);
+                            }
+                        } else if *expansion_adapter_type_clone.borrow() != config::ExpansionAdapterType::None
+                            && ms_mut.show_expansion_settings {
+                            let pair = ms_mut.adapter_pair.unwrap_or(0);
+                            let pl = pair * 2 + (ctrl as usize).checked_sub(1).unwrap_or(0);
+                            let port_bindings = match pl {
+                                0 => Some(&mut *expansion1_bindings_clone.borrow_mut()),
+                                1 => Some(&mut *expansion2_bindings_clone.borrow_mut()),
+                                2 => Some(&mut *expansion3_bindings_clone.borrow_mut()),
+                                _ => Some(&mut *expansion4_bindings_clone.borrow_mut()),
+                            };
+                            if let Some(bindings) = port_bindings {
+                                bindings[btn] = key_str.clone();
+                                config::save_expansion_adapter_binding(pl, btn, &key_str);
                             }
                         } else {
                         let prefix = if ctrl == 1 { "controller1" } else { "controller2" };
@@ -2134,8 +2324,9 @@ fn main() {
                                 subor_mouse1_bindings_clone.borrow_mut()[btn] = key_str.clone();
                                 config::save_subor_mouse_binding(prefix, btn, &key_str);
                             } else if c1t == config::ControllerType::VirtualBoy {
-                                vb1_bindings_clone.borrow_mut()[btn] = key_str.clone();
-                                config::save_vb_binding(prefix, btn, &key_str);
+                                let s = config::vb_serial_from_menu(btn);
+                                vb1_bindings_clone.borrow_mut()[s] = key_str.clone();
+                                config::save_vb_binding(prefix, s, &key_str);
                             } else if c1t == config::ControllerType::Paddle {
                                 *paddle1_button_binding_clone.borrow_mut() = key_str.clone();
                                 config::save_paddle_button("controller1", &key_str);
@@ -2162,8 +2353,9 @@ fn main() {
                             subor_mouse2_bindings_clone.borrow_mut()[btn] = key_str.clone();
                             config::save_subor_mouse_binding(prefix, btn, &key_str);
                         } else if *controller2_type_clone.borrow() == config::ControllerType::VirtualBoy {
-                            vb2_bindings_clone.borrow_mut()[btn] = key_str.clone();
-                            config::save_vb_binding(prefix, btn, &key_str);
+                            let s = config::vb_serial_from_menu(btn);
+                            vb2_bindings_clone.borrow_mut()[s] = key_str.clone();
+                            config::save_vb_binding(prefix, s, &key_str);
                         } else if *controller2_type_clone.borrow() == config::ControllerType::FamicomGamepad && btn == 10 {
                             *famicom_mic_binding_clone.borrow_mut() = key_str.clone();
                             config::save_famicom_mic(&key_str);
@@ -2252,6 +2444,35 @@ fn main() {
                         }
                     }
                 }
+                // expansion adapters
+                if *expansion_adapter_type_clone.borrow() != config::ExpansionAdapterType::None {
+                    let exp_bindings = [
+                        expansion1_bindings_clone.borrow(),
+                        expansion2_bindings_clone.borrow(),
+                        expansion3_bindings_clone.borrow(),
+                        expansion4_bindings_clone.borrow(),
+                    ];
+                    let exp_ports = [
+                        &expansion_adapter_port1_clone,
+                        &expansion_adapter_port2_clone,
+                        &expansion_adapter_port3_clone,
+                        &expansion_adapter_port4_clone,
+                    ];
+                    for (pi, bindings) in exp_bindings.iter().enumerate() {
+                        for (i, s) in bindings.iter().enumerate() {
+                            if s == &key_str {
+                                let mask = BIT_MASKS[i];
+                                let port = exp_ports[pi];
+                                if pressed { port.fetch_or(mask, Ordering::Relaxed); } else { port.fetch_and(!mask, Ordering::Relaxed); }
+                                if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
+                                    if port.load(Ordering::Relaxed) & 0x03 == 0x03 { port.fetch_and(!mask, Ordering::Relaxed); }
+                                    if port.load(Ordering::Relaxed) & 0x0C == 0x0C { port.fetch_and(!mask, Ordering::Relaxed); }
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
                 // zapper trigger (also vs zapper trigger)
                 {
                     let zt = zapper_trigger_binding_clone.borrow();
@@ -2273,6 +2494,65 @@ fn main() {
                             zapper_bogo_clone.store(3, Ordering::Relaxed);
                         } else {
                             expansion_zapper_trigger_clone.store(false, Ordering::Relaxed);
+                        }
+                    }
+                }
+                // oeka kids tablet click
+                {
+                    let okt = expansion_oeka_click_binding_clone.borrow();
+                    if *okt == key_str {
+                        oeka_click_clone.store(pressed, Ordering::Relaxed);
+                    }
+                }
+                // family trainer buttons
+                if expansion_type_clone.borrow().is_family_trainer() {
+                    let ft = family_trainer_bindings_clone.borrow();
+                    let side_b = *expansion_type_clone.borrow() == config::ExpansionType::FamilyTrainerB;
+                    let mut ft_lock = family_trainer_state_clone.lock().unwrap();
+                    for (i, s) in ft.iter().enumerate() {
+                        if s == &key_str {
+                            let idx = if side_b { (i / 4) * 4 + (3 - (i % 4)) } else { i };
+                            ft_lock[idx] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // konami hyper shot buttons
+                if expansion_type_clone.borrow().is_hyper_shot() {
+                    let hs = hyper_shot_bindings_clone.borrow();
+                    let mut hs_lock = hyper_shot_state_clone.lock().unwrap();
+                    for (i, s) in hs.iter().enumerate() {
+                        if s == &key_str {
+                            hs_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // family basic keyboard buttons
+                if expansion_type_clone.borrow().is_family_basic() {
+                    let fb = family_basic_bindings_clone.borrow();
+                    let mut fb_lock = family_basic_state_clone.lock().unwrap();
+                    for (i, s) in fb.iter().enumerate() {
+                        if s == &key_str {
+                            fb_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // party tap buttons
+                if expansion_type_clone.borrow().is_party_tap() {
+                    let pt = party_tap_bindings_clone.borrow();
+                    let mut pt_lock = party_tap_state_clone.lock().unwrap();
+                    for (i, s) in pt.iter().enumerate() {
+                        if s == &key_str {
+                            pt_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // pachinko controller buttons
+                if expansion_type_clone.borrow().is_pachinko() {
+                    let pc = pachinko_bindings_clone.borrow();
+                    let mut pc_lock = pachinko_state_clone.lock().unwrap();
+                    for (i, s) in pc.iter().enumerate() {
+                        if s == &key_str {
+                            pc_lock[i] = if pressed { 1 } else { 0 };
                         }
                     }
                 }
@@ -2500,13 +2780,13 @@ fn main() {
                     } else if c1t == config::ControllerType::VirtualBoy {
                         let cols = 4;
                         let gap_x = (cw.saturating_sub(cols * btn_w)) / (cols + 1);
-                        for i in 0..config::VB_BUTTON_COUNT {
-                            let row = i / cols;
-                            let col = i % cols;
+                        for k in 0..config::VB_BUTTON_COUNT {
+                            let row = k / cols;
+                            let col = k % cols;
                             let bx = cx + gap_x + col * (btn_w + gap_x);
                             let by = grid_y0 + row * (btn_h + gap_y);
                             if point_in_rect(mx, my, bx, by, btn_w, btn_h) {
-                                ms.hovered_ctrl_button = Some(i);
+                                ms.hovered_ctrl_button = Some(k);
                                 break;
                             }
                         }
@@ -2602,13 +2882,13 @@ fn main() {
                     } else if c2t == config::ControllerType::VirtualBoy {
                         let cols = 4;
                         let gap_x = (cw.saturating_sub(cols * btn_w)) / (cols + 1);
-                        for i in 0..config::VB_BUTTON_COUNT {
-                            let row = i / cols;
-                            let col = i % cols;
+                        for k in 0..config::VB_BUTTON_COUNT {
+                            let row = k / cols;
+                            let col = k % cols;
                             let bx = cx + gap_x + col * (btn_w + gap_x);
                             let by = grid_y0 + row * (btn_h + gap_y);
                             if point_in_rect(mx, my, bx, by, btn_w, btn_h) {
-                                ms.hovered_ctrl_button = Some(i);
+                                ms.hovered_ctrl_button = Some(k);
                                 break;
                             }
                         }
@@ -2648,19 +2928,166 @@ fn main() {
                         }
                     }
                     } else if ms.show_expansion_settings {
-                        let sw = (440.0 * sc).round() as usize;
-                        let title_h = (30.0 * sc).round() as usize;
-                        let btn_w = (90.0 * sc).round() as usize;
-                        let btn_h = (26.0 * sc).round() as usize;
-                        let gap_x = (sw.saturating_sub(2 * btn_w)) / 3;
-                        let sh = (150.0 * sc).round() as usize;
-                        let sx = (width.saturating_sub(sw)) / 2;
-                        let sy = (height.saturating_sub(sh)) / 2;
-                        let grid_y0 = sy + title_h + (10.0 * sc).round() as usize;
-                        let bind_total = 2 * btn_w + gap_x;
-                        let bind_bx = sx + (sw.saturating_sub(bind_total)) / 2;
-                        if point_in_rect(mx, my, bind_bx, grid_y0, bind_total, btn_h) {
-                            ms.hovered_expansion_button = Some(0);
+                        let is_adapter = *expansion_adapter_type_clone.borrow() != config::ExpansionAdapterType::None;
+                        if is_adapter {
+                            let pair = ms.adapter_pair.unwrap_or(0);
+                            let player_offset = pair * 2;
+                            let sw = (440.0 * sc).round() as usize;
+                            let btn_w = (90.0 * sc).round() as usize;
+                            let btn_h = (26.0 * sc).round() as usize;
+                            let gap_y = (8.0 * sc).round() as usize;
+                            let gap_x = (sw.saturating_sub(2 * btn_w)) / 3;
+                            let grid_h = 4 * (btn_h + gap_y) + btn_h;
+                            let tmp_g0 = (30.0 * sc).round() as usize + (10.0 * sc).round() as usize;
+                            let sh = (tmp_g0 + 2 * (grid_h + btn_h / 2) + (40.0 * sc).round() as usize).max(260);
+                            let sx = (width.saturating_sub(sw)) / 2;
+                            let sy = (height.saturating_sub(sh)) / 2;
+                            let grid_y0 = sy + tmp_g0;
+                            'outer2: for local in 0..2 {
+                                let yoff = grid_y0 + local * (grid_h + btn_h / 2);
+                                let btn_y0 = yoff + (btn_h * 3 / 4) as usize;
+                                for i in 0..config::GAMEPAD_BUTTON_COUNT {
+                                    let row = i / 2;
+                                    let by = btn_y0 + row * (btn_h + gap_y);
+                                    let bx = if i % 2 == 0 { sx + gap_x } else { sx + gap_x * 2 + btn_w };
+                                    if point_in_rect(mx, my, bx, by, btn_w, btn_h) {
+                                        ms.hovered_expansion_button = Some(local * config::GAMEPAD_BUTTON_COUNT + i);
+                                        break 'outer2;
+                                    }
+                                }
+                            }
+                            let _ = player_offset;
+                        } else {
+                            let sw = (440.0 * sc).round() as usize;
+                            let title_h = (30.0 * sc).round() as usize;
+                            let btn_w = (90.0 * sc).round() as usize;
+                            let btn_h = (26.0 * sc).round() as usize;
+                            let gap_x = (sw.saturating_sub(2 * btn_w)) / 3;
+                            let is_family_trainer = expansion_type_clone.borrow().is_family_trainer();
+                            let is_hyper_shot = expansion_type_clone.borrow().is_hyper_shot();
+                            let is_family_basic = expansion_type_clone.borrow().is_family_basic();
+                            let is_party_tap = expansion_type_clone.borrow().is_party_tap();
+                            let is_pachinko = expansion_type_clone.borrow().is_pachinko();
+                            let sh = if is_family_trainer {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let act_btn_h = (24.0 * sc).round() as usize;
+                                (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 3 * mbtn_h + 2 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
+                            } else if is_hyper_shot {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let act_btn_h = (24.0 * sc).round() as usize;
+                                (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
+                            } else if is_family_basic {
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                let act_btn_h = (24.0 * sc).round() as usize;
+                                (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 9 * mbtn_h + 8 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
+                            } else if is_party_tap {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let act_btn_h = (24.0 * sc).round() as usize;
+                                (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
+                            } else if is_pachinko {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let act_btn_h = (24.0 * sc).round() as usize;
+                                (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
+                            } else {
+                                (150.0 * sc).round() as usize
+                            };
+                            let sx = (width.saturating_sub(sw)) / 2;
+                            let sy = (height.saturating_sub(sh)) / 2;
+                            let grid_y0 = sy + title_h + (10.0 * sc).round() as usize;
+                            if is_family_trainer {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(5 * btn_gap)) / 4;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                'outer3: for r in 0..3usize {
+                                    for c in 0..4usize {
+                                        let i = r * 4 + c;
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            ms.hovered_expansion_button = Some(i);
+                                            break 'outer3;
+                                        }
+                                    }
+                                }
+                            } else if is_hyper_shot {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(3 * btn_gap)) / 2;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                'outer3: for r in 0..2usize {
+                                    for c in 0..2usize {
+                                        let i = r * 2 + c;
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            ms.hovered_expansion_button = Some(i);
+                                            break 'outer3;
+                                        }
+                                    }
+                                }
+                            } else if is_family_basic {
+                                let btn_gap = (4.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                'outer3: for r in 0..9usize {
+                                    for c in 0..8usize {
+                                        let i = r * 8 + c;
+                                        if i >= config::FAMILY_BASIC_BUTTON_COUNT { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            ms.hovered_expansion_button = Some(i);
+                                            break 'outer3;
+                                        }
+                                    }
+                                }
+                            } else if is_party_tap {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(4 * btn_gap)) / 3;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                'outer3: for r in 0..2usize {
+                                    for c in 0..3usize {
+                                        let i = r * 3 + c;
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            ms.hovered_expansion_button = Some(i);
+                                            break 'outer3;
+                                        }
+                                    }
+                                }
+                            } else if is_pachinko {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(3 * btn_gap)) / 2;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                for i in 0..config::PACHINKO_BUTTON_COUNT {
+                                    let bx = sx + btn_gap + i * (mcol_w + btn_gap);
+                                    let by = m_y0;
+                                    if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                        ms.hovered_expansion_button = Some(i);
+                                        break;
+                                    }
+                                }
+                            } else {
+                                let bind_total = 2 * btn_w + gap_x;
+                                let bind_bx = sx + (sw.saturating_sub(bind_total)) / 2;
+                                if point_in_rect(mx, my, bind_bx, grid_y0, bind_total, btn_h) {
+                                    ms.hovered_expansion_button = Some(0);
+                                }
+                            }
                         }
                     }
 
@@ -2797,6 +3224,38 @@ fn main() {
                                 } else if *expansion_type_clone.borrow() == config::ExpansionType::FamicomZapper {
                                     *expansion_zapper_trigger_binding_clone.borrow_mut() = btn_str.clone();
                                     config::save_expansion_zapper_trigger(&btn_str);
+                                } else if *expansion_type_clone.borrow() == config::ExpansionType::OekaKidsTablet {
+                                    *expansion_oeka_click_binding_clone.borrow_mut() = btn_str.clone();
+                                    config::save_expansion_oeka_click(&btn_str);
+                                } else if expansion_type_clone.borrow().is_family_trainer() {
+                                    family_trainer_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_powerpad_binding("familytrainer", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_hyper_shot() {
+                                    hyper_shot_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_hyper_shot_binding("hypershot", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_family_basic() {
+                                    family_basic_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_family_basic_binding("familybasic", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_party_tap() {
+                                    party_tap_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_party_tap_binding("partytap", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_pachinko() {
+                                    pachinko_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_pachinko_binding("pachinko", b, &btn_str);
+                                }
+                            } else if *expansion_adapter_type_clone.borrow() != config::ExpansionAdapterType::None
+                                && ms_mut.show_expansion_settings {
+                                let pair = ms_mut.adapter_pair.unwrap_or(0);
+                                let pl = pair * 2 + (ctrl as usize).checked_sub(1).unwrap_or(0);
+                                let port_bindings = match pl {
+                                    0 => Some(&mut *expansion1_bindings_clone.borrow_mut()),
+                                    1 => Some(&mut *expansion2_bindings_clone.borrow_mut()),
+                                    2 => Some(&mut *expansion3_bindings_clone.borrow_mut()),
+                                    _ => Some(&mut *expansion4_bindings_clone.borrow_mut()),
+                                };
+                                if let Some(bindings) = port_bindings {
+                                    bindings[b] = btn_str.clone();
+                                    config::save_expansion_adapter_binding(pl, b, &btn_str);
                                 }
                             } else {
                             let prefix = if ctrl == 1 { "controller1" } else { "controller2" };
@@ -2816,8 +3275,9 @@ fn main() {
                                 subor_mouse1_bindings_clone.borrow_mut()[b] = bs;
                                 config::save_subor_mouse_binding(prefix, b, &btn_str);
                             } else if c1t == config::ControllerType::VirtualBoy {
-                                vb1_bindings_clone.borrow_mut()[b] = bs;
-                                config::save_vb_binding(prefix, b, &btn_str);
+                                let s = config::vb_serial_from_menu(b);
+                                vb1_bindings_clone.borrow_mut()[s] = bs;
+                                config::save_vb_binding(prefix, s, &btn_str);
                             } else if c1t == config::ControllerType::Paddle {
                                 *paddle1_button_binding_clone.borrow_mut() = bs;
                                 config::save_paddle_button("controller1", &btn_str);
@@ -2844,8 +3304,9 @@ fn main() {
                                 subor_mouse2_bindings_clone.borrow_mut()[b] = bs;
                                 config::save_subor_mouse_binding(prefix, b, &btn_str);
                             } else if *controller2_type_clone.borrow() == config::ControllerType::VirtualBoy {
-                                vb2_bindings_clone.borrow_mut()[b] = bs;
-                                config::save_vb_binding(prefix, b, &btn_str);
+                                let s = config::vb_serial_from_menu(b);
+                                vb2_bindings_clone.borrow_mut()[s] = bs;
+                                config::save_vb_binding(prefix, s, &btn_str);
                             } else if *controller2_type_clone.borrow() == config::ControllerType::FamicomGamepad && b == 10 {
                                 *famicom_mic_binding_clone.borrow_mut() = bs;
                                 config::save_famicom_mic(&btn_str);
@@ -2919,6 +3380,35 @@ fn main() {
                         }
                     }
                 }
+                // expansion adapters
+                if *expansion_adapter_type_clone.borrow() != config::ExpansionAdapterType::None {
+                    let exp_bindings = [
+                        expansion1_bindings_clone.borrow(),
+                        expansion2_bindings_clone.borrow(),
+                        expansion3_bindings_clone.borrow(),
+                        expansion4_bindings_clone.borrow(),
+                    ];
+                    let exp_ports = [
+                        &expansion_adapter_port1_clone,
+                        &expansion_adapter_port2_clone,
+                        &expansion_adapter_port3_clone,
+                        &expansion_adapter_port4_clone,
+                    ];
+                    for (pi, bindings) in exp_bindings.iter().enumerate() {
+                        for (i, s) in bindings.iter().enumerate() {
+                            if s == &btn_str {
+                                let mask = BIT_MASKS[i];
+                                let port = exp_ports[pi];
+                                if pressed { port.fetch_or(mask, Ordering::Relaxed); } else { port.fetch_and(!mask, Ordering::Relaxed); }
+                                if !*allow_opposing_dpad_clone.borrow() && pressed && (mask & 0x0F) != 0 {
+                                    if port.load(Ordering::Relaxed) & 0x03 == 0x03 { port.fetch_and(!mask, Ordering::Relaxed); }
+                                    if port.load(Ordering::Relaxed) & 0x0C == 0x0C { port.fetch_and(!mask, Ordering::Relaxed); }
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
                 // zapper trigger (also vs zapper trigger)
                     {
                         let zt = zapper_trigger_binding_clone.borrow();
@@ -2931,7 +3421,7 @@ fn main() {
                             }
                         }
                     }
-                    // expansion zapper trigger (Famicom Zapper on $4017)
+                    // expansion zapper trigger
                     {
                         let ezt = expansion_zapper_trigger_binding_clone.borrow();
                         if *ezt == btn_str {
@@ -2940,6 +3430,65 @@ fn main() {
                                 zapper_bogo_clone.store(3, Ordering::Relaxed);
                             } else {
                                 expansion_zapper_trigger_clone.store(false, Ordering::Relaxed);
+                            }
+                        }
+                    }
+                    // oeka kids tablet click
+                    {
+                        let okt = expansion_oeka_click_binding_clone.borrow();
+                        if *okt == btn_str {
+                            oeka_click_clone.store(pressed, Ordering::Relaxed);
+                        }
+                    }
+                    // family trainer buttons
+                    if expansion_type_clone.borrow().is_family_trainer() {
+                        let ft = family_trainer_bindings_clone.borrow();
+                        let side_b = *expansion_type_clone.borrow() == config::ExpansionType::FamilyTrainerB;
+                        let mut ft_lock = family_trainer_state_clone.lock().unwrap();
+                        for (i, s) in ft.iter().enumerate() {
+                            if s == &btn_str {
+                                let idx = if side_b { (i / 4) * 4 + (3 - (i % 4)) } else { i };
+                                ft_lock[idx] = if pressed { 1 } else { 0 };
+                            }
+                        }
+                    }
+                    // konami hyper shot buttons
+                    if expansion_type_clone.borrow().is_hyper_shot() {
+                        let hs = hyper_shot_bindings_clone.borrow();
+                        let mut hs_lock = hyper_shot_state_clone.lock().unwrap();
+                        for (i, s) in hs.iter().enumerate() {
+                            if s == &btn_str {
+                                hs_lock[i] = if pressed { 1 } else { 0 };
+                            }
+                        }
+                    }
+                    // family basic keyboard buttons
+                    if expansion_type_clone.borrow().is_family_basic() {
+                        let fb = family_basic_bindings_clone.borrow();
+                        let mut fb_lock = family_basic_state_clone.lock().unwrap();
+                        for (i, s) in fb.iter().enumerate() {
+                            if s == &btn_str {
+                                fb_lock[i] = if pressed { 1 } else { 0 };
+                            }
+                        }
+                    }
+                    // party tap buttons
+                    if expansion_type_clone.borrow().is_party_tap() {
+                        let pt = party_tap_bindings_clone.borrow();
+                        let mut pt_lock = party_tap_state_clone.lock().unwrap();
+                        for (i, s) in pt.iter().enumerate() {
+                            if s == &btn_str {
+                                pt_lock[i] = if pressed { 1 } else { 0 };
+                            }
+                        }
+                    }
+                    // pachinko controller buttons
+                    if expansion_type_clone.borrow().is_pachinko() {
+                        let pc = pachinko_bindings_clone.borrow();
+                        let mut pc_lock = pachinko_state_clone.lock().unwrap();
+                        for (i, s) in pc.iter().enumerate() {
+                            if s == &btn_str {
+                                pc_lock[i] = if pressed { 1 } else { 0 };
                             }
                         }
                     }
@@ -3690,11 +4239,50 @@ fn main() {
                         }
                     } else if ms.show_expansion_settings {
                         let sc = ms.scale;
+                        let adapter_type = *expansion_adapter_type_clone.borrow();
+                        let is_adapter = adapter_type != config::ExpansionAdapterType::None;
+                        let pair = ms.adapter_pair.unwrap_or(0);
+                        let player_offset = pair * 2;
+                        let dialog_sub_ports = 2;
                         let sw = (440.0 * sc).round() as usize;
-                        let sh = (150.0 * sc).round() as usize;
-                        let title_h = (30.0 * sc).round() as usize;
                         let btn_w = (90.0 * sc).round() as usize;
                         let btn_h = (26.0 * sc).round() as usize;
+                        let gap_y = (8.0 * sc).round() as usize;
+                        let gap_x = (sw.saturating_sub(2 * btn_w)) / 3;
+                        let grid_h = 4 * (btn_h + gap_y) + btn_h;
+                        let tmp_g0 = (30.0 * sc).round() as usize + (10.0 * sc).round() as usize;
+                        let sh = if is_adapter {
+                            let ch = tmp_g0 + dialog_sub_ports * (grid_h + btn_h / 2) + (40.0 * sc).round() as usize;
+                            ch.max(260)
+                        } else if expansion_type_clone.borrow().is_family_trainer() {
+                            let mbtn_h = (30.0 * sc).round() as usize;
+                            let mrow_gap = (6.0 * sc).round() as usize;
+                            let act_btn_h2 = (24.0 * sc).round() as usize;
+                            tmp_g0 + btn_h / 2 + 3 * mbtn_h + 2 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
+                        } else if expansion_type_clone.borrow().is_hyper_shot() {
+                            let mbtn_h = (30.0 * sc).round() as usize;
+                            let mrow_gap = (6.0 * sc).round() as usize;
+                            let act_btn_h2 = (24.0 * sc).round() as usize;
+                            tmp_g0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
+                        } else if expansion_type_clone.borrow().is_family_basic() {
+                            let mbtn_h = (20.0 * sc).round() as usize;
+                            let mrow_gap = (4.0 * sc).round() as usize;
+                            let act_btn_h2 = (24.0 * sc).round() as usize;
+                            tmp_g0 + btn_h / 2 + 9 * mbtn_h + 8 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
+                        } else if expansion_type_clone.borrow().is_party_tap() {
+                            let mbtn_h = (30.0 * sc).round() as usize;
+                            let mrow_gap = (6.0 * sc).round() as usize;
+                            let act_btn_h2 = (24.0 * sc).round() as usize;
+                            tmp_g0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
+                        } else if expansion_type_clone.borrow().is_pachinko() {
+                            let mbtn_h = (30.0 * sc).round() as usize;
+                            let mrow_gap = (6.0 * sc).round() as usize;
+                            let act_btn_h2 = (24.0 * sc).round() as usize;
+                            tmp_g0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
+                        } else {
+                            (150.0 * sc).round() as usize
+                        };
+                        let title_h = (30.0 * sc).round() as usize;
                         let sx = (width.saturating_sub(sw)) / 2;
                         let sy = (height.saturating_sub(sh)) / 2;
                         let close_w = (20.0 * sc).round() as usize;
@@ -3705,39 +4293,256 @@ fn main() {
                             drop(ms);
                             menu_state_clone.borrow_mut().show_expansion_settings = false;
                             paused_clone.store(false, Ordering::Relaxed);
-                        } else {
-                            let gap_x = (sw.saturating_sub(2 * btn_w)) / 3;
-                            let grid_y0 = sy + title_h + (10.0 * sc).round() as usize;
-                            let bind_total = 2 * btn_w + gap_x;
-                            let bind_bx = sx + (sw.saturating_sub(bind_total)) / 2;
-                            let clicked_bind = point_in_rect(mx, my, bind_bx, grid_y0, bind_total, btn_h);
+                        } else if is_adapter {
+                            let grid_y0 = sy + tmp_g0;
                             let act_btn_w = (70.0 * sc).round() as usize;
                             let act_btn_h = (24.0 * sc).round() as usize;
                             let act_gap = (10.0 * sc).round() as usize;
                             let act_total = 2 * act_btn_w + act_gap;
                             let act_x0 = sx + (sw.saturating_sub(act_total)) / 2;
-                            let act_y = grid_y0 + btn_h + (10.0 * sc).round() as usize;
+                            let act_y = grid_y0 + dialog_sub_ports * (grid_h + btn_h / 2) + (10.0 * sc).round() as usize;
+                            let clicked_clear = point_in_rect(mx, my, act_x0, act_y, act_btn_w, act_btn_h);
+                            let clicked_reset = !clicked_clear && point_in_rect(mx, my, act_x0 + act_btn_w + act_gap, act_y, act_btn_w, act_btn_h);
+                            let mut clicked_pair: Option<(usize, usize)> = None;
+                            'outer: for local in 0..dialog_sub_ports {
+                                let yoff = grid_y0 + local * (grid_h + btn_h / 2);
+                                let btn_y0 = yoff + (btn_h * 3 / 4) as usize;
+                                for i in 0..config::GAMEPAD_BUTTON_COUNT {
+                                    let row = i / 2;
+                                    let by = btn_y0 + row * (btn_h + gap_y);
+                                    let bx = if i % 2 == 0 { sx + gap_x } else { sx + gap_x * 2 + btn_w };
+                                    if point_in_rect(mx, my, bx, by, btn_w, btn_h) {
+                                        clicked_pair = Some((local, i));
+                                        break 'outer;
+                                    }
+                                }
+                            }
+                            if let Some((local, btn)) = clicked_pair {
+                                drop(ms);
+                                let mut ms_mut = menu_state_clone.borrow_mut();
+                                ms_mut.rebind_controller = Some(local as u8 + 1);
+                                ms_mut.rebind_button = Some(btn);
+                            } else if clicked_clear {
+                                drop(ms);
+                                for p in player_offset..(player_offset + dialog_sub_ports) {
+                                    config::clear_expansion_adapter_bindings(p);
+                                }
+                                let mut e1 = expansion1_bindings_clone.borrow_mut();
+                                let mut e2 = expansion2_bindings_clone.borrow_mut();
+                                let mut e3 = expansion3_bindings_clone.borrow_mut();
+                                let mut e4 = expansion4_bindings_clone.borrow_mut();
+                                *e1 = config::load_expansion_adapter_bindings(0);
+                                *e2 = config::load_expansion_adapter_bindings(1);
+                                *e3 = config::load_expansion_adapter_bindings(2);
+                                *e4 = config::load_expansion_adapter_bindings(3);
+                            } else if clicked_reset {
+                                drop(ms);
+                                for p in player_offset..(player_offset + dialog_sub_ports) {
+                                    config::reset_expansion_adapter_bindings(p);
+                                }
+                                let mut e1 = expansion1_bindings_clone.borrow_mut();
+                                let mut e2 = expansion2_bindings_clone.borrow_mut();
+                                let mut e3 = expansion3_bindings_clone.borrow_mut();
+                                let mut e4 = expansion4_bindings_clone.borrow_mut();
+                                *e1 = config::load_expansion_adapter_bindings(0);
+                                *e2 = config::load_expansion_adapter_bindings(1);
+                                *e3 = config::load_expansion_adapter_bindings(2);
+                                *e4 = config::load_expansion_adapter_bindings(3);
+                            }
+                        } else {
+                            let grid_y0 = sy + title_h + (10.0 * sc).round() as usize;
+                            let is_family_trainer = expansion_type_clone.borrow().is_family_trainer();
+                            let is_hyper_shot = expansion_type_clone.borrow().is_hyper_shot();
+                            let is_family_basic = expansion_type_clone.borrow().is_family_basic();
+                            let is_party_tap = expansion_type_clone.borrow().is_party_tap();
+                            let is_pachinko = expansion_type_clone.borrow().is_pachinko();
+                            let mut clicked_grid_btn: Option<usize> = None;
+                            let bind_total = 2 * btn_w + gap_x;
+                            let bind_bx = sx + (sw.saturating_sub(bind_total)) / 2;
+                            let clicked_bind = if is_family_trainer {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(5 * btn_gap)) / 4;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                let mut found = false;
+                                'outer: for r in 0..3usize {
+                                    for c in 0..4usize {
+                                        let i = r * 4 + c;
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            clicked_grid_btn = Some(i);
+                                            found = true;
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+                                found
+                            } else if is_hyper_shot {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(3 * btn_gap)) / 2;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                let mut found = false;
+                                'outer: for r in 0..2usize {
+                                    for c in 0..2usize {
+                                        let i = r * 2 + c;
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            clicked_grid_btn = Some(i);
+                                            found = true;
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+                                found
+                            } else if is_family_basic {
+                                let btn_gap = (4.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                let mut found = false;
+                                'outer: for r in 0..9usize {
+                                    for c in 0..8usize {
+                                        let i = r * 8 + c;
+                                        if i >= config::FAMILY_BASIC_BUTTON_COUNT { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            clicked_grid_btn = Some(i);
+                                            found = true;
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+                                found
+                            } else if is_party_tap {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(4 * btn_gap)) / 3;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                let mut found = false;
+                                'outer: for r in 0..2usize {
+                                    for c in 0..3usize {
+                                        let i = r * 3 + c;
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            clicked_grid_btn = Some(i);
+                                            found = true;
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+                                found
+                            } else if is_pachinko {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(3 * btn_gap)) / 2;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                let mut found = false;
+                                for i in 0..config::PACHINKO_BUTTON_COUNT {
+                                    let bx = sx + btn_gap + i * (mcol_w + btn_gap);
+                                    let by = m_y0;
+                                    if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                        clicked_grid_btn = Some(i);
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                found
+                            } else {
+                                point_in_rect(mx, my, bind_bx, grid_y0, bind_total, btn_h)
+                            };
+                            let act_btn_w = (70.0 * sc).round() as usize;
+                            let act_btn_h = (24.0 * sc).round() as usize;
+                            let act_gap = (10.0 * sc).round() as usize;
+                            let act_total = 2 * act_btn_w + act_gap;
+                            let act_x0 = sx + (sw.saturating_sub(act_total)) / 2;
+                            let act_y = if is_family_trainer {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                grid_y0 + btn_h / 2 + 3 * mbtn_h + 2 * mrow_gap + (10.0 * sc).round() as usize
+                            } else if is_hyper_shot {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                grid_y0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + (10.0 * sc).round() as usize
+                            } else if is_family_basic {
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                grid_y0 + btn_h / 2 + 9 * mbtn_h + 8 * mrow_gap + (10.0 * sc).round() as usize
+                            } else if is_party_tap {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                grid_y0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + (10.0 * sc).round() as usize
+                            } else if is_pachinko {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                grid_y0 + btn_h / 2 + mbtn_h + (10.0 * sc).round() as usize
+                            } else {
+                                grid_y0 + btn_h + (10.0 * sc).round() as usize
+                            };
                             let clicked_clear = point_in_rect(mx, my, act_x0, act_y, act_btn_w, act_btn_h);
                             let clicked_reset = !clicked_clear && point_in_rect(mx, my, act_x0 + act_btn_w + act_gap, act_y, act_btn_w, act_btn_h);
                             if clicked_bind {
                                 drop(ms);
                                 let mut ms_mut = menu_state_clone.borrow_mut();
                                 ms_mut.rebind_controller = Some(0);
-                                ms_mut.rebind_button = Some(0);
+                                ms_mut.rebind_button = if is_family_trainer || is_hyper_shot || is_family_basic || is_party_tap || is_pachinko { Some(clicked_grid_btn.unwrap_or(0)) } else { Some(0) };
                             } else if clicked_clear {
                                 drop(ms);
-                                if *expansion_type_clone.borrow() == config::ExpansionType::FamicomZapper {
+                                if expansion_type_clone.borrow().is_family_trainer() {
+                                    config::clear_powerpad_bindings("familytrainer");
+                                    *family_trainer_bindings_clone.borrow_mut() = config::load_powerpad_bindings("familytrainer");
+                                } else if expansion_type_clone.borrow().is_hyper_shot() {
+                                    config::clear_hyper_shot_bindings("hypershot");
+                                    *hyper_shot_bindings_clone.borrow_mut() = config::load_hyper_shot_bindings("hypershot");
+                                } else if expansion_type_clone.borrow().is_family_basic() {
+                                    config::clear_family_basic_bindings("familybasic");
+                                    *family_basic_bindings_clone.borrow_mut() = config::load_family_basic_bindings("familybasic");
+                                } else if expansion_type_clone.borrow().is_party_tap() {
+                                    config::clear_party_tap_bindings("partytap");
+                                    *party_tap_bindings_clone.borrow_mut() = config::load_party_tap_bindings("partytap");
+                                } else if expansion_type_clone.borrow().is_pachinko() {
+                                    config::clear_pachinko_bindings("pachinko");
+                                    *pachinko_bindings_clone.borrow_mut() = config::load_pachinko_bindings("pachinko");
+                                } else if *expansion_type_clone.borrow() == config::ExpansionType::FamicomZapper {
                                     config::save_expansion_zapper_trigger("");
                                     *expansion_zapper_trigger_binding_clone.borrow_mut() = String::new();
+                                } else if *expansion_type_clone.borrow() == config::ExpansionType::OekaKidsTablet {
+                                    config::save_expansion_oeka_click("");
+                                    *expansion_oeka_click_binding_clone.borrow_mut() = String::new();
                                 } else {
                                     config::save_paddle_button("expansion", "");
                                     *expansion_paddle_button_binding_clone.borrow_mut() = String::new();
                                 }
                             } else if clicked_reset {
                                 drop(ms);
-                                if *expansion_type_clone.borrow() == config::ExpansionType::FamicomZapper {
+                                if expansion_type_clone.borrow().is_family_trainer() {
+                                    config::reset_powerpad_bindings("familytrainer");
+                                    *family_trainer_bindings_clone.borrow_mut() = config::load_powerpad_bindings("familytrainer");
+                                } else if expansion_type_clone.borrow().is_hyper_shot() {
+                                    config::reset_hyper_shot_bindings("hypershot");
+                                    *hyper_shot_bindings_clone.borrow_mut() = config::load_hyper_shot_bindings("hypershot");
+                                } else if expansion_type_clone.borrow().is_family_basic() {
+                                    config::reset_family_basic_bindings("familybasic");
+                                    *family_basic_bindings_clone.borrow_mut() = config::load_family_basic_bindings("familybasic");
+                                } else if expansion_type_clone.borrow().is_party_tap() {
+                                    config::reset_party_tap_bindings("partytap");
+                                    *party_tap_bindings_clone.borrow_mut() = config::load_party_tap_bindings("partytap");
+                                } else if expansion_type_clone.borrow().is_pachinko() {
+                                    config::reset_pachinko_bindings("pachinko");
+                                    *pachinko_bindings_clone.borrow_mut() = config::load_pachinko_bindings("pachinko");
+                                } else if *expansion_type_clone.borrow() == config::ExpansionType::FamicomZapper {
                                     config::save_expansion_zapper_trigger("MouseLeft");
                                     *expansion_zapper_trigger_binding_clone.borrow_mut() = "MouseLeft".to_string();
+                                } else if *expansion_type_clone.borrow() == config::ExpansionType::OekaKidsTablet {
+                                    config::save_expansion_oeka_click("MouseLeft");
+                                    *expansion_oeka_click_binding_clone.borrow_mut() = "MouseLeft".to_string();
                                 } else {
                                     config::save_paddle_button("expansion", "MouseLeft");
                                     *expansion_paddle_button_binding_clone.borrow_mut() = "MouseLeft".to_string();
@@ -4026,7 +4831,8 @@ fn main() {
                     } else if ms.show_input_settings {
                         let sc = ms.scale;
                     let input_w = (480.0 * sc).round() as usize;
-                    let input_h = (300.0 * sc).round() as usize;
+                    let input_h_4p = (410.0 * sc).round() as usize;
+                    let input_h = if *expansion_adapter_type_clone.borrow() == config::ExpansionAdapterType::FourPlayer { input_h_4p } else { (380.0 * sc).round() as usize };
                         let input_x = (width.saturating_sub(input_w)) / 2;
                         let input_y = (height.saturating_sub(input_h)) / 2;
                         let title_h = (30.0 * sc).round() as usize;
@@ -4101,21 +4907,70 @@ fn main() {
                                 let exp_title_y = type_y + row_h + (12.0 * sc).round() as usize;
                                 let exp_cfg_y = exp_title_y + row_h + (5.0 * sc).round() as usize;
                                 let exp_cfg_x = input_x + input_w.saturating_sub(box_w) / 2;
-                                let exp_type_y = exp_cfg_y + configure_h + (8.0 * sc).round() as usize;
+                                let exp_port_type = {
+                                    let dt = *expansion_type_clone.borrow();
+                                    let at = *expansion_adapter_type_clone.borrow();
+                                    match at {
+                                        config::ExpansionAdapterType::TwoPlayer => config::ExpansionPortType::TwoPlayerAdapter,
+                                        config::ExpansionAdapterType::FourPlayer => config::ExpansionPortType::FourPlayerAdapter,
+                                         config::ExpansionAdapterType::None => match dt {
+                                             config::ExpansionType::ArkanoidPaddle => config::ExpansionPortType::ArkanoidPaddle,
+                                             config::ExpansionType::FamicomZapper => config::ExpansionPortType::FamicomZapper,
+                                             config::ExpansionType::OekaKidsTablet => config::ExpansionPortType::OekaKidsTablet,
+                                             config::ExpansionType::FamilyTrainerA => config::ExpansionPortType::FamilyTrainerA,
+                                             config::ExpansionType::FamilyTrainerB => config::ExpansionPortType::FamilyTrainerB,
+                                             config::ExpansionType::KonamiHyperShot => config::ExpansionPortType::KonamiHyperShot,
+                                             config::ExpansionType::FamilyBasicKeyboard => config::ExpansionPortType::FamilyBasicKeyboard,
+                                             config::ExpansionType::PartyTap => config::ExpansionPortType::PartyTap,
+                                             config::ExpansionType::PachinkoController => config::ExpansionPortType::PachinkoController,
+                                             config::ExpansionType::None => config::ExpansionPortType::None,
+                                         },
+                                    }
+                                };
+                                let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter;
+                                let exp_type_y = if is_4p {
+                                    let cfg34_y = exp_cfg_y + configure_h + (4.0 * sc).round() as usize;
+                                    cfg34_y + configure_h + (8.0 * sc).round() as usize
+                                } else {
+                                    exp_cfg_y + configure_h + (8.0 * sc).round() as usize
+                                };
                                 let exp_type_box_x = exp_cfg_x;
                                 let dpad_y = exp_type_y + row_h + (15.0 * sc).round() as usize;
                                 let dpad_box_x = c2_cfg_x;
-                                if point_in_rect(mx, my, exp_cfg_x, exp_cfg_y, box_w, configure_h) {
-                                    let exp_t = *expansion_type_clone.borrow();
-                                    if exp_t != config::ExpansionType::None {
+                                if is_4p && point_in_rect(mx, my, exp_cfg_x, exp_cfg_y, box_w, configure_h) {
+                                    drop(ms);
+                                    menu_state_clone.borrow_mut().adapter_pair = Some(0);
+                                    menu_state_clone.borrow_mut().show_expansion_settings = true;
+                                } else if is_4p && point_in_rect(mx, my, exp_cfg_x, exp_cfg_y + configure_h + (4.0 * sc).round() as usize, box_w, configure_h) {
+                                    drop(ms);
+                                    menu_state_clone.borrow_mut().adapter_pair = Some(1);
+                                    menu_state_clone.borrow_mut().show_expansion_settings = true;
+                                } else if !is_4p && point_in_rect(mx, my, exp_cfg_x, exp_cfg_y, box_w, configure_h) {
+                                    if exp_port_type != config::ExpansionPortType::None {
                                         drop(ms);
                                         menu_state_clone.borrow_mut().show_expansion_settings = true;
                                     }
                                 } else if point_in_rect(mx, my, exp_type_box_x, exp_type_y, box_w, row_h) {
-                                    let mut et = expansion_type_clone.borrow_mut();
-                                    *et = et.next();
-                                    config::save_expansion_type(*et);
-                                    emu_clone.lock().unwrap().expansion_type = *et;
+                                    let cur = exp_port_type;
+                                    let nxt = cur.next();
+                                    let (dev, adap) = config::save_expansion_port_type(nxt);
+                                    *expansion_type_clone.borrow_mut() = dev;
+                                    *expansion_adapter_type_clone.borrow_mut() = adap;
+                                    emu_clone.lock().unwrap().expansion_type = dev;
+                                    emu_clone.lock().unwrap().expansion_adapter_type = adap;
+                                    if nxt.is_adapter() {
+                                        let mut c2t = controller2_type_clone.borrow_mut();
+                                        if *c2t != config::ControllerType::None {
+                                            *c2t = config::ControllerType::None;
+                                            config::save_controller_type("controller2_type", config::ControllerType::None);
+                                            emu_clone.lock().unwrap().controller2_type = config::ControllerType::None;
+                                        }
+                                    } else if cur.is_adapter() {
+                                        let mut c2t = controller2_type_clone.borrow_mut();
+                                        *c2t = config::ControllerType::Gamepad;
+                                        config::save_controller_type("controller2_type", config::ControllerType::Gamepad);
+                                        emu_clone.lock().unwrap().controller2_type = config::ControllerType::Gamepad;
+                                    }
                                 } else if point_in_rect(mx, my, dpad_box_x, dpad_y, box_w, row_h) {
                                     let new_val = !*allow_opposing_dpad_clone.borrow();
                                     *allow_opposing_dpad_clone.borrow_mut() = new_val;
@@ -4943,6 +5798,7 @@ fn main() {
                 }
                 
                 let cur_frame = emu_frame_count_ui.load(Ordering::Relaxed);
+                let mouse_changed = ms_mut.mouse_pos != last_rendered_mouse;
                 let menu_active = ms_mut.hovered_menu.is_some()
                     || ms_mut.active_menu.is_some()
                     || ms_mut.show_about
@@ -4959,8 +5815,11 @@ fn main() {
                     || ms_mut.show_barcode_input
                     || ms_mut.show_error
                     || ms_mut.rebind_button.is_some();
-                if cur_frame != last_rendered_frame || menu_active {
+                let menu_changed = menu_active != last_menu_active;
+                if cur_frame != last_rendered_frame || mouse_changed || menu_changed || menu_active {
                     last_rendered_frame = cur_frame;
+                    last_rendered_mouse = ms_mut.mouse_pos;
+                    last_menu_active = menu_active;
                     window.request_redraw();
                 }
             }
@@ -4983,9 +5842,9 @@ fn main() {
                         } else if lower.ends_with(".fds") || lower.ends_with(".qd") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.6.2: {}", filename)
+                        format!("AccuNES 1.6.3: {}", filename)
                     } else {
-                        "AccuNES 1.6.2".to_string()
+                        "AccuNES 1.6.3".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -5409,7 +6268,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.6.2",
+                        "Version: 1.6.3",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
@@ -5874,7 +6733,29 @@ fn main() {
 
                 if ms.show_input_settings {
                     let input_w = (480.0 * scale).round() as usize;
-                    let input_h = (300.0 * scale).round() as usize;
+                    let input_h_base = (380.0 * scale).round() as usize;
+                    let input_h_4p = (410.0 * scale).round() as usize;
+                    let input_h = {
+                            let dt = *expansion_type_clone.borrow();
+                            let at = *expansion_adapter_type_clone.borrow();
+                            let ept = match at {
+                                config::ExpansionAdapterType::TwoPlayer => config::ExpansionPortType::TwoPlayerAdapter,
+                                config::ExpansionAdapterType::FourPlayer => config::ExpansionPortType::FourPlayerAdapter,
+                                config::ExpansionAdapterType::None => match dt {
+                                    config::ExpansionType::ArkanoidPaddle => config::ExpansionPortType::ArkanoidPaddle,
+                                    config::ExpansionType::FamicomZapper => config::ExpansionPortType::FamicomZapper,
+                                    config::ExpansionType::OekaKidsTablet => config::ExpansionPortType::OekaKidsTablet,
+                                    config::ExpansionType::FamilyTrainerA => config::ExpansionPortType::FamilyTrainerA,
+                                    config::ExpansionType::FamilyTrainerB => config::ExpansionPortType::FamilyTrainerB,
+                                    config::ExpansionType::KonamiHyperShot => config::ExpansionPortType::KonamiHyperShot,
+                                    config::ExpansionType::FamilyBasicKeyboard => config::ExpansionPortType::FamilyBasicKeyboard,
+                                    config::ExpansionType::PartyTap => config::ExpansionPortType::PartyTap,
+                                    config::ExpansionType::PachinkoController => config::ExpansionPortType::PachinkoController,
+                                    config::ExpansionType::None => config::ExpansionPortType::None,
+                                },
+                            };
+                            if ept == config::ExpansionPortType::FourPlayerAdapter { input_h_4p } else { input_h_base }
+                        };
                     let input_x = (width.saturating_sub(input_w)) / 2;
                     let input_y = (height.saturating_sub(input_h)) / 2;
                     let title_h = (30.0 * scale).round() as usize;
@@ -5959,19 +6840,59 @@ fn main() {
                     draw_text(&mut buffer, exp_title_x, exp_title_y, width, "Famicom Expansion Port", menu_text, scale);
                     let exp_cfg_y = exp_title_y + row_h + (5.0 * scale).round() as usize;
                     let exp_cfg_x = input_x + input_w.saturating_sub(box_w) / 2;
-                    let exp_type_enabled = *expansion_type_clone.borrow() != config::ExpansionType::None;
-                    let exp_cfg_hovered = exp_type_enabled && point_in_rect(mouse_x, mouse_y, exp_cfg_x, exp_cfg_y, box_w, configure_h);
-                    let exp_cfg_bg = if !exp_type_enabled { colors.disabled_btn_bg } else if exp_cfg_hovered { colors.box_bg_hover } else { colors.dropdown_bg };
-                    draw_rect(&mut buffer, exp_cfg_x, exp_cfg_y, box_w, configure_h, width, colors.btn_border);
-                    draw_rect(&mut buffer, exp_cfg_x + 1, exp_cfg_y + 1, box_w - 2, configure_h - 2, width, exp_cfg_bg);
+                    let exp_port_type = {
+                        let dt = *expansion_type_clone.borrow();
+                        let at = *expansion_adapter_type_clone.borrow();
+                        match at {
+                            config::ExpansionAdapterType::TwoPlayer => config::ExpansionPortType::TwoPlayerAdapter,
+                            config::ExpansionAdapterType::FourPlayer => config::ExpansionPortType::FourPlayerAdapter,
+                            config::ExpansionAdapterType::None => match dt {
+                                config::ExpansionType::ArkanoidPaddle => config::ExpansionPortType::ArkanoidPaddle,
+                                config::ExpansionType::FamicomZapper => config::ExpansionPortType::FamicomZapper,
+                                config::ExpansionType::OekaKidsTablet => config::ExpansionPortType::OekaKidsTablet,
+                                config::ExpansionType::FamilyTrainerA => config::ExpansionPortType::FamilyTrainerA,
+                                config::ExpansionType::FamilyTrainerB => config::ExpansionPortType::FamilyTrainerB,
+                                config::ExpansionType::KonamiHyperShot => config::ExpansionPortType::KonamiHyperShot,
+                                config::ExpansionType::FamilyBasicKeyboard => config::ExpansionPortType::FamilyBasicKeyboard,
+                                config::ExpansionType::PartyTap => config::ExpansionPortType::PartyTap,
+                                config::ExpansionType::PachinkoController => config::ExpansionPortType::PachinkoController,
+                                config::ExpansionType::None => config::ExpansionPortType::None,
+                            },
+                        }
+                    };
+                    let exp_type_enabled = exp_port_type != config::ExpansionPortType::None;
+                    let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter;
                     let cfg_vw2 = cfg_label.len() as f32 * 8.0 * scale;
-                    let exp_cfg_color = if exp_type_enabled { menu_text } else { colors.disabled_text };
-                    draw_text(&mut buffer, exp_cfg_x + ((box_w as f32 - cfg_vw2) / 2.0).round() as usize, exp_cfg_y + (7.0 * scale).round() as usize, width, cfg_label, exp_cfg_color, scale);
-                    let exp_type_y = exp_cfg_y + configure_h + (8.0 * scale).round() as usize;
+                    let exp_type_y = if is_4p {
+                        let cfg12_label = "Configure 1/2";
+                        let cfg12_vw = cfg12_label.len() as f32 * 8.0 * scale;
+                        let cfg12_hovered = point_in_rect(mouse_x, mouse_y, exp_cfg_x, exp_cfg_y, box_w, configure_h);
+                        let cfg12_bg = if cfg12_hovered { colors.box_bg_hover } else { colors.dropdown_bg };
+                        draw_rect(&mut buffer, exp_cfg_x, exp_cfg_y, box_w, configure_h, width, colors.btn_border);
+                        draw_rect(&mut buffer, exp_cfg_x + 1, exp_cfg_y + 1, box_w - 2, configure_h - 2, width, cfg12_bg);
+                        draw_text(&mut buffer, exp_cfg_x + ((box_w as f32 - cfg12_vw) / 2.0).round() as usize, exp_cfg_y + (7.0 * scale).round() as usize, width, cfg12_label, menu_text, scale);
+                        let cfg34_label = "Configure 3/4";
+                        let cfg34_vw = cfg34_label.len() as f32 * 8.0 * scale;
+                        let cfg34_y = exp_cfg_y + configure_h + (4.0 * scale).round() as usize;
+                        let cfg34_hovered = point_in_rect(mouse_x, mouse_y, exp_cfg_x, cfg34_y, box_w, configure_h);
+                        let cfg34_bg = if cfg34_hovered { colors.box_bg_hover } else { colors.dropdown_bg };
+                        draw_rect(&mut buffer, exp_cfg_x, cfg34_y, box_w, configure_h, width, colors.btn_border);
+                        draw_rect(&mut buffer, exp_cfg_x + 1, cfg34_y + 1, box_w - 2, configure_h - 2, width, cfg34_bg);
+                        draw_text(&mut buffer, exp_cfg_x + ((box_w as f32 - cfg34_vw) / 2.0).round() as usize, cfg34_y + (7.0 * scale).round() as usize, width, cfg34_label, menu_text, scale);
+                        cfg34_y + configure_h + (8.0 * scale).round() as usize
+                    } else {
+                        let exp_cfg_hovered = exp_type_enabled && point_in_rect(mouse_x, mouse_y, exp_cfg_x, exp_cfg_y, box_w, configure_h);
+                        let exp_cfg_bg = if !exp_type_enabled { colors.disabled_btn_bg } else if exp_cfg_hovered { colors.box_bg_hover } else { colors.dropdown_bg };
+                        draw_rect(&mut buffer, exp_cfg_x, exp_cfg_y, box_w, configure_h, width, colors.btn_border);
+                        draw_rect(&mut buffer, exp_cfg_x + 1, exp_cfg_y + 1, box_w - 2, configure_h - 2, width, exp_cfg_bg);
+                        let exp_cfg_color = if exp_type_enabled { menu_text } else { colors.disabled_text };
+                        draw_text(&mut buffer, exp_cfg_x + ((box_w as f32 - cfg_vw2) / 2.0).round() as usize, exp_cfg_y + (7.0 * scale).round() as usize, width, cfg_label, exp_cfg_color, scale);
+                        exp_cfg_y + configure_h + (8.0 * scale).round() as usize
+                    };
                     let exp_group_x = exp_cfg_x - type_label_w - label_gap;
                     draw_text(&mut buffer, exp_group_x, exp_type_y + (6.0 * scale).round() as usize, width, "Type:", menu_text, scale);
                     let exp_type_box_x = exp_cfg_x;
-                    let exp_val = expansion_type_clone.borrow().label();
+                    let exp_val = exp_port_type.label();
                     let exp_type_hovered = point_in_rect(mouse_x, mouse_y, exp_type_box_x, exp_type_y, box_w, row_h);
                     let exp_type_bg = if exp_type_hovered { colors.box_bg_hover } else { colors.box_bg_default };
                     draw_rect(&mut buffer, exp_type_box_x, exp_type_y, box_w, row_h, width, colors.box_border);
@@ -6124,19 +7045,19 @@ fn main() {
                         let rebinding = ms.rebind_controller == Some(1);
                         let cols = 4;
                         let gap_x = (cw.saturating_sub(cols * btn_w)) / (cols + 1);
-                        for i in 0..config::VB_BUTTON_COUNT {
-                            let row = i / cols;
-                            let col = i % cols;
+                        for k in 0..config::VB_BUTTON_COUNT {
+                            let row = k / cols;
+                            let col = k % cols;
                             let bx = cx + gap_x + col * (btn_w + gap_x);
                             let by = grid_y0 + row * (btn_h + gap_y);
-                            let is_hovered = ms.hovered_ctrl_button == Some(i);
-                            let is_rebinding = rebinding && ms.rebind_button == Some(i);
-                            let txt = if is_rebinding { "?" } else { &vb_bindings[i] };
+                            let is_hovered = ms.hovered_ctrl_button == Some(k);
+                            let is_rebinding = rebinding && ms.rebind_button == Some(k);
+                            let txt = if is_rebinding { "?" } else { &vb_bindings[config::VB_DISPLAY_ORDER[k]] };
                             let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
                             let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
                             draw_rect(&mut buffer, bx, by, btn_w, btn_h, width, border);
                             draw_rect(&mut buffer, bx + 1, by + 1, btn_w - 2, btn_h - 2, width, bg);
-                            let lbl = config::VB_LABELS[i];
+                            let lbl = config::VB_LABELS[k];
                             let lbl_vw = lbl.len() as f32 * 8.0 * scale;
                             draw_text(&mut buffer, bx + ((btn_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
                             let key_vw = txt.len() as f32 * 8.0 * scale;
@@ -6348,19 +7269,19 @@ fn main() {
                         let rebinding = ms.rebind_controller == Some(2);
                         let cols = 4;
                         let gap_x = (cw.saturating_sub(cols * btn_w)) / (cols + 1);
-                        for i in 0..config::VB_BUTTON_COUNT {
-                            let row = i / cols;
-                            let col = i % cols;
+                        for k in 0..config::VB_BUTTON_COUNT {
+                            let row = k / cols;
+                            let col = k % cols;
                             let bx = cx + gap_x + col * (btn_w + gap_x);
                             let by = grid_y0 + row * (btn_h + gap_y);
-                            let is_hovered = ms.hovered_ctrl_button == Some(i);
-                            let is_rebinding = rebinding && ms.rebind_button == Some(i);
-                            let txt = if is_rebinding { "?" } else { &vb_bindings[i] };
+                            let is_hovered = ms.hovered_ctrl_button == Some(k);
+                            let is_rebinding = rebinding && ms.rebind_button == Some(k);
+                            let txt = if is_rebinding { "?" } else { &vb_bindings[config::VB_DISPLAY_ORDER[k]] };
                             let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
                             let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
                             draw_rect(&mut buffer, bx, by, btn_w, btn_h, width, border);
                             draw_rect(&mut buffer, bx + 1, by + 1, btn_w - 2, btn_h - 2, width, bg);
-                            let lbl = config::VB_LABELS[i];
+                            let lbl = config::VB_LABELS[k];
                             let lbl_vw = lbl.len() as f32 * 8.0 * scale;
                             draw_text(&mut buffer, bx + ((btn_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
                             let key_vw = txt.len() as f32 * 8.0 * scale;
@@ -6458,22 +7379,61 @@ fn main() {
                 
                 if ms.show_expansion_settings {
                     let (mouse_x, mouse_y) = ms.mouse_pos;
+                    let adapter_type = *expansion_adapter_type_clone.borrow();
+                    let is_adapter = adapter_type != config::ExpansionAdapterType::None;
+                    let pair = ms.adapter_pair.unwrap_or(0);
+                    let player_offset = pair * 2;
+                    let dialog_sub_ports = 2;
                     let sw = (440.0 * scale).round() as usize;
-                    let sh = (150.0 * scale).round() as usize;
                     let title_h = (30.0 * scale).round() as usize;
                     let bth = (2.0 * scale).round() as usize;
                     let btn_w = (90.0 * scale).round() as usize;
                     let btn_h = (26.0 * scale).round() as usize;
+                    let gap_y = (8.0 * scale).round() as usize;
                     let gap_x = (sw.saturating_sub(2 * btn_w)) / 3;
+                    let grid_h = 4 * (btn_h + gap_y) + btn_h;
+                    let tmp_g0 = title_h + (10.0 * scale).round() as usize;
+                    let sh = if is_adapter {
+                        let ch = tmp_g0 + dialog_sub_ports * (grid_h + btn_h / 2) + (40.0 * scale).round() as usize;
+                        ch.max(260)
+                    } else if expansion_type_clone.borrow().is_family_trainer() {
+                        let mbtn_h = (30.0 * scale).round() as usize;
+                        let mrow_gap = (6.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        (tmp_g0 + btn_h / 2 + 3 * mbtn_h + 2 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
+                    } else if expansion_type_clone.borrow().is_hyper_shot() {
+                        let mbtn_h = (30.0 * scale).round() as usize;
+                        let mrow_gap = (6.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        (tmp_g0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
+                    } else if expansion_type_clone.borrow().is_family_basic() {
+                        let mbtn_h = (20.0 * scale).round() as usize;
+                        let mrow_gap = (4.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        (tmp_g0 + btn_h / 2 + 9 * mbtn_h + 8 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
+                    } else if expansion_type_clone.borrow().is_party_tap() {
+                        let mbtn_h = (30.0 * scale).round() as usize;
+                        let mrow_gap = (6.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        (tmp_g0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
+                    } else if expansion_type_clone.borrow().is_pachinko() {
+                        let mbtn_h = (30.0 * scale).round() as usize;
+                        let mrow_gap = (6.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        (tmp_g0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
+                    } else {
+                        (150.0 * scale).round() as usize
+                    };
                     let sx = (width.saturating_sub(sw)) / 2;
                     let sy = (height.saturating_sub(sh)) / 2;
-                    let grid_y0 = sy + title_h + (10.0 * scale).round() as usize;
+                    let grid_y0 = sy + tmp_g0;
                     let wbg = colors.window_bg;
                     let tbg = colors.dropdown_bg;
                     let wbrd = colors.window_border;
                     draw_rect(&mut buffer, sx, sy, sw, sh, width, wbg);
                     draw_rect(&mut buffer, sx, sy, sw, title_h, width, tbg);
-                    draw_text(&mut buffer, sx + (10.0 * scale).round() as usize, sy + (8.0 * scale).round() as usize, width, "Famicom Expansion Port Settings", menu_text, scale);
+                    let dialog_title = if is_adapter { format!("Expansion Port Settings - P{}/P{}", player_offset + 1, player_offset + 2) } else { "Famicom Expansion Port Settings".to_string() };
+                    draw_text(&mut buffer, sx + (10.0 * scale).round() as usize, sy + (8.0 * scale).round() as usize, width, &dialog_title, menu_text, scale);
                     draw_rect(&mut buffer, sx, sy, sw, bth, width, wbrd);
                     draw_rect(&mut buffer, sx, sy, bth, sh, width, wbrd);
                     draw_rect(&mut buffer, sx + sw - bth, sy, bth, sh, width, wbrd);
@@ -6484,40 +7444,257 @@ fn main() {
                     let close_y = sy + (5.0 * scale).round() as usize;
                     draw_rect(&mut buffer, close_x, close_y, close_w, close_h, width, colors.close_bg);
                     draw_text(&mut buffer, close_x + (6.0 * scale).round() as usize, close_y + (6.0 * scale).round() as usize, width, "X", colors.menu_text, scale);
-                    let bind_total = 2 * btn_w + gap_x;
-                    let bind_bx = sx + (sw.saturating_sub(bind_total)) / 2;
-                    let is_famicom_zapper = *expansion_type_clone.borrow() == config::ExpansionType::FamicomZapper;
-                    let lbl = if is_famicom_zapper { "Trigger" } else { "Button" };
-                    let binding_txt = if is_famicom_zapper {
-                        expansion_zapper_trigger_binding_clone.borrow().clone()
+                    if is_adapter {
+                        let bindings_arr = [
+                            expansion1_bindings_clone.borrow(),
+                            expansion2_bindings_clone.borrow(),
+                            expansion3_bindings_clone.borrow(),
+                            expansion4_bindings_clone.borrow(),
+                        ];
+                        let labels = ["A", "B", "Turbo A", "Turbo B", "Select", "Start", "Up", "Down", "Left", "Right"];
+                        for local in 0..dialog_sub_ports {
+                            let player = player_offset + local;
+                            let yoff = grid_y0 + local * (grid_h + btn_h / 2);
+                            let plbl = format!("P{}", player + 1);
+                            draw_text(&mut buffer, sx + (4.0 * scale).round() as usize, yoff + (2.0 * scale).round() as usize, width, &plbl, colors.btn_sub_label, scale);
+                            let btn_y0 = yoff + (btn_h * 3 / 4) as usize;
+                            let rebinding = ms.rebind_controller == Some(local as u8 + 1);
+                            for i in 0..config::GAMEPAD_BUTTON_COUNT {
+                                let row = i / 2;
+                                let by = btn_y0 + row * (btn_h + gap_y);
+                                let bx = if i % 2 == 0 { sx + gap_x } else { sx + gap_x * 2 + btn_w };
+                                let is_rebinding = rebinding && ms.rebind_button == Some(i);
+                                let txt = if is_rebinding { "?".to_string() } else { bindings_arr[player][i].clone() };
+                                let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                let is_hovered = ms.hovered_expansion_button == Some(local * config::GAMEPAD_BUTTON_COUNT + i);
+                                let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                draw_rect(&mut buffer, bx, by, btn_w, btn_h, width, border);
+                                draw_rect(&mut buffer, bx + 1, by + 1, btn_w - 2, btn_h - 2, width, bg);
+                                let lbl = labels[i];
+                                let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                                draw_text(&mut buffer, bx + ((btn_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                let key_vw = txt.len() as f32 * 8.0 * scale;
+                                draw_text(&mut buffer, bx + ((btn_w as f32 - key_vw) / 2.0).round() as usize, by + (12.0 * scale).round() as usize, width, &txt, menu_text, scale);
+                            }
+                        }
+                        let act_btn_w = (70.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        let act_gap = (10.0 * scale).round() as usize;
+                        let act_total = 2 * act_btn_w + act_gap;
+                        let act_x0 = sx + (sw.saturating_sub(act_total)) / 2;
+                        let act_y = grid_y0 + dialog_sub_ports * (grid_h + btn_h / 2) + (10.0 * scale).round() as usize;
+                        for (j, label) in ["Clear", "Reset"].iter().enumerate() {
+                            let ax = act_x0 + j * (act_btn_w + act_gap);
+                            let ah = point_in_rect(mouse_x, mouse_y, ax, act_y, act_btn_w, act_btn_h);
+                            let abg = if ah { colors.box_bg_hover } else { colors.dropdown_bg };
+                            draw_rect(&mut buffer, ax, act_y, act_btn_w, act_btn_h, width, colors.btn_border);
+                            draw_rect(&mut buffer, ax + 1, act_y + 1, act_btn_w - 2, act_btn_h - 2, width, abg);
+                            let tw = label.len() as f32 * 8.0 * scale;
+                            draw_text(&mut buffer, ax + ((act_btn_w as f32 - tw) / 2.0).round() as usize, act_y + (7.0 * scale).round() as usize, width, label, menu_text, scale);
+                        }
                     } else {
-                        expansion_paddle_button_binding_clone.borrow().clone()
-                    };
-                    let is_hovered = ms.hovered_expansion_button == Some(0);
-                    let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(0);
-                    let txt = if is_rebinding { "?".to_string() } else { binding_txt };
-                    let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
-                    let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
-                    draw_rect(&mut buffer, bind_bx, grid_y0, bind_total, btn_h, width, border);
-                    draw_rect(&mut buffer, bind_bx + 1, grid_y0 + 1, bind_total - 2, btn_h - 2, width, bg);
-                    let lbl_vw = lbl.len() as f32 * 8.0 * scale;
-                    draw_text(&mut buffer, bind_bx + ((bind_total as f32 - lbl_vw) / 2.0).round() as usize, grid_y0 + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
-                    let key_vw = txt.len() as f32 * 8.0 * scale;
-                    draw_text(&mut buffer, bind_bx + ((bind_total as f32 - key_vw) / 2.0).round() as usize, grid_y0 + (14.0 * scale).round() as usize, width, &txt, menu_text, scale);
-                    let act_btn_w = (70.0 * scale).round() as usize;
-                    let act_btn_h = (24.0 * scale).round() as usize;
-                    let act_gap = (10.0 * scale).round() as usize;
-                    let act_total = 2 * act_btn_w + act_gap;
-                    let act_x0 = sx + (sw.saturating_sub(act_total)) / 2;
-                    let act_y = grid_y0 + btn_h + (10.0 * scale).round() as usize;
-                    for (j, label) in ["Clear", "Reset"].iter().enumerate() {
-                        let ax = act_x0 + j * (act_btn_w + act_gap);
-                        let ah = point_in_rect(mouse_x, mouse_y, ax, act_y, act_btn_w, act_btn_h);
-                        let abg = if ah { colors.box_bg_hover } else { colors.dropdown_bg };
-                        draw_rect(&mut buffer, ax, act_y, act_btn_w, act_btn_h, width, colors.btn_border);
-                        draw_rect(&mut buffer, ax + 1, act_y + 1, act_btn_w - 2, act_btn_h - 2, width, abg);
-                        let tw = label.len() as f32 * 8.0 * scale;
-                        draw_text(&mut buffer, ax + ((act_btn_w as f32 - tw) / 2.0).round() as usize, act_y + (7.0 * scale).round() as usize, width, label, menu_text, scale);
+                        let is_famicom_zapper = *expansion_type_clone.borrow() == config::ExpansionType::FamicomZapper;
+                        let is_oeka = *expansion_type_clone.borrow() == config::ExpansionType::OekaKidsTablet;
+                        let is_family_trainer = expansion_type_clone.borrow().is_family_trainer();
+                        let is_hyper_shot = expansion_type_clone.borrow().is_hyper_shot();
+                        let is_family_basic = expansion_type_clone.borrow().is_family_basic();
+                        let is_party_tap = expansion_type_clone.borrow().is_party_tap();
+                        let is_pachinko = expansion_type_clone.borrow().is_pachinko();
+                        if is_family_trainer {
+                            let ft = family_trainer_bindings_clone.borrow();
+                            let btn_gap = (6.0 * scale).round() as usize;
+                            let mcol_w = (sw.saturating_sub(5 * btn_gap)) / 4;
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            let m_y0 = grid_y0 + ((btn_h as f32 / 2.0).round() as usize);
+                            for r in 0..3usize {
+                                for c in 0..4usize {
+                                    let i = r * 4 + c;
+                                    let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                    let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                    let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(i);
+                                    let txt = if is_rebinding { "?".to_string() } else { ft[i].clone() };
+                                    let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                    let is_hovered = ms.hovered_expansion_button == Some(i);
+                                    let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                    draw_rect(&mut buffer, bx, by, mcol_w, mbtn_h, width, border);
+                                    draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
+                                    let lbl = config::POWERPAD_LABELS[i];
+                                    let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                    let key_vw = txt.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &txt, menu_text, scale);
+                                }
+                            }
+                            } else if is_hyper_shot {
+                            let hs = hyper_shot_bindings_clone.borrow();
+                            let btn_gap = (6.0 * scale).round() as usize;
+                            let mcol_w = (sw.saturating_sub(3 * btn_gap)) / 2;
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            let m_y0 = grid_y0 + ((btn_h as f32 / 2.0).round() as usize);
+                            for r in 0..2usize {
+                                for c in 0..2usize {
+                                    let i = r * 2 + c;
+                                    let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                    let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                    let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(i);
+                                    let txt = if is_rebinding { "?".to_string() } else { hs[i].clone() };
+                                    let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                    let is_hovered = ms.hovered_expansion_button == Some(i);
+                                    let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                    draw_rect(&mut buffer, bx, by, mcol_w, mbtn_h, width, border);
+                                    draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
+                                    let lbl = config::HYPER_SHOT_LABELS[i];
+                                    let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                    let key_vw = txt.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &txt, menu_text, scale);
+                                }
+                            }
+                        } else if is_family_basic {
+                            let fb = family_basic_bindings_clone.borrow();
+                            let btn_gap = (4.0 * scale).round() as usize;
+                            let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                            let mbtn_h = (20.0 * scale).round() as usize;
+                            let mrow_gap = (4.0 * scale).round() as usize;
+                            let m_y0 = grid_y0 + ((btn_h as f32 / 2.0).round() as usize);
+                            for r in 0..9usize {
+                                for c in 0..8usize {
+                                    let i = r * 8 + c;
+                                    if i >= config::FAMILY_BASIC_BUTTON_COUNT { continue; }
+                                    let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                    let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                    let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(i);
+                                    let txt = if is_rebinding { "?".to_string() } else { fb[i].clone() };
+                                    let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                    let is_hovered = ms.hovered_expansion_button == Some(i);
+                                    let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                    draw_rect(&mut buffer, bx, by, mcol_w, mbtn_h, width, border);
+                                    draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
+                                    let lbl = config::FAMILY_BASIC_LABELS[i];
+                                    let max_chars = (mcol_w / (8.0 * scale).round() as usize).max(1);
+                                    let lbl_disp = if lbl.len() > max_chars { &lbl[..max_chars] } else { lbl };
+                                    let lbl_vw = lbl_disp.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (1.0 * scale).round() as usize, width, lbl_disp, colors.btn_sub_label, scale);
+                                    let max_key = (mcol_w / (8.0 * scale).round() as usize).max(1);
+                                    let txt_disp = if txt.len() > max_key { &txt[..max_key] } else { &txt[..] };
+                                    let key_vw = txt_disp.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (10.0 * scale).round() as usize, width, txt_disp, menu_text, scale);
+                                }
+                            }
+                        } else if is_party_tap {
+                            let pt = party_tap_bindings_clone.borrow();
+                            let btn_gap = (6.0 * scale).round() as usize;
+                            let mcol_w = (sw.saturating_sub(4 * btn_gap)) / 3;
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            let m_y0 = grid_y0 + ((btn_h as f32 / 2.0).round() as usize);
+                            for r in 0..2usize {
+                                for c in 0..3usize {
+                                    let i = r * 3 + c;
+                                    let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                    let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                    let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(i);
+                                    let txt = if is_rebinding { "?".to_string() } else { pt[i].clone() };
+                                    let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                    let is_hovered = ms.hovered_expansion_button == Some(i);
+                                    let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                    draw_rect(&mut buffer, bx, by, mcol_w, mbtn_h, width, border);
+                                    draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
+                                    let lbl = config::PARTY_TAP_LABELS[i];
+                                    let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                    let key_vw = txt.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &txt, menu_text, scale);
+                                }
+                            }
+                        } else if is_pachinko {
+                            let pc = pachinko_bindings_clone.borrow();
+                            let btn_gap = (6.0 * scale).round() as usize;
+                            let mcol_w = (sw.saturating_sub(3 * btn_gap)) / 2;
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let m_y0 = grid_y0 + ((btn_h as f32 / 2.0).round() as usize);
+                            for i in 0..config::PACHINKO_BUTTON_COUNT {
+                                let bx = sx + btn_gap + i * (mcol_w + btn_gap);
+                                let by = m_y0;
+                                let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(i);
+                                let txt = if is_rebinding { "?".to_string() } else { pc[i].clone() };
+                                let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                let is_hovered = ms.hovered_expansion_button == Some(i);
+                                let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                draw_rect(&mut buffer, bx, by, mcol_w, mbtn_h, width, border);
+                                draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
+                                let lbl = config::PACHINKO_LABELS[i];
+                                let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                                draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                let key_vw = txt.len() as f32 * 8.0 * scale;
+                                draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &txt, menu_text, scale);
+                            }
+                        } else {
+                        let bind_total = 2 * btn_w + gap_x;
+                        let bind_bx = sx + (sw.saturating_sub(bind_total)) / 2;
+                        let lbl = if is_famicom_zapper { "Trigger" } else if is_oeka { "Click" } else { "Button" };
+                        let binding_txt = if is_oeka {
+                            expansion_oeka_click_binding_clone.borrow().clone()
+                        } else if is_famicom_zapper {
+                            expansion_zapper_trigger_binding_clone.borrow().clone()
+                        } else {
+                            expansion_paddle_button_binding_clone.borrow().clone()
+                        };
+                        let is_hovered = ms.hovered_expansion_button == Some(0);
+                        let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(0);
+                        let txt = if is_rebinding { "?".to_string() } else { binding_txt };
+                        let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                        let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                        draw_rect(&mut buffer, bind_bx, grid_y0, bind_total, btn_h, width, border);
+                        draw_rect(&mut buffer, bind_bx + 1, grid_y0 + 1, bind_total - 2, btn_h - 2, width, bg);
+                        let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                        draw_text(&mut buffer, bind_bx + ((bind_total as f32 - lbl_vw) / 2.0).round() as usize, grid_y0 + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                        let key_vw = txt.len() as f32 * 8.0 * scale;
+                        draw_text(&mut buffer, bind_bx + ((bind_total as f32 - key_vw) / 2.0).round() as usize, grid_y0 + (14.0 * scale).round() as usize, width, &txt, menu_text, scale);
+                        }
+                        let act_btn_w = (70.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        let act_gap = (10.0 * scale).round() as usize;
+                        let act_total = 2 * act_btn_w + act_gap;
+                        let act_x0 = sx + (sw.saturating_sub(act_total)) / 2;
+                        let is_ft_act = expansion_type_clone.borrow().is_family_trainer();
+                        let is_hs_act = expansion_type_clone.borrow().is_hyper_shot();
+                        let is_fb_act = expansion_type_clone.borrow().is_family_basic();
+                        let is_pt_act = expansion_type_clone.borrow().is_party_tap();
+                        let is_pach_act = expansion_type_clone.borrow().is_pachinko();
+                        let act_y = if is_ft_act {
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            grid_y0 + btn_h / 2 + 3 * mbtn_h + 2 * mrow_gap + (10.0 * scale).round() as usize
+                        } else if is_hs_act {
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            grid_y0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + (10.0 * scale).round() as usize
+                        } else if is_fb_act {
+                            let mbtn_h = (20.0 * scale).round() as usize;
+                            let mrow_gap = (4.0 * scale).round() as usize;
+                            grid_y0 + btn_h / 2 + 9 * mbtn_h + 8 * mrow_gap + (10.0 * scale).round() as usize
+                        } else if is_pt_act {
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            grid_y0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + (10.0 * scale).round() as usize
+                        } else if is_pach_act {
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            grid_y0 + btn_h / 2 + mbtn_h + (10.0 * scale).round() as usize
+                        } else {
+                            grid_y0 + btn_h + (10.0 * scale).round() as usize
+                        };
+                        for (j, label) in ["Clear", "Reset"].iter().enumerate() {
+                            let ax = act_x0 + j * (act_btn_w + act_gap);
+                            let ah = point_in_rect(mouse_x, mouse_y, ax, act_y, act_btn_w, act_btn_h);
+                            let abg = if ah { colors.box_bg_hover } else { colors.dropdown_bg };
+                            draw_rect(&mut buffer, ax, act_y, act_btn_w, act_btn_h, width, colors.btn_border);
+                            draw_rect(&mut buffer, ax + 1, act_y + 1, act_btn_w - 2, act_btn_h - 2, width, abg);
+                            let tw = label.len() as f32 * 8.0 * scale;
+                            draw_text(&mut buffer, ax + ((act_btn_w as f32 - tw) / 2.0).round() as usize, act_y + (7.0 * scale).round() as usize, width, label, menu_text, scale);
+                        }
                     }
                 }
                 
@@ -6749,8 +7926,9 @@ fn main() {
                         || ms_state.show_confirm_exit_dialog
                         || ms_state.show_barcode_input;
                     let emu_active = *rom_loaded_clone.borrow() && !paused_clone.load(Ordering::Relaxed);
+                    let oeka_active = *expansion_type_clone.borrow() == config::ExpansionType::OekaKidsTablet;
                     drop(ms_state);
-                    window.set_cursor_visible(ui_visible || !emu_active);
+                    window.set_cursor_visible(ui_visible || !emu_active || oeka_active);
                 }
 
                 buffer.present().expect("Failed to present buffer");
