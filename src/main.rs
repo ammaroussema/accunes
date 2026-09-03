@@ -10,12 +10,15 @@ mod crc;
 mod mappers;
 mod mapper;
 mod wxn;
+mod studybox;
+mod wavreader;
 mod emulator;
 mod cpu;
 mod ppu;
 mod apu;
 mod bus;
 mod config;
+mod nesdb;
 mod region;
 mod vt03_palette;
 mod vt32_palette;
@@ -79,10 +82,11 @@ fn mouse_button_str(button: &winit::event::MouseButton) -> String {
     }
 }
 
+
+
 #[derive(Clone, Copy, PartialEq)]
 enum Menu {
-    File,
-    Nes,
+    File,    Nes,
     Options,
     Help,
 }
@@ -715,7 +719,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.6.3";
+const APP_VERSION: &str = "1.6.4";
 
 fn strip_version_prefix(s: &str) -> &str {
     s.trim_start_matches(|c: char| c.is_ascii_alphabetic())
@@ -801,6 +805,23 @@ fn draw_text(buffer: &mut [u32], x: usize, y: usize, width: usize, text: &str, c
         let cx = x + (i as f32 * char_w).round() as usize;
         draw_char(buffer, cx, y, width, c, color, scale);
     }
+}
+
+fn truncate_text(text: &str, max_w: usize, scale: f32) -> String {
+    let char_w = (8.0 * scale).round() as usize;
+    if char_w == 0 { return String::new(); }
+    let max_chars = max_w / char_w;
+    let mut out: String = text.chars().take(max_chars).collect();
+    if out.chars().count() < text.chars().count() {
+        while out.chars().count() > 0 && out.chars().last() == Some('…') {
+            out.pop();
+        }
+        if out.chars().count() > 0 {
+            out.pop();
+        }
+        out.push('…');
+    }
+    out
 }
 
 fn draw_text_wrapped(
@@ -1216,7 +1237,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.6.3")
+        .with_title("AccuNES 1.6.4")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -1241,9 +1262,13 @@ fn main() {
     let oeka_click = Arc::new(AtomicBool::new(false));
     let family_trainer_state = Arc::new(Mutex::new([0u8; 12]));
     let hyper_shot_state = Arc::new(Mutex::new([0u8; 4]));
+    let bandai_hyper_buttons = Arc::new(Mutex::new([0u8; 9]));
     let family_basic_state = Arc::new(Mutex::new([0u8; 72]));
     let party_tap_state = Arc::new(Mutex::new([0u8; 6]));
     let pachinko_state = Arc::new(Mutex::new([0u8; 10]));
+    let punching_bag_state = Arc::new(Mutex::new([0u8; 8]));
+    let jissen_mahjong_state = Arc::new(Mutex::new([0u8; 21]));
+    let subor_keyboard_state = Arc::new(Mutex::new([0u8; 104]));
     let famicom_mic = Arc::new(AtomicBool::new(false));
     let zapper_bogo = Arc::new(AtomicU8::new(0));
     let paddle_x = Arc::new(Mutex::new([0u8; 3]));
@@ -1257,6 +1282,8 @@ fn main() {
     let subor_mouse_buttons = Arc::new(Mutex::new([0u8; 2]));
     let subor_mouse_dx = Arc::new(Mutex::new([0i32; 2]));
     let subor_mouse_dy = Arc::new(Mutex::new([0i32; 2]));
+    let hori_track_dx = Arc::new(Mutex::new([0.0f32; 2]));
+    let hori_track_dy = Arc::new(Mutex::new([0.0f32; 2]));
     {
         let mut e = emu.lock().unwrap();
         e.controller_port1 = controller_port1.clone();
@@ -1271,9 +1298,13 @@ fn main() {
         e.oeka_click = oeka_click.clone();
         e.family_trainer_state = family_trainer_state.clone();
         e.hyper_shot_state = hyper_shot_state.clone();
+        e.bandai_hyper_buttons = bandai_hyper_buttons.clone();
         e.family_basic_state = family_basic_state.clone();
         e.party_tap_state = party_tap_state.clone();
         e.pachinko_state = pachinko_state.clone();
+        e.punching_bag_state = punching_bag_state.clone();
+        e.jissen_mahjong_state = jissen_mahjong_state.clone();
+        e.subor_keyboard_state = subor_keyboard_state.clone();
         e.famicom_mic = famicom_mic.clone();
         e.zapper_bogo = zapper_bogo.clone();
         e.paddle_x = paddle_x.clone();
@@ -1287,6 +1318,8 @@ fn main() {
         e.subor_mouse_buttons = subor_mouse_buttons.clone();
         e.subor_mouse_dx = subor_mouse_dx.clone();
         e.subor_mouse_dy = subor_mouse_dy.clone();
+        e.hori_track_dx = hori_track_dx.clone();
+        e.hori_track_dy = hori_track_dy.clone();
         e.region_preference = config::load_region();
     }
     let cpal_device = cpal::default_host().default_output_device().expect("Failed to get default output device");
@@ -1354,6 +1387,7 @@ fn main() {
     emu.lock().unwrap().expansion_type = *expansion_type.borrow();
     emu.lock().unwrap().expansion_adapter_type = *expansion_adapter_type.borrow();
     let allow_opposing_dpad = Rc::new(RefCell::new(config::load_allow_opposing_dpad()));
+    let auto_detect_game_controller = Rc::new(RefCell::new(config::load_auto_detect_game_controller()));
     let controller1_bindings = Rc::new(RefCell::new(config::load_bindings("controller1")));
     let controller2_bindings = Rc::new(RefCell::new(config::load_bindings("controller2")));
     let zapper_trigger_binding = Rc::new(RefCell::new(config::load_zapper_trigger()));
@@ -1361,9 +1395,13 @@ fn main() {
     let expansion_oeka_click_binding = Rc::new(RefCell::new(config::load_expansion_oeka_click()));
     let family_trainer_bindings = Rc::new(RefCell::new(config::load_powerpad_bindings("familytrainer")));
     let hyper_shot_bindings = Rc::new(RefCell::new(config::load_hyper_shot_bindings("hypershot")));
+    let bandai_hyper_bindings = Rc::new(RefCell::new(config::load_bandai_hyper_shot_bindings("bandaihypershot")));
     let family_basic_bindings = Rc::new(RefCell::new(config::load_family_basic_bindings("familybasic")));
     let party_tap_bindings = Rc::new(RefCell::new(config::load_party_tap_bindings("partytap")));
     let pachinko_bindings = Rc::new(RefCell::new(config::load_pachinko_bindings("pachinko")));
+    let punching_bag_bindings = Rc::new(RefCell::new(config::load_exciting_boxing_bindings("punchingbag")));
+    let jissen_mahjong_bindings = Rc::new(RefCell::new(config::load_jissen_mahjong_bindings("jissenmahjong")));
+    let subor_keyboard_bindings = Rc::new(RefCell::new(config::load_subor_keyboard_bindings("suborkeyboard")));
     let famicom_mic_binding = Rc::new(RefCell::new(config::load_famicom_mic()));
 
     let paddle1_button_binding = Rc::new(RefCell::new(config::load_paddle_button("controller1")));
@@ -1506,6 +1544,7 @@ fn main() {
     let controller2_type_clone = controller2_type.clone();
     let expansion_type_clone = expansion_type.clone();
     let allow_opposing_dpad_clone = allow_opposing_dpad.clone();
+    let auto_detect_game_controller_clone = auto_detect_game_controller.clone();
     let controller1_bindings_clone = controller1_bindings.clone();
     let controller2_bindings_clone = controller2_bindings.clone();
     let controller_port1_clone = controller_port1.clone();
@@ -1523,9 +1562,13 @@ fn main() {
     let oeka_click_clone = oeka_click.clone();
     let family_trainer_state_clone = family_trainer_state.clone();
     let hyper_shot_state_clone = hyper_shot_state.clone();
+    let bandai_hyper_buttons_clone = bandai_hyper_buttons.clone();
     let family_basic_state_clone = family_basic_state.clone();
     let party_tap_state_clone = party_tap_state.clone();
     let pachinko_state_clone = pachinko_state.clone();
+    let punching_bag_state_clone = punching_bag_state.clone();
+    let jissen_mahjong_state_clone = jissen_mahjong_state.clone();
+    let subor_keyboard_state_clone = subor_keyboard_state.clone();
     let famicom_mic_clone = famicom_mic.clone();
     let zapper_bogo_clone = zapper_bogo.clone();
     let paddle_x_clone = paddle_x.clone();
@@ -1538,14 +1581,20 @@ fn main() {
     let subor_mouse_buttons_clone = subor_mouse_buttons.clone();
     let subor_mouse_dx_clone = subor_mouse_dx.clone();
     let subor_mouse_dy_clone = subor_mouse_dy.clone();
+    let hori_track_dx_clone = hori_track_dx.clone();
+    let hori_track_dy_clone = hori_track_dy.clone();
     let zapper_trigger_binding_clone = zapper_trigger_binding.clone();
     let expansion_zapper_trigger_binding_clone = expansion_zapper_trigger_binding.clone();
     let expansion_oeka_click_binding_clone = expansion_oeka_click_binding.clone();
     let family_trainer_bindings_clone = family_trainer_bindings.clone();
     let hyper_shot_bindings_clone = hyper_shot_bindings.clone();
+    let bandai_hyper_bindings_clone = bandai_hyper_bindings.clone();
     let family_basic_bindings_clone = family_basic_bindings.clone();
     let party_tap_bindings_clone = party_tap_bindings.clone();
     let pachinko_bindings_clone = pachinko_bindings.clone();
+    let punching_bag_bindings_clone = punching_bag_bindings.clone();
+    let jissen_mahjong_bindings_clone = jissen_mahjong_bindings.clone();
+    let subor_keyboard_bindings_clone = subor_keyboard_bindings.clone();
     let famicom_mic_binding_clone = famicom_mic_binding.clone();
     let paddle1_button_binding_clone = paddle1_button_binding.clone();
     let paddle2_button_binding_clone = paddle2_button_binding.clone();
@@ -1568,6 +1617,37 @@ fn main() {
     let expansion3_bindings_clone = expansion3_bindings.clone();
     let expansion4_bindings_clone = expansion4_bindings.clone();
     let expansion_adapter_type_clone = expansion_adapter_type.clone();
+    let auto_apply_input = {
+        let c1_type = controller1_type.clone();
+        let c2_type = controller2_type.clone();
+        let exp_type = expansion_type.clone();
+        let exp_adapter = expansion_adapter_type.clone();
+        let adc = auto_detect_game_controller.clone();
+        let ecu = emu.clone();
+        move |cart: &cartridge::Cartridge| {
+            if !*adc.borrow() {
+                return;
+            }
+            let Some(det) = crate::nesdb::detect(cart.prg_chr_crc32) else {
+                return;
+            };
+            *c1_type.borrow_mut() = det.port1;
+            config::save_controller_type("controller1_type", det.port1);
+            *c2_type.borrow_mut() = det.port2;
+            config::save_controller_type("controller2_type", det.port2);
+            *exp_type.borrow_mut() = det.expansion;
+            config::save_expansion_type(det.expansion);
+            *exp_adapter.borrow_mut() = det.adapter;
+            config::save_expansion_adapter_type(det.adapter);
+            if let Ok(mut e) = ecu.lock() {
+                e.controller1_type = det.port1;
+                e.controller2_type = det.port2;
+                e.expansion_type = det.expansion;
+                e.expansion_adapter_type = det.adapter;
+            }
+            println!("Auto-detected controller setup for {:?}", cart.name);
+        }
+    };
     let last_mouse_x_clone = last_mouse_x.clone();
     let last_mouse_y_clone = last_mouse_y.clone();
     let fps_update_time_clone = fps_update_time.clone();
@@ -1640,6 +1720,8 @@ fn main() {
                     match cmd {
                         EmuCommand::Exit => { return; }
                         EmuCommand::LoadCartridge(cart) => {
+                            e.save_turbo_file();
+                            e.save_battle_box();
                             e.load_cartridge(cart);
                             disk_inserted_flag_thread.store(e.disk_inserted(), Ordering::Relaxed);
                         }
@@ -1659,8 +1741,10 @@ fn main() {
                             e.insert_disk();
                             disk_inserted_flag_thread.store(e.disk_inserted(), Ordering::Relaxed);
                         }
-                        EmuCommand::SavePrgRam => { e.save_prg_ram(); }
+                        EmuCommand::SavePrgRam => { e.save_prg_ram(); e.save_turbo_file(); e.save_battle_box(); }
                         EmuCommand::ClearCart => {
+                            e.save_turbo_file();
+                            e.save_battle_box();
                             e.clear_cart();
                             disk_inserted_flag_thread.store(false, Ordering::Relaxed);
                         }
@@ -2006,6 +2090,16 @@ fn main() {
                     }
                 }
             }
+            // bandai hyper shot buttons
+            if expansion_type_clone.borrow().is_bandai_hyper_shot() {
+                let bh = bandai_hyper_bindings_clone.borrow();
+                let mut bh_lock = bandai_hyper_buttons_clone.lock().unwrap();
+                for (i, s) in bh.iter().enumerate() {
+                    if s == &btn_name {
+                        bh_lock[i] = if pressed { 1 } else { 0 };
+                    }
+                }
+            }
             // family basic keyboard buttons
             if expansion_type_clone.borrow().is_family_basic() {
                 let fb = family_basic_bindings_clone.borrow();
@@ -2033,6 +2127,35 @@ fn main() {
                 for (i, s) in pc.iter().enumerate() {
                     if s == &btn_name {
                         pc_lock[i] = if pressed { 1 } else { 0 };
+                    }
+                }
+            }
+            // exciting boxing (punching bag) buttons
+            if expansion_type_clone.borrow().is_exciting_boxing() {
+                let eb = punching_bag_bindings_clone.borrow();
+                let mut eb_lock = punching_bag_state_clone.lock().unwrap();
+                for (i, s) in eb.iter().enumerate() {
+                    if s == &btn_name {
+                        eb_lock[i] = if pressed { 1 } else { 0 };
+                    }
+                }
+            }
+            // jissen mahjong buttons
+            if expansion_type_clone.borrow().is_jissen_mahjong() {
+                let jm = jissen_mahjong_bindings_clone.borrow();
+                let mut jm_lock = jissen_mahjong_state_clone.lock().unwrap();
+                for (i, s) in jm.iter().enumerate() {
+                    if s == &btn_name {
+                        jm_lock[i] = if pressed { 1 } else { 0 };
+                    }
+                }
+            }
+            if expansion_type_clone.borrow().is_subor_keyboard() {
+                let sk = subor_keyboard_bindings_clone.borrow();
+                let mut sk_lock = subor_keyboard_state_clone.lock().unwrap();
+                for (i, s) in sk.iter().enumerate() {
+                    if s == &btn_name {
+                        sk_lock[i] = if pressed { 1 } else { 0 };
                     }
                 }
             }
@@ -2164,6 +2287,8 @@ fn main() {
                 } else {
                     if *auto_save_sram_clone.borrow() && *rom_loaded_clone.borrow() {
                         emu_clone.lock().unwrap().save_prg_ram();
+                        emu_clone.lock().unwrap().save_turbo_file();
+                        emu_clone.lock().unwrap().save_battle_box();
                     }
                     *control_flow = ControlFlow::Exit;
                 }
@@ -2283,6 +2408,9 @@ fn main() {
                             } else if expansion_type_clone.borrow().is_hyper_shot() {
                                 hyper_shot_bindings_clone.borrow_mut()[btn] = key_str.clone();
                                 config::save_hyper_shot_binding("hypershot", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_bandai_hyper_shot() {
+                                bandai_hyper_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_bandai_hyper_shot_binding("bandaihypershot", btn, &key_str);
                             } else if expansion_type_clone.borrow().is_family_basic() {
                                 family_basic_bindings_clone.borrow_mut()[btn] = key_str.clone();
                                 config::save_family_basic_binding("familybasic", btn, &key_str);
@@ -2292,6 +2420,15 @@ fn main() {
                             } else if expansion_type_clone.borrow().is_pachinko() {
                                 pachinko_bindings_clone.borrow_mut()[btn] = key_str.clone();
                                 config::save_pachinko_binding("pachinko", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_exciting_boxing() {
+                                punching_bag_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_exciting_boxing_binding("punchingbag", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_jissen_mahjong() {
+                                jissen_mahjong_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_jissen_mahjong_binding("jissenmahjong", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_subor_keyboard() {
+                                subor_keyboard_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_subor_keyboard_binding("suborkeyboard", btn, &key_str);
                             }
                         } else if *expansion_adapter_type_clone.borrow() != config::ExpansionAdapterType::None
                             && ms_mut.show_expansion_settings {
@@ -2526,6 +2663,16 @@ fn main() {
                         }
                     }
                 }
+                // bandai hyper shot buttons
+                if expansion_type_clone.borrow().is_bandai_hyper_shot() {
+                    let bh = bandai_hyper_bindings_clone.borrow();
+                    let mut bh_lock = bandai_hyper_buttons_clone.lock().unwrap();
+                    for (i, s) in bh.iter().enumerate() {
+                        if s == &key_str {
+                            bh_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
                 // family basic keyboard buttons
                 if expansion_type_clone.borrow().is_family_basic() {
                     let fb = family_basic_bindings_clone.borrow();
@@ -2553,6 +2700,36 @@ fn main() {
                     for (i, s) in pc.iter().enumerate() {
                         if s == &key_str {
                             pc_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // exciting boxing (punching bag) buttons
+                if expansion_type_clone.borrow().is_exciting_boxing() {
+                    let eb = punching_bag_bindings_clone.borrow();
+                    let mut eb_lock = punching_bag_state_clone.lock().unwrap();
+                    for (i, s) in eb.iter().enumerate() {
+                        if s == &key_str {
+                            eb_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // jissen mahjong buttons
+                if expansion_type_clone.borrow().is_jissen_mahjong() {
+                    let jm = jissen_mahjong_bindings_clone.borrow();
+                    let mut jm_lock = jissen_mahjong_state_clone.lock().unwrap();
+                    for (i, s) in jm.iter().enumerate() {
+                        if s == &key_str {
+                            jm_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // subor keyboard
+                if expansion_type_clone.borrow().is_subor_keyboard() {
+                    let sk = subor_keyboard_bindings_clone.borrow();
+                    let mut sk_lock = subor_keyboard_state_clone.lock().unwrap();
+                    for (i, s) in sk.iter().enumerate() {
+                        if s == &key_str {
+                            sk_lock[i] = if pressed { 1 } else { 0 };
                         }
                     }
                 }
@@ -2968,6 +3145,10 @@ fn main() {
                             let is_family_basic = expansion_type_clone.borrow().is_family_basic();
                             let is_party_tap = expansion_type_clone.borrow().is_party_tap();
                             let is_pachinko = expansion_type_clone.borrow().is_pachinko();
+                            let is_exciting_boxing = expansion_type_clone.borrow().is_exciting_boxing();
+                            let is_jissen_mahjong = expansion_type_clone.borrow().is_jissen_mahjong();
+                            let is_subor_keyboard = expansion_type_clone.borrow().is_subor_keyboard();
+                            let is_bandai_hyper_shot = expansion_type_clone.borrow().is_bandai_hyper_shot();
                             let sh = if is_family_trainer {
                                 let mbtn_h = (30.0 * sc).round() as usize;
                                 let mrow_gap = (6.0 * sc).round() as usize;
@@ -2978,6 +3159,11 @@ fn main() {
                                 let mrow_gap = (6.0 * sc).round() as usize;
                                 let act_btn_h = (24.0 * sc).round() as usize;
                                 (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
+                            } else if is_bandai_hyper_shot {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let act_btn_h = (24.0 * sc).round() as usize;
+                                (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 3 * mbtn_h + 2 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
                             } else if is_family_basic {
                                 let mbtn_h = (20.0 * sc).round() as usize;
                                 let mrow_gap = (4.0 * sc).round() as usize;
@@ -2993,6 +3179,21 @@ fn main() {
                                 let mrow_gap = (6.0 * sc).round() as usize;
                                 let act_btn_h = (24.0 * sc).round() as usize;
                                 (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
+                            } else if is_exciting_boxing {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let act_btn_h = (24.0 * sc).round() as usize;
+                                (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
+                            } else if is_jissen_mahjong {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let act_btn_h = (24.0 * sc).round() as usize;
+                                (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 7 * mbtn_h + 6 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
+                            } else if is_subor_keyboard {
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                let act_btn_h = (24.0 * sc).round() as usize;
+                                (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
                             } else {
                                 (150.0 * sc).round() as usize
                             };
@@ -3025,6 +3226,24 @@ fn main() {
                                 'outer3: for r in 0..2usize {
                                     for c in 0..2usize {
                                         let i = r * 2 + c;
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            ms.hovered_expansion_button = Some(i);
+                                            break 'outer3;
+                                        }
+                                    }
+                                }
+                            } else if is_bandai_hyper_shot {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(5 * btn_gap)) / 4;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                'outer3: for r in 0..3usize {
+                                    for c in 0..4usize {
+                                        let i = r * 4 + c;
+                                        if i >= config::BANDAI_HYPER_SHOT_BUTTON_COUNT { continue; }
                                         let bx = sx + btn_gap + c * (mcol_w + btn_gap);
                                         let by = m_y0 + r * (mbtn_h + mrow_gap);
                                         if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
@@ -3079,6 +3298,58 @@ fn main() {
                                     if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
                                         ms.hovered_expansion_button = Some(i);
                                         break;
+                                    }
+                                }
+                            } else if is_exciting_boxing {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(5 * btn_gap)) / 4;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                'outer3: for r in 0..2usize {
+                                    for c in 0..4usize {
+                                        let i = r * 4 + c;
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            ms.hovered_expansion_button = Some(i);
+                                            break 'outer3;
+                                        }
+                                    }
+                                }
+                            } else if is_jissen_mahjong {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(4 * btn_gap)) / 3;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                'outer3: for r in 0..7usize {
+                                    for c in 0..3usize {
+                                        let i = r * 3 + c;
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            ms.hovered_expansion_button = Some(i);
+                                            break 'outer3;
+                                        }
+                                    }
+                                }
+                            } else if is_subor_keyboard {
+                                let btn_gap = (4.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                'outer3: for r in 0..13usize {
+                                    for c in 0..8usize {
+                                        let i = r * 8 + c;
+                                        if i >= config::SUBOR_KEYBOARD_BUTTON_COUNT { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            ms.hovered_expansion_button = Some(i);
+                                            break 'outer3;
+                                        }
                                     }
                                 }
                             } else {
@@ -3178,6 +3449,15 @@ fn main() {
                             sdx[1] = sdx[1].saturating_add(dxi).clamp(-32, 32);
                             sdy[1] = sdy[1].saturating_add(dyi).clamp(-32, 32);
                         }
+                        // hori track: raw deltas
+                        {
+                            let mut hdx = hori_track_dx_clone.lock().unwrap();
+                            let mut hdy = hori_track_dy_clone.lock().unwrap();
+                            hdx[0] += dx as f32;
+                            hdy[0] += dy as f32;
+                            hdx[1] += dx as f32;
+                            hdy[1] += dy as f32;
+                        }
                     }
                 }
                 *last_mouse_x_clone.borrow_mut() = position.x;
@@ -3233,6 +3513,9 @@ fn main() {
                                 } else if expansion_type_clone.borrow().is_hyper_shot() {
                                     hyper_shot_bindings_clone.borrow_mut()[b] = btn_str.clone();
                                     config::save_hyper_shot_binding("hypershot", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_bandai_hyper_shot() {
+                                    bandai_hyper_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_bandai_hyper_shot_binding("bandaihypershot", b, &btn_str);
                                 } else if expansion_type_clone.borrow().is_family_basic() {
                                     family_basic_bindings_clone.borrow_mut()[b] = btn_str.clone();
                                     config::save_family_basic_binding("familybasic", b, &btn_str);
@@ -3242,6 +3525,15 @@ fn main() {
                                 } else if expansion_type_clone.borrow().is_pachinko() {
                                     pachinko_bindings_clone.borrow_mut()[b] = btn_str.clone();
                                     config::save_pachinko_binding("pachinko", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_exciting_boxing() {
+                                    punching_bag_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_exciting_boxing_binding("punchingbag", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_jissen_mahjong() {
+                                    jissen_mahjong_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_jissen_mahjong_binding("jissenmahjong", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_subor_keyboard() {
+                                    subor_keyboard_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_subor_keyboard_binding("suborkeyboard", b, &btn_str);
                                 }
                             } else if *expansion_adapter_type_clone.borrow() != config::ExpansionAdapterType::None
                                 && ms_mut.show_expansion_settings {
@@ -3462,6 +3754,16 @@ fn main() {
                             }
                         }
                     }
+                    // bandai hyper shot buttons
+                    if expansion_type_clone.borrow().is_bandai_hyper_shot() {
+                        let bh = bandai_hyper_bindings_clone.borrow();
+                        let mut bh_lock = bandai_hyper_buttons_clone.lock().unwrap();
+                        for (i, s) in bh.iter().enumerate() {
+                            if s == &btn_str {
+                                bh_lock[i] = if pressed { 1 } else { 0 };
+                            }
+                        }
+                    }
                     // family basic keyboard buttons
                     if expansion_type_clone.borrow().is_family_basic() {
                         let fb = family_basic_bindings_clone.borrow();
@@ -3489,6 +3791,36 @@ fn main() {
                         for (i, s) in pc.iter().enumerate() {
                             if s == &btn_str {
                                 pc_lock[i] = if pressed { 1 } else { 0 };
+                            }
+                        }
+                    }
+                    // exciting boxing (punching bag) buttons
+                    if expansion_type_clone.borrow().is_exciting_boxing() {
+                        let eb = punching_bag_bindings_clone.borrow();
+                        let mut eb_lock = punching_bag_state_clone.lock().unwrap();
+                        for (i, s) in eb.iter().enumerate() {
+                            if s == &btn_str {
+                                eb_lock[i] = if pressed { 1 } else { 0 };
+                            }
+                        }
+                    }
+                    // jissen mahjong buttons
+                    if expansion_type_clone.borrow().is_jissen_mahjong() {
+                        let jm = jissen_mahjong_bindings_clone.borrow();
+                        let mut jm_lock = jissen_mahjong_state_clone.lock().unwrap();
+                        for (i, s) in jm.iter().enumerate() {
+                            if s == &btn_str {
+                                jm_lock[i] = if pressed { 1 } else { 0 };
+                            }
+                        }
+                    }
+                    // subor keyboard buttons
+                    if expansion_type_clone.borrow().is_subor_keyboard() {
+                        let sk = subor_keyboard_bindings_clone.borrow();
+                        let mut sk_lock = subor_keyboard_state_clone.lock().unwrap();
+                        for (i, s) in sk.iter().enumerate() {
+                            if s == &btn_str {
+                                sk_lock[i] = if pressed { 1 } else { 0 };
                             }
                         }
                     }
@@ -3761,6 +4093,8 @@ fn main() {
                             let emu = emu_clone.lock().unwrap();
                             if *auto_save_sram_clone.borrow() {
                                 emu.save_prg_ram();
+                                emu.save_turbo_file();
+                                emu.save_battle_box();
                             }
                             *control_flow = ControlFlow::Exit;
                         } else if point_in_rect(mx, my, no_x, btn_y, btn_w, btn_h) {
@@ -4264,6 +4598,11 @@ fn main() {
                             let mrow_gap = (6.0 * sc).round() as usize;
                             let act_btn_h2 = (24.0 * sc).round() as usize;
                             tmp_g0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
+                        } else if expansion_type_clone.borrow().is_bandai_hyper_shot() {
+                            let mbtn_h = (30.0 * sc).round() as usize;
+                            let mrow_gap = (6.0 * sc).round() as usize;
+                            let act_btn_h2 = (24.0 * sc).round() as usize;
+                            tmp_g0 + btn_h / 2 + 3 * mbtn_h + 2 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
                         } else if expansion_type_clone.borrow().is_family_basic() {
                             let mbtn_h = (20.0 * sc).round() as usize;
                             let mrow_gap = (4.0 * sc).round() as usize;
@@ -4279,6 +4618,21 @@ fn main() {
                             let mrow_gap = (6.0 * sc).round() as usize;
                             let act_btn_h2 = (24.0 * sc).round() as usize;
                             tmp_g0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
+                        } else if expansion_type_clone.borrow().is_exciting_boxing() {
+                            let mbtn_h = (30.0 * sc).round() as usize;
+                            let mrow_gap = (6.0 * sc).round() as usize;
+                            let act_btn_h2 = (24.0 * sc).round() as usize;
+                            tmp_g0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
+                        } else if expansion_type_clone.borrow().is_jissen_mahjong() {
+                            let mbtn_h = (30.0 * sc).round() as usize;
+                            let mrow_gap = (6.0 * sc).round() as usize;
+                            let act_btn_h2 = (24.0 * sc).round() as usize;
+                            tmp_g0 + btn_h / 2 + 7 * mbtn_h + 6 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
+                        } else if expansion_type_clone.borrow().is_subor_keyboard() {
+                            let mbtn_h = (20.0 * sc).round() as usize;
+                            let mrow_gap = (4.0 * sc).round() as usize;
+                            let act_btn_h2 = (24.0 * sc).round() as usize;
+                            tmp_g0 + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
                         } else {
                             (150.0 * sc).round() as usize
                         };
@@ -4356,6 +4710,10 @@ fn main() {
                             let is_family_basic = expansion_type_clone.borrow().is_family_basic();
                             let is_party_tap = expansion_type_clone.borrow().is_party_tap();
                             let is_pachinko = expansion_type_clone.borrow().is_pachinko();
+                            let is_exciting_boxing = expansion_type_clone.borrow().is_exciting_boxing();
+                            let is_jissen_mahjong = expansion_type_clone.borrow().is_jissen_mahjong();
+                            let is_subor_keyboard = expansion_type_clone.borrow().is_subor_keyboard();
+                            let is_bandai_hyper_shot = expansion_type_clone.borrow().is_bandai_hyper_shot();
                             let mut clicked_grid_btn: Option<usize> = None;
                             let bind_total = 2 * btn_w + gap_x;
                             let bind_bx = sx + (sw.saturating_sub(bind_total)) / 2;
@@ -4389,6 +4747,27 @@ fn main() {
                                 'outer: for r in 0..2usize {
                                     for c in 0..2usize {
                                         let i = r * 2 + c;
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            clicked_grid_btn = Some(i);
+                                            found = true;
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+                                found
+                            } else if is_bandai_hyper_shot {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(5 * btn_gap)) / 4;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                let mut found = false;
+                                'outer: for r in 0..3usize {
+                                    for c in 0..4usize {
+                                        let i = r * 4 + c;
+                                        if i >= config::BANDAI_HYPER_SHOT_BUTTON_COUNT { continue; }
                                         let bx = sx + btn_gap + c * (mcol_w + btn_gap);
                                         let by = m_y0 + r * (mbtn_h + mrow_gap);
                                         if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
@@ -4456,6 +4835,67 @@ fn main() {
                                     }
                                 }
                                 found
+                            } else if is_exciting_boxing {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(5 * btn_gap)) / 4;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                let mut found = false;
+                                'outer: for r in 0..2usize {
+                                    for c in 0..4usize {
+                                        let i = r * 4 + c;
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            clicked_grid_btn = Some(i);
+                                            found = true;
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+                                found
+                            } else if is_jissen_mahjong {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(4 * btn_gap)) / 3;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                let mut found = false;
+                                'outer: for r in 0..7usize {
+                                    for c in 0..3usize {
+                                        let i = r * 3 + c;
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            clicked_grid_btn = Some(i);
+                                            found = true;
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+                                found
+                            } else if is_subor_keyboard {
+                                let btn_gap = (4.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                let mut found = false;
+                                'outer: for r in 0..13usize {
+                                    for c in 0..8usize {
+                                        let i = r * 8 + c;
+                                        if i >= config::SUBOR_KEYBOARD_BUTTON_COUNT { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            clicked_grid_btn = Some(i);
+                                            found = true;
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+                                found
                             } else {
                                 point_in_rect(mx, my, bind_bx, grid_y0, bind_total, btn_h)
                             };
@@ -4472,6 +4912,10 @@ fn main() {
                                 let mbtn_h = (30.0 * sc).round() as usize;
                                 let mrow_gap = (6.0 * sc).round() as usize;
                                 grid_y0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + (10.0 * sc).round() as usize
+                            } else if is_bandai_hyper_shot {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                grid_y0 + btn_h / 2 + 3 * mbtn_h + 2 * mrow_gap + (10.0 * sc).round() as usize
                             } else if is_family_basic {
                                 let mbtn_h = (20.0 * sc).round() as usize;
                                 let mrow_gap = (4.0 * sc).round() as usize;
@@ -4483,6 +4927,18 @@ fn main() {
                             } else if is_pachinko {
                                 let mbtn_h = (30.0 * sc).round() as usize;
                                 grid_y0 + btn_h / 2 + mbtn_h + (10.0 * sc).round() as usize
+                            } else if is_exciting_boxing {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                grid_y0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + (10.0 * sc).round() as usize
+                            } else if is_jissen_mahjong {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                grid_y0 + btn_h / 2 + 7 * mbtn_h + 6 * mrow_gap + (10.0 * sc).round() as usize
+                            } else if is_subor_keyboard {
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                grid_y0 + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + (10.0 * sc).round() as usize
                             } else {
                                 grid_y0 + btn_h + (10.0 * sc).round() as usize
                             };
@@ -4492,7 +4948,7 @@ fn main() {
                                 drop(ms);
                                 let mut ms_mut = menu_state_clone.borrow_mut();
                                 ms_mut.rebind_controller = Some(0);
-                                ms_mut.rebind_button = if is_family_trainer || is_hyper_shot || is_family_basic || is_party_tap || is_pachinko { Some(clicked_grid_btn.unwrap_or(0)) } else { Some(0) };
+                                ms_mut.rebind_button = if is_family_trainer || is_hyper_shot || is_family_basic || is_party_tap || is_pachinko || is_exciting_boxing || is_jissen_mahjong || is_subor_keyboard || is_bandai_hyper_shot { Some(clicked_grid_btn.unwrap_or(0)) } else { Some(0) };
                             } else if clicked_clear {
                                 drop(ms);
                                 if expansion_type_clone.borrow().is_family_trainer() {
@@ -4501,6 +4957,9 @@ fn main() {
                                 } else if expansion_type_clone.borrow().is_hyper_shot() {
                                     config::clear_hyper_shot_bindings("hypershot");
                                     *hyper_shot_bindings_clone.borrow_mut() = config::load_hyper_shot_bindings("hypershot");
+                                } else if expansion_type_clone.borrow().is_bandai_hyper_shot() {
+                                    config::clear_bandai_hyper_shot_bindings("bandaihypershot");
+                                    *bandai_hyper_bindings_clone.borrow_mut() = config::load_bandai_hyper_shot_bindings("bandaihypershot");
                                 } else if expansion_type_clone.borrow().is_family_basic() {
                                     config::clear_family_basic_bindings("familybasic");
                                     *family_basic_bindings_clone.borrow_mut() = config::load_family_basic_bindings("familybasic");
@@ -4510,6 +4969,15 @@ fn main() {
                                 } else if expansion_type_clone.borrow().is_pachinko() {
                                     config::clear_pachinko_bindings("pachinko");
                                     *pachinko_bindings_clone.borrow_mut() = config::load_pachinko_bindings("pachinko");
+                                } else if expansion_type_clone.borrow().is_exciting_boxing() {
+                                    config::clear_exciting_boxing_bindings("punchingbag");
+                                    *punching_bag_bindings_clone.borrow_mut() = config::load_exciting_boxing_bindings("punchingbag");
+                                } else if expansion_type_clone.borrow().is_jissen_mahjong() {
+                                    config::clear_jissen_mahjong_bindings("jissenmahjong");
+                                    *jissen_mahjong_bindings_clone.borrow_mut() = config::load_jissen_mahjong_bindings("jissenmahjong");
+                                } else if expansion_type_clone.borrow().is_subor_keyboard() {
+                                    config::clear_subor_keyboard_bindings("suborkeyboard");
+                                    *subor_keyboard_bindings_clone.borrow_mut() = config::load_subor_keyboard_bindings("suborkeyboard");
                                 } else if *expansion_type_clone.borrow() == config::ExpansionType::FamicomZapper {
                                     config::save_expansion_zapper_trigger("");
                                     *expansion_zapper_trigger_binding_clone.borrow_mut() = String::new();
@@ -4528,6 +4996,9 @@ fn main() {
                                 } else if expansion_type_clone.borrow().is_hyper_shot() {
                                     config::reset_hyper_shot_bindings("hypershot");
                                     *hyper_shot_bindings_clone.borrow_mut() = config::load_hyper_shot_bindings("hypershot");
+                                } else if expansion_type_clone.borrow().is_bandai_hyper_shot() {
+                                    config::reset_bandai_hyper_shot_bindings("bandaihypershot");
+                                    *bandai_hyper_bindings_clone.borrow_mut() = config::load_bandai_hyper_shot_bindings("bandaihypershot");
                                 } else if expansion_type_clone.borrow().is_family_basic() {
                                     config::reset_family_basic_bindings("familybasic");
                                     *family_basic_bindings_clone.borrow_mut() = config::load_family_basic_bindings("familybasic");
@@ -4537,6 +5008,15 @@ fn main() {
                                 } else if expansion_type_clone.borrow().is_pachinko() {
                                     config::reset_pachinko_bindings("pachinko");
                                     *pachinko_bindings_clone.borrow_mut() = config::load_pachinko_bindings("pachinko");
+                                } else if expansion_type_clone.borrow().is_exciting_boxing() {
+                                    config::reset_exciting_boxing_bindings("punchingbag");
+                                    *punching_bag_bindings_clone.borrow_mut() = config::load_exciting_boxing_bindings("punchingbag");
+                                } else if expansion_type_clone.borrow().is_jissen_mahjong() {
+                                    config::reset_jissen_mahjong_bindings("jissenmahjong");
+                                    *jissen_mahjong_bindings_clone.borrow_mut() = config::load_jissen_mahjong_bindings("jissenmahjong");
+                                } else if expansion_type_clone.borrow().is_subor_keyboard() {
+                                    config::reset_subor_keyboard_bindings("suborkeyboard");
+                                    *subor_keyboard_bindings_clone.borrow_mut() = config::load_subor_keyboard_bindings("suborkeyboard");
                                 } else if *expansion_type_clone.borrow() == config::ExpansionType::FamicomZapper {
                                     config::save_expansion_zapper_trigger("MouseLeft");
                                     *expansion_zapper_trigger_binding_clone.borrow_mut() = "MouseLeft".to_string();
@@ -4923,6 +5403,14 @@ fn main() {
                                              config::ExpansionType::FamilyBasicKeyboard => config::ExpansionPortType::FamilyBasicKeyboard,
                                              config::ExpansionType::PartyTap => config::ExpansionPortType::PartyTap,
                                              config::ExpansionType::PachinkoController => config::ExpansionPortType::PachinkoController,
+                                             config::ExpansionType::ExcitingBoxing => config::ExpansionPortType::ExcitingBoxing,
+                                             config::ExpansionType::JissenMahjong => config::ExpansionPortType::JissenMahjong,
+                                             config::ExpansionType::SuborKeyboard => config::ExpansionPortType::SuborKeyboard,
+                                             config::ExpansionType::BarcodeBattler => config::ExpansionPortType::BarcodeBattler,
+                                             config::ExpansionType::HoriTrack => config::ExpansionPortType::HoriTrack,
+                                             config::ExpansionType::BandaiHyperShot => config::ExpansionPortType::BandaiHyperShot,
+                                             config::ExpansionType::TurboFile => config::ExpansionPortType::TurboFile,
+                                             config::ExpansionType::BattleBox => config::ExpansionPortType::BattleBox,
                                              config::ExpansionType::None => config::ExpansionPortType::None,
                                          },
                                     }
@@ -4946,7 +5434,7 @@ fn main() {
                                     menu_state_clone.borrow_mut().adapter_pair = Some(1);
                                     menu_state_clone.borrow_mut().show_expansion_settings = true;
                                 } else if !is_4p && point_in_rect(mx, my, exp_cfg_x, exp_cfg_y, box_w, configure_h) {
-                                    if exp_port_type != config::ExpansionPortType::None {
+                                    if exp_port_type != config::ExpansionPortType::None && exp_port_type != config::ExpansionPortType::BarcodeBattler && exp_port_type != config::ExpansionPortType::TurboFile && exp_port_type != config::ExpansionPortType::BattleBox {
                                         drop(ms);
                                         menu_state_clone.borrow_mut().show_expansion_settings = true;
                                     }
@@ -4975,6 +5463,10 @@ fn main() {
                                     let new_val = !*allow_opposing_dpad_clone.borrow();
                                     *allow_opposing_dpad_clone.borrow_mut() = new_val;
                                     config::save_allow_opposing_dpad(new_val);
+                                } else if point_in_rect(mx, my, col1_x, dpad_y + row_h + (10.0 * sc).round() as usize, (20.0 * sc).round() as usize, (20.0 * sc).round() as usize) {
+                                    let new_val = !*auto_detect_game_controller_clone.borrow();
+                                    *auto_detect_game_controller_clone.borrow_mut() = new_val;
+                                    config::save_auto_detect_game_controller(new_val);
                                 }
                             }
                         }
@@ -5048,6 +5540,7 @@ fn main() {
                                                     let crc = cart.prg_rom_crc32;
                                                     let mapper_id = cart.memory_mapper;
                                                     let dip_needed = load_dip_game(crc, mapper_id);
+                                                    auto_apply_input(&cart);
                                                     let _ = cmd_tx.send(EmuCommand::LoadCartridge(cart));
                                                     let _ = cmd_tx.send(EmuCommand::PowerCycle(*initial_ram_clone.borrow()));
                                                     *rom_loaded_clone.borrow_mut() = true;
@@ -5158,10 +5651,11 @@ fn main() {
                                         match file_menu_items[i] {
                                             FileMenuItem::Open => {
                                                 if let Some(path) = rfd::FileDialog::new()
-                                                    .add_filter("All ROMs", &["nes", "unif", "unf", "fds", "qd", "wxn"])
+                                                    .add_filter("All ROMs", &["nes", "unif", "unf", "fds", "qd", "wxn", "studybox", "study"])
                                                     .add_filter("NES ROMs", &["nes", "unif", "unf"])
                                                     .add_filter("FDS / QD ROMs", &["fds", "qd"])
                                                     .add_filter("Waixing ROMs", &["wxn"])
+                                                    .add_filter("Study Box Tapes", &["studybox", "study"])
                                                     .pick_file() {
                                                     let path_str = path.to_string_lossy().to_string();
                                                     match cartridge::Cartridge::from_file(&path_str) {
@@ -5169,6 +5663,7 @@ fn main() {
                                                     let crc = cart.prg_rom_crc32;
                                                     let mapper_id = cart.memory_mapper;
                                                     let dip_needed = load_dip_game(crc, mapper_id);
+                                                    auto_apply_input(&cart);
                                                     let _ = cmd_tx.send(EmuCommand::LoadCartridge(cart));
                                                     let _ = cmd_tx.send(EmuCommand::PowerCycle(*initial_ram_clone.borrow()));
                                                     *rom_loaded_clone.borrow_mut() = true;
@@ -5441,7 +5936,7 @@ fn main() {
                                 let submenu_w = (150.0 * sc).round() as usize;
                                 let submenu_item_h = (16.0 * sc).round() as usize;
 
-                                let options_items = ["General", "Input", "Audio", "Video", "Region", "Set FDS BIOS"];
+                                let options_items = ["General", "Input", "Audio", "Video", "Region", "Set FDS BIOS", "Set Study Box BIOS"];
                                 let options_positions = calculate_item_positions(&options_items, dropdown_x, dropdown_y, dropdown_w, sc);
 
                                 if ms_mut.show_region_submenu {
@@ -5526,6 +6021,17 @@ fn main() {
                                                 .pick_file() {
                                                 let path_str = path.to_string_lossy().to_string();
                                                 config::save_fds_bios_path(&path_str);
+                                            }
+                                            ms_mut.active_menu = None;
+                                        }
+                                    }
+                                    if let Some((x, y, w, h)) = options_positions.get(6) {
+                                        if point_in_rect(mx, my, *x, *y, *w, *h) {
+                                            if let Some(path) = rfd::FileDialog::new()
+                                                .add_filter("Study Box BIOS", &["rom", "bin"])
+                                                .pick_file() {
+                                                let path_str = path.to_string_lossy().to_string();
+                                                config::save_study_box_bios_path(&path_str);
                                             }
                                             ms_mut.active_menu = None;
                                         }
@@ -5758,7 +6264,7 @@ fn main() {
                             let submenu_w = (150.0 * sc).round() as usize;
                             let submenu_item_h = (16.0 * sc).round() as usize;
 
-                            let options_items = ["General", "Input", "Audio", "Video", "Region", "Set FDS BIOS"];
+                            let options_items = ["General", "Input", "Audio", "Video", "Region", "Set FDS BIOS", "Set Study Box BIOS"];
                             let options_positions = calculate_item_positions(&options_items, dropdown_x, dropdown_y, dropdown_w, sc);
 
                             ms_mut.hovered_options_index = None;
@@ -5839,12 +6345,12 @@ fn main() {
                         let lower = filename.to_lowercase();
                         if lower.ends_with(".nes") || lower.ends_with(".unif") || lower.ends_with(".unf") || lower.ends_with(".wxn") {
                             filename.truncate(filename.len() - 4);
-                        } else if lower.ends_with(".fds") || lower.ends_with(".qd") {
+                        } else if lower.ends_with(".fds") || lower.ends_with(".qd") || lower.ends_with(".studybox") || lower.ends_with(".study") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.6.3: {}", filename)
+                        format!("AccuNES 1.6.4: {}", filename)
                     } else {
-                        "AccuNES 1.6.3".to_string()
+                        "AccuNES 1.6.4".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -6059,7 +6565,7 @@ fn main() {
                                         .unwrap_or_default();
                                     let mut cut_idx = filename.len();
                                     let lower_filename = filename.to_lowercase();
-                                    for ext in &[".nes", ".fds", ".qd", ".unif", ".unf", ".wxn"] {
+                                    for ext in &[".nes", ".fds", ".qd", ".unif", ".unf", ".wxn", ".studybox", ".study"] {
                                         if let Some(idx) = lower_filename.find(ext) { cut_idx = cut_idx.min(idx); }
                                     }
                                     for ch in &['(', '['] {
@@ -6188,7 +6694,7 @@ fn main() {
                             let dropdown_w = item_w;
                             let pad_x = (8.0 * scale).round() as usize;
                             let pad_y = (4.0 * scale).round() as usize;
-                            let options_items = ["General", "Input", "Audio", "Video", "Region", "Set FDS BIOS"];
+                            let options_items = ["General", "Input", "Audio", "Video", "Region", "Set FDS BIOS", "Set Study Box BIOS"];
                             let text_max_w = dropdown_w.saturating_sub(pad_x * 2);
                             let item_heights: Vec<usize> = options_items.iter().map(|name| {
                                 measure_wrapped_height(name, text_max_w, scale) + pad_y * 2
@@ -6268,7 +6774,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.6.3",
+                        "Version: 1.6.4",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
@@ -6751,10 +7257,18 @@ fn main() {
                                     config::ExpansionType::FamilyBasicKeyboard => config::ExpansionPortType::FamilyBasicKeyboard,
                                     config::ExpansionType::PartyTap => config::ExpansionPortType::PartyTap,
                                     config::ExpansionType::PachinkoController => config::ExpansionPortType::PachinkoController,
-                                    config::ExpansionType::None => config::ExpansionPortType::None,
-                                },
-                            };
-                            if ept == config::ExpansionPortType::FourPlayerAdapter { input_h_4p } else { input_h_base }
+                                             config::ExpansionType::ExcitingBoxing => config::ExpansionPortType::ExcitingBoxing,
+                                             config::ExpansionType::JissenMahjong => config::ExpansionPortType::JissenMahjong,
+                                             config::ExpansionType::SuborKeyboard => config::ExpansionPortType::SuborKeyboard,
+                                             config::ExpansionType::BarcodeBattler => config::ExpansionPortType::BarcodeBattler,
+                                             config::ExpansionType::HoriTrack => config::ExpansionPortType::HoriTrack,
+                                             config::ExpansionType::BandaiHyperShot => config::ExpansionPortType::BandaiHyperShot,
+                                             config::ExpansionType::TurboFile => config::ExpansionPortType::TurboFile,
+                                             config::ExpansionType::BattleBox => config::ExpansionPortType::BattleBox,
+                                             config::ExpansionType::None => config::ExpansionPortType::None,
+                                 },
+                             };
+                             if ept == config::ExpansionPortType::FourPlayerAdapter { input_h_4p } else { input_h_base }
                         };
                     let input_x = (width.saturating_sub(input_w)) / 2;
                     let input_y = (height.saturating_sub(input_h)) / 2;
@@ -6856,11 +7370,19 @@ fn main() {
                                 config::ExpansionType::FamilyBasicKeyboard => config::ExpansionPortType::FamilyBasicKeyboard,
                                 config::ExpansionType::PartyTap => config::ExpansionPortType::PartyTap,
                                 config::ExpansionType::PachinkoController => config::ExpansionPortType::PachinkoController,
-                                config::ExpansionType::None => config::ExpansionPortType::None,
+                                             config::ExpansionType::ExcitingBoxing => config::ExpansionPortType::ExcitingBoxing,
+                                             config::ExpansionType::JissenMahjong => config::ExpansionPortType::JissenMahjong,
+                                             config::ExpansionType::SuborKeyboard => config::ExpansionPortType::SuborKeyboard,
+                                             config::ExpansionType::BarcodeBattler => config::ExpansionPortType::BarcodeBattler,
+                                             config::ExpansionType::HoriTrack => config::ExpansionPortType::HoriTrack,
+                                             config::ExpansionType::BandaiHyperShot => config::ExpansionPortType::BandaiHyperShot,
+                                             config::ExpansionType::TurboFile => config::ExpansionPortType::TurboFile,
+                                             config::ExpansionType::BattleBox => config::ExpansionPortType::BattleBox,
+                                 config::ExpansionType::None => config::ExpansionPortType::None,
                             },
                         }
                     };
-                    let exp_type_enabled = exp_port_type != config::ExpansionPortType::None;
+                    let exp_type_enabled = exp_port_type != config::ExpansionPortType::None && exp_port_type != config::ExpansionPortType::BarcodeBattler && exp_port_type != config::ExpansionPortType::TurboFile && exp_port_type != config::ExpansionPortType::BattleBox;
                     let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter;
                     let cfg_vw2 = cfg_label.len() as f32 * 8.0 * scale;
                     let exp_type_y = if is_4p {
@@ -6909,6 +7431,18 @@ fn main() {
                     draw_rect(&mut buffer, dpad_box_x + 1, dpad_y + 1, box_w - 2, row_h - 2, width, dpad_bg);
                     let dpad_vw = dpad_val.len() as f32 * 8.0 * scale;
                     draw_text(&mut buffer, dpad_box_x + ((box_w as f32 - dpad_vw) / 2.0).round() as usize, dpad_y + (6.0 * scale).round() as usize, width, dpad_val, menu_text, scale);
+                    let auto_y = dpad_y + row_h + (10.0 * scale).round() as usize;
+                    let cb = (20.0 * scale).round() as usize;
+                    let cb_x = col1_x;
+                    let auto_val = *auto_detect_game_controller_clone.borrow();
+                    let cb_hovered = point_in_rect(mouse_x, mouse_y, cb_x, auto_y, cb, cb);
+                    let cb_bg = if cb_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                    draw_rect(&mut buffer, cb_x, auto_y, cb, cb, width, colors.box_border);
+                    draw_rect(&mut buffer, cb_x + 1, auto_y + 1, cb.saturating_sub(2), cb.saturating_sub(2), width, cb_bg);
+                    if auto_val {
+                        draw_text(&mut buffer, cb_x + (2.0 * scale).round() as usize, auto_y + ((cb as f32 - 8.0 * scale) / 2.0).round() as usize, width, "X", menu_text, scale);
+                    }
+                    draw_text(&mut buffer, cb_x + cb + (8.0 * scale).round() as usize, auto_y + ((cb as f32 - 8.0 * scale) / 2.0).round() as usize, width, "Auto-detect game controller", menu_text, scale);
                 }
                 
                 if ms.show_controller1_settings {
@@ -7088,7 +7622,7 @@ fn main() {
                                 let lbl_vw = lbl.len() as f32 * 8.0 * scale;
                                 draw_text(&mut buffer, bx + ((btn_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
                                 let key_txt = txt;
-                                let key_vw = key_txt.len() as f32 * 8.0 * scale;
+                                let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
                                 draw_text(&mut buffer, bx + ((btn_w as f32 - key_vw) / 2.0).round() as usize, by + (12.0 * scale).round() as usize, width, key_txt, menu_text, scale);
                             }
                         }
@@ -7111,7 +7645,7 @@ fn main() {
                             let lbl_vw = lbl.len() as f32 * 8.0 * scale;
                             draw_text(&mut buffer, bx + ((btn_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
                             let key_txt = txt;
-                            let key_vw = key_txt.len() as f32 * 8.0 * scale;
+                            let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
                             draw_text(&mut buffer, bx + ((btn_w as f32 - key_vw) / 2.0).round() as usize, by + (12.0 * scale).round() as usize, width, key_txt, menu_text, scale);
                         }
                     }
@@ -7315,7 +7849,7 @@ fn main() {
                                 let lbl_vw = lbl.len() as f32 * 8.0 * scale;
                                 draw_text(&mut buffer, bx + ((btn_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
                                 let key_txt = txt;
-                                let key_vw = key_txt.len() as f32 * 8.0 * scale;
+                                let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
                                 draw_text(&mut buffer, bx + ((btn_w as f32 - key_vw) / 2.0).round() as usize, by + (12.0 * scale).round() as usize, width, key_txt, menu_text, scale);
                             }
                         }
@@ -7338,7 +7872,7 @@ fn main() {
                             let lbl_vw = lbl.len() as f32 * 8.0 * scale;
                             draw_text(&mut buffer, bx + ((btn_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
                             let key_txt = txt;
-                            let key_vw = key_txt.len() as f32 * 8.0 * scale;
+                            let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
                             draw_text(&mut buffer, bx + ((btn_w as f32 - key_vw) / 2.0).round() as usize, by + (12.0 * scale).round() as usize, width, key_txt, menu_text, scale);
                         }
                         if c2t == config::ControllerType::FamicomGamepad {
@@ -7406,6 +7940,11 @@ fn main() {
                         let mrow_gap = (6.0 * scale).round() as usize;
                         let act_btn_h = (24.0 * scale).round() as usize;
                         (tmp_g0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
+                    } else if expansion_type_clone.borrow().is_bandai_hyper_shot() {
+                        let mbtn_h = (30.0 * scale).round() as usize;
+                        let mrow_gap = (6.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        (tmp_g0 + btn_h / 2 + 3 * mbtn_h + 2 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
                     } else if expansion_type_clone.borrow().is_family_basic() {
                         let mbtn_h = (20.0 * scale).round() as usize;
                         let mrow_gap = (4.0 * scale).round() as usize;
@@ -7421,6 +7960,21 @@ fn main() {
                         let mrow_gap = (6.0 * scale).round() as usize;
                         let act_btn_h = (24.0 * scale).round() as usize;
                         (tmp_g0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
+                    } else if expansion_type_clone.borrow().is_exciting_boxing() {
+                        let mbtn_h = (30.0 * scale).round() as usize;
+                        let mrow_gap = (6.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        (tmp_g0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
+                    } else if expansion_type_clone.borrow().is_jissen_mahjong() {
+                        let mbtn_h = (30.0 * scale).round() as usize;
+                        let mrow_gap = (6.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        (tmp_g0 + btn_h / 2 + 7 * mbtn_h + 6 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
+                    } else if expansion_type_clone.borrow().is_subor_keyboard() {
+                        let mbtn_h = (20.0 * scale).round() as usize;
+                        let mrow_gap = (4.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        (tmp_g0 + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
                     } else {
                         (150.0 * scale).round() as usize
                     };
@@ -7473,8 +8027,9 @@ fn main() {
                                 let lbl = labels[i];
                                 let lbl_vw = lbl.len() as f32 * 8.0 * scale;
                                 draw_text(&mut buffer, bx + ((btn_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
-                                let key_vw = txt.len() as f32 * 8.0 * scale;
-                                draw_text(&mut buffer, bx + ((btn_w as f32 - key_vw) / 2.0).round() as usize, by + (12.0 * scale).round() as usize, width, &txt, menu_text, scale);
+                                let key_txt = truncate_text(&txt, btn_w, scale);
+                                let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
+                                draw_text(&mut buffer, bx + ((btn_w as f32 - key_vw) / 2.0).round() as usize, by + (12.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
                             }
                         }
                         let act_btn_w = (70.0 * scale).round() as usize;
@@ -7500,6 +8055,10 @@ fn main() {
                         let is_family_basic = expansion_type_clone.borrow().is_family_basic();
                         let is_party_tap = expansion_type_clone.borrow().is_party_tap();
                         let is_pachinko = expansion_type_clone.borrow().is_pachinko();
+                        let is_exciting_boxing = expansion_type_clone.borrow().is_exciting_boxing();
+                        let is_jissen_mahjong = expansion_type_clone.borrow().is_jissen_mahjong();
+                        let is_subor_keyboard = expansion_type_clone.borrow().is_subor_keyboard();
+                        let is_bandai_hyper_shot = expansion_type_clone.borrow().is_bandai_hyper_shot();
                         if is_family_trainer {
                             let ft = family_trainer_bindings_clone.borrow();
                             let btn_gap = (6.0 * scale).round() as usize;
@@ -7522,8 +8081,9 @@ fn main() {
                                     let lbl = config::POWERPAD_LABELS[i];
                                     let lbl_vw = lbl.len() as f32 * 8.0 * scale;
                                     draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
-                                    let key_vw = txt.len() as f32 * 8.0 * scale;
-                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &txt, menu_text, scale);
+                                    let key_txt = truncate_text(&txt, mcol_w, scale);
+                                    let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
                                 }
                             }
                             } else if is_hyper_shot {
@@ -7548,8 +8108,37 @@ fn main() {
                                     let lbl = config::HYPER_SHOT_LABELS[i];
                                     let lbl_vw = lbl.len() as f32 * 8.0 * scale;
                                     draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
-                                    let key_vw = txt.len() as f32 * 8.0 * scale;
-                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &txt, menu_text, scale);
+                                    let key_txt = truncate_text(&txt, mcol_w, scale);
+                                    let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
+                                }
+                            }
+                        } else if is_bandai_hyper_shot {
+                            let bh = bandai_hyper_bindings_clone.borrow();
+                            let btn_gap = (6.0 * scale).round() as usize;
+                            let mcol_w = (sw.saturating_sub(5 * btn_gap)) / 4;
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            let m_y0 = grid_y0 + ((btn_h as f32 / 2.0).round() as usize);
+                            for r in 0..3usize {
+                                for c in 0..4usize {
+                                    let i = r * 4 + c;
+                                    if i >= config::BANDAI_HYPER_SHOT_BUTTON_COUNT { continue; }
+                                    let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                    let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                    let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(i);
+                                    let txt = if is_rebinding { "?".to_string() } else { bh[i].clone() };
+                                    let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                    let is_hovered = ms.hovered_expansion_button == Some(i);
+                                    let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                    draw_rect(&mut buffer, bx, by, mcol_w, mbtn_h, width, border);
+                                    draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
+                                    let lbl = config::BANDAI_HYPER_SHOT_LABELS[i];
+                                    let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                    let key_txt = truncate_text(&txt, mcol_w, scale);
+                                    let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
                                 }
                             }
                         } else if is_family_basic {
@@ -7605,8 +8194,9 @@ fn main() {
                                     let lbl = config::PARTY_TAP_LABELS[i];
                                     let lbl_vw = lbl.len() as f32 * 8.0 * scale;
                                     draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
-                                    let key_vw = txt.len() as f32 * 8.0 * scale;
-                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &txt, menu_text, scale);
+                                    let key_txt = truncate_text(&txt, mcol_w, scale);
+                                    let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
                                 }
                             }
                         } else if is_pachinko {
@@ -7627,9 +8217,92 @@ fn main() {
                                 draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
                                 let lbl = config::PACHINKO_LABELS[i];
                                 let lbl_vw = lbl.len() as f32 * 8.0 * scale;
-                                draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
-                                let key_vw = txt.len() as f32 * 8.0 * scale;
-                                draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &txt, menu_text, scale);
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                    let key_txt = truncate_text(&txt, mcol_w, scale);
+                                    let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
+                                }
+                        } else if is_exciting_boxing {
+                            let eb = punching_bag_bindings_clone.borrow();
+                            let btn_gap = (6.0 * scale).round() as usize;
+                            let mcol_w = (sw.saturating_sub(5 * btn_gap)) / 4;
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            let m_y0 = grid_y0 + ((btn_h as f32 / 2.0).round() as usize);
+                            for r in 0..2usize {
+                                for c in 0..4usize {
+                                    let i = r * 4 + c;
+                                    let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                    let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                    let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(i);
+                                    let txt = if is_rebinding { "?".to_string() } else { eb[i].clone() };
+                                    let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                    let is_hovered = ms.hovered_expansion_button == Some(i);
+                                    let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                    draw_rect(&mut buffer, bx, by, mcol_w, mbtn_h, width, border);
+                                    draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
+                                    let lbl = config::EXCITING_BOXING_LABELS[i];
+                                    let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                    let key_txt = truncate_text(&txt, mcol_w, scale);
+                                    let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
+                                }
+                            }
+                        } else if is_jissen_mahjong {
+                            let jm = jissen_mahjong_bindings_clone.borrow();
+                            let btn_gap = (6.0 * scale).round() as usize;
+                            let mcol_w = (sw.saturating_sub(4 * btn_gap)) / 3;
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            let m_y0 = grid_y0 + ((btn_h as f32 / 2.0).round() as usize);
+                            for r in 0..7usize {
+                                for c in 0..3usize {
+                                    let i = r * 3 + c;
+                                    let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                    let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                    let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(i);
+                                    let txt = if is_rebinding { "?".to_string() } else { jm[i].clone() };
+                                    let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                    let is_hovered = ms.hovered_expansion_button == Some(i);
+                                    let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                    draw_rect(&mut buffer, bx, by, mcol_w, mbtn_h, width, border);
+                                    draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
+                                    let lbl = config::JISSEN_MAHJONG_LABELS[i];
+                                    let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                    let key_txt = truncate_text(&txt, mcol_w, scale);
+                                    let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
+                                }
+                            }
+                        } else if is_subor_keyboard {
+                            let sk = subor_keyboard_bindings_clone.borrow();
+                            let btn_gap = (4.0 * scale).round() as usize;
+                            let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                            let mbtn_h = (20.0 * scale).round() as usize;
+                            let mrow_gap = (4.0 * scale).round() as usize;
+                            let m_y0 = grid_y0 + ((btn_h as f32 / 2.0).round() as usize);
+                            for r in 0..13usize {
+                                for c in 0..8usize {
+                                    let i = r * 8 + c;
+                                    if i >= config::SUBOR_KEYBOARD_BUTTON_COUNT { continue; }
+                                    let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                    let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                    let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(i);
+                                    let txt = if is_rebinding { "?".to_string() } else { sk[i].clone() };
+                                    let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                    let is_hovered = ms.hovered_expansion_button == Some(i);
+                                    let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                    draw_rect(&mut buffer, bx, by, mcol_w, mbtn_h, width, border);
+                                    draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
+                                    let lbl = config::SUBOR_KEYBOARD_LABELS[i];
+                                    let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (1.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                    let key_txt = truncate_text(&txt, mcol_w, scale);
+                                    let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (10.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
+                                }
                             }
                         } else {
                         let bind_total = 2 * btn_w + gap_x;
@@ -7664,6 +8337,10 @@ fn main() {
                         let is_fb_act = expansion_type_clone.borrow().is_family_basic();
                         let is_pt_act = expansion_type_clone.borrow().is_party_tap();
                         let is_pach_act = expansion_type_clone.borrow().is_pachinko();
+                        let is_eb_act = expansion_type_clone.borrow().is_exciting_boxing();
+                        let is_jm_act = expansion_type_clone.borrow().is_jissen_mahjong();
+                        let is_sk_act = expansion_type_clone.borrow().is_subor_keyboard();
+                        let is_bh_act = expansion_type_clone.borrow().is_bandai_hyper_shot();
                         let act_y = if is_ft_act {
                             let mbtn_h = (30.0 * scale).round() as usize;
                             let mrow_gap = (6.0 * scale).round() as usize;
@@ -7672,6 +8349,10 @@ fn main() {
                             let mbtn_h = (30.0 * scale).round() as usize;
                             let mrow_gap = (6.0 * scale).round() as usize;
                             grid_y0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + (10.0 * scale).round() as usize
+                        } else if is_bh_act {
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            grid_y0 + btn_h / 2 + 3 * mbtn_h + 2 * mrow_gap + (10.0 * scale).round() as usize
                         } else if is_fb_act {
                             let mbtn_h = (20.0 * scale).round() as usize;
                             let mrow_gap = (4.0 * scale).round() as usize;
@@ -7683,6 +8364,18 @@ fn main() {
                         } else if is_pach_act {
                             let mbtn_h = (30.0 * scale).round() as usize;
                             grid_y0 + btn_h / 2 + mbtn_h + (10.0 * scale).round() as usize
+                        } else if is_eb_act {
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            grid_y0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + (10.0 * scale).round() as usize
+                        } else if is_jm_act {
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            grid_y0 + btn_h / 2 + 7 * mbtn_h + 6 * mrow_gap + (10.0 * scale).round() as usize
+                        } else if is_sk_act {
+                            let mbtn_h = (20.0 * scale).round() as usize;
+                            let mrow_gap = (4.0 * scale).round() as usize;
+                            grid_y0 + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + (10.0 * scale).round() as usize
                         } else {
                             grid_y0 + btn_h + (10.0 * scale).round() as usize
                         };

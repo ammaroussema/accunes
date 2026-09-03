@@ -7,6 +7,7 @@ pub use crate::mappers::bandai::{BandaiKind, MapperBandai};
 pub use crate::mappers::cnrom::{CnromConfig, MapperCNROM};
 pub use crate::mappers::cprom::MapperCpROM;
 pub use crate::mappers::fds::Mapper20;
+pub use crate::mappers::studybox::MapperStudyBox;
 pub use crate::mappers::ffe::{FfeConfig, MapperFfe};
 pub use crate::mappers::fme7::MapperFME7;
 pub use crate::mappers::gxrom::Mapper66;
@@ -701,6 +702,7 @@ pub trait Mapper: Send {
     fn vt03_reg2000_10(&self) -> u8 { 0 }
     fn is_vt32(&self) -> bool { false }
     fn is_um6578(&self) -> bool { false }
+    fn is_study_box(&self) -> bool { false }
     fn um6578_chr(&self) -> u8 { 0 }
 
     // onebus CPU opcode encryption (mapper 256 submapper 12-15)
@@ -732,6 +734,15 @@ pub trait Mapper: Send {
 
     // expanded audio for mappers with extra audio channels
     fn audio_sample(&self) -> f32 { 0.0 }
+
+    // dedicated PCM channel for mappers that stream audio (e.g. the Famicom
+    // Study Box tape player). Called once per audio flush; `out` is filled with
+    // `host_sample_rate` samples (mono, -1.0..1.0) produced for the current
+    // output window and appended to the output ring alongside the APU mix.
+    fn extra_audio(&mut self, _out: &mut Vec<f32>, _count: usize, _host_sample_rate: u32) {}
+
+    // notify mapper of the output (host) audio sample rate
+    fn set_audio_sample_rate(&mut self, _sample_rate: u32) {}
 
     // irq clearing handler for mmc3-like mappers
     fn take_irq_ack(&mut self) -> bool {

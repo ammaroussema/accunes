@@ -61,6 +61,12 @@ if (Test-Path -LiteralPath $ExeSource) {
     Write-Host "Copied accunes.exe -> $PackageDir"
 }
 
+$DataSource = Join-Path $ProjectRoot "data"
+if (Test-Path -LiteralPath $DataSource -PathType Container) {
+    Copy-Item -LiteralPath $DataSource -Destination $PackageDir -Recurse -Force
+    Write-Host "Copied data/ -> $PackageDir"
+}
+
 $ZipName = "accunes-$version-$Suffix.zip"
 $ZipPath = Join-Path $ProjectRoot "$TargetDir\$ZipName"
 if (Test-Path -LiteralPath $ZipPath) { Remove-Item -LiteralPath $ZipPath -Force }

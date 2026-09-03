@@ -240,6 +240,13 @@ impl Emulator {
                     if self.controller2_type == crate::config::ControllerType::SNESMouse {
                         self.snes_mouse_readbit[1] = 0;
                     }
+                    if self.expansion_type == crate::config::ExpansionType::HoriTrack {
+                        self.hori_track_readbit[0] = 0;
+                        self.hori_track_readbit[1] = 0;
+                    }
+                    if self.expansion_type == crate::config::ExpansionType::BandaiHyperShot {
+                        self.bandai_hyper_readbit[0] = 0;
+                    }
                     if self.controller1_type == crate::config::ControllerType::VirtualBoy {
                         self.virtualboy_readbit[0] = 0;
                         let vb_lock = self.virtualboy_state.lock().unwrap();
@@ -697,6 +704,10 @@ impl Emulator {
     }
 
     pub fn flush_audio_frame(&mut self) {
+        // Render the band-limited APU mix into a temporary buffer first so we
+        // can produce the same number of dedicated-PCM samples from the mapper
+        // (e.g. the Study Box tape player) and keep the sources in sync.
+        let mut apu_out: Vec<f32> = Vec::with_capacity(1024);
         if let Some(ref mut blip) = self.blip {
             if self.audio_frame_cycle > 0 {
                 blip.end_frame(self.audio_frame_cycle);
@@ -708,18 +719,11 @@ impl Emulator {
                 return;
             }
 
-            let mut ring = if let Some(ref buffer) = self.audio_buffer {
-                buffer.lock().unwrap()
-            } else {
-                return;
-            };
-
             let mut samples = [0i32; 1024];
             while available > 0 {
                 let to_read = available.min(samples.len());
                 blip.read_samples(&mut samples[..to_read], to_read);
                 available -= to_read;
-
                 for &s in &samples[..to_read] {
                     let mut v = (s as f32 / 32767.0) * self.master_volume;
                     if v > 1.0 {
@@ -730,10 +734,27 @@ impl Emulator {
                     if self.audio_depth == 8 {
                         v = (v * 127.0).round() / 127.0;
                     }
-                    if self.audio_enabled {
-                        ring.push(v);
-                    }
+                    apu_out.push(v);
                 }
+            }
+        }
+
+        // Dedicated PCM channel from the mapper (Study Box tape audio).
+        let mut extra: Vec<f32> = Vec::with_capacity(apu_out.len());
+        if let Some(cart) = self.cart.as_mut() {
+            cart.mapper_chip
+                .extra_audio(&mut extra, apu_out.len(), self.audio_host_sample_rate as u32);
+        }
+
+        if self.audio_enabled {
+            let mut ring = if let Some(ref buffer) = self.audio_buffer {
+                buffer.lock().unwrap()
+            } else {
+                return;
+            };
+            for i in 0..apu_out.len() {
+                let s = apu_out[i] + extra.get(i).copied().unwrap_or(0.0);
+                ring.push(s.clamp(-1.0, 1.0));
             }
         }
     }

@@ -99,6 +99,7 @@ impl Mapper for Mapper31 {
                     prg_rom_crc32: 0,
                     chr_rom_crc32: 0,
                     overall_crc32: 0,
+                    prg_chr_crc32: 0,
                     is_vs_system: false,
                     tv_system: crate::region::TvSystem::Unknown,
                 },

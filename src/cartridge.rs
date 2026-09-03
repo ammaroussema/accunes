@@ -44,6 +44,7 @@ pub struct Cartridge {
     pub chr_rom_crc32: u32,
     #[allow(dead_code)]
     pub overall_crc32: u32,
+    pub prg_chr_crc32: u32,
 
     pub is_vs_system: bool,
 
@@ -209,6 +210,7 @@ impl Cartridge {
                 prg_rom_crc32: fds_prg_rom_crc,
                 chr_rom_crc32: 0,
                 overall_crc32: fds_overall_crc,
+                prg_chr_crc32: fds_overall_crc,
                 is_vs_system: false,
                 tv_system: TvSystem::Unknown,
             };
@@ -217,6 +219,63 @@ impl Cartridge {
             cartridge.mapper_chip = Box::new(crate::mapper::Mapper20::new(cartridge.fds_disks.clone()));
 
             println!("Loaded FDS ROM: {} ({} sides)", cartridge.name, cartridge.fds_disks.len());
+            return Ok(cartridge);
+        }
+
+        let is_studybox = filepath.to_lowercase().ends_with(".studybox")
+            || filepath.to_lowercase().ends_with(".study")
+            || (&rom[0..4] == b"STBX");
+
+        if is_studybox {
+            let bios_path = crate::config::load_study_box_bios_path();
+            let rom_dir = std::path::Path::new(filepath).parent().unwrap_or(std::path::Path::new(""));
+            let mut bios = fs::read(&bios_path)
+                .or_else(|_| fs::read("StudyBox.bin"))
+                .or_else(|_| fs::read("studybox.bin"))
+                .or_else(|_| fs::read(rom_dir.join("StudyBox.bin")))
+                .or_else(|_| fs::read(rom_dir.join("studybox.bin")))
+                .map_err(|_| format!("Failed to find Study Box BIOS file at: {}", bios_path))?;
+            if bios.len() < 0x40000 {
+                bios.resize(0x40000, 0);
+            }
+            let bios_crc = crc32(&bios);
+
+            let tape = crate::studybox::load_tape(&rom)
+                .map_err(|e| format!("Failed to parse studybox tape: {e}"))?;
+
+            let overall_crc = crc32(&rom);
+            let prg_size = (bios.len() / 0x4000).min(255) as u8;
+            let prg_size_minus_1 = if prg_size > 0 { prg_size - 1 } else { 0 };
+            let cartridge = Cartridge {
+                name: filepath.to_string(),
+                prg_rom: bios,
+                chr_rom: Vec::new(),
+                memory_mapper: 0,
+                sub_mapper: 0,
+                prg_size,
+                chr_size: 0,
+                prg_size_minus_1,
+                chr_ram: vec![0u8; 0x2000],
+                using_chr_ram: true,
+                prg_ram: vec![0u8; 0x10000],
+                has_battery: false,
+                alternative_nametable_arrangement: true,
+                prg_vram: vec![0u8; 0x800],
+                nametable_horizontal_mirroring: false,
+                fds_disks: Vec::new(),
+                trainer: Vec::new(),
+                misc_rom: Vec::new(),
+                mapper_chip: Box::new(crate::mapper::MapperStudyBox::new(tape)),
+                mapper_cpu_cycle: 0,
+                prg_rom_crc32: bios_crc,
+                chr_rom_crc32: 0,
+                overall_crc32: overall_crc,
+                prg_chr_crc32: overall_crc,
+                is_vs_system: false,
+                tv_system: TvSystem::Unknown,
+            };
+
+            println!("Loaded Study Box tape: {}", cartridge.name);
             return Ok(cartridge);
         }
 
@@ -519,6 +578,9 @@ impl Cartridge {
             let unif_overall_crc = crc32(&rom);
             let unif_prg_crc = if prg_rom.is_empty() { 0 } else { crc32(&prg_rom) };
             let unif_chr_crc = if chr_rom.is_empty() { 0 } else { crc32(&chr_rom) };
+            let mut unif_combined = prg_rom.clone();
+            unif_combined.extend_from_slice(&chr_rom);
+            let unif_prg_chr_crc = crc32(&unif_combined);
             let cartridge = Cartridge {
                 name: filepath.to_string(),
                 prg_rom,
@@ -543,6 +605,7 @@ impl Cartridge {
                 prg_rom_crc32: unif_prg_crc,
                 chr_rom_crc32: unif_chr_crc,
                 overall_crc32: unif_overall_crc,
+                prg_chr_crc32: unif_prg_chr_crc,
                 is_vs_system: false,
                 tv_system: TvSystem::Unknown,
             };
@@ -980,6 +1043,7 @@ impl Cartridge {
             prg_rom_crc32: ines_prg_crc,
             chr_rom_crc32: ines_chr_crc,
             overall_crc32: ines_overall_crc,
+            prg_chr_crc32: i_nes_game_crc32,
             is_vs_system,
             tv_system,
         };

@@ -423,6 +423,22 @@ pub struct Emulator {
     pub hyper_shot_state: Arc<Mutex<[u8; 4]>>,
     pub hyper_shot_enable_p1: bool,
     pub hyper_shot_enable_p2: bool,
+    pub bandai_hyper_state: [u32; 2],
+    pub bandai_hyper_readbit: [u8; 2],
+    pub bandai_hyper_buttons: Arc<Mutex<[u8; 9]>>,
+    pub turbo_file_data: [u8; 0x2000],
+    pub turbo_file_position: u16,
+    pub turbo_file_last_write: u8,
+    pub battle_box_data: [u8; 0x200],
+    pub battle_box_last_write: u8,
+    pub battle_box_address: u8,
+    pub battle_box_chip_select: u8,
+    pub battle_box_output: u8,
+    pub battle_box_write_enabled: bool,
+    pub battle_box_input_bit_position: u8,
+    pub battle_box_input_data: u16,
+    pub battle_box_is_write: bool,
+    pub battle_box_is_read: bool,
     pub family_basic_state: Arc<Mutex<[u8; 72]>>,
     pub family_basic_row: u8,
     pub family_basic_column: u8,
@@ -435,6 +451,20 @@ pub struct Emulator {
     pub pachinko_analog: u8,
     pub pachinko_buffer: u16,
     pub pachinko_strobe: bool,
+    pub punching_bag_state: Arc<Mutex<[u8; 8]>>,
+    pub punching_bag_selected_sensors: u8,
+    pub jissen_mahjong_state: Arc<Mutex<[u8; 21]>>,
+    pub jissen_mahjong_row: u8,
+    pub jissen_mahjong_state_buffer: u32,
+    pub jissen_mahjong_strobe: bool,
+    pub subor_keyboard_state: Arc<Mutex<[u8; 104]>>,
+    pub subor_keyboard_row: u8,
+    pub subor_keyboard_column: u8,
+    pub subor_keyboard_enabled: bool,
+    pub master_cycle_counter: u64,
+    pub barcode_battler_stream: [u8; 200],
+    pub barcode_battler_insert_cycle: u64,
+    pub barcode_battler_active: bool,
     pub famicom_mic: Arc<AtomicBool>,
     pub paddle_x: Arc<Mutex<[u8; 3]>>,
     pub paddle_button: Arc<Mutex<[bool; 3]>>,
@@ -453,6 +483,10 @@ pub struct Emulator {
     pub subor_mouse_dx: Arc<Mutex<[i32; 2]>>,
     pub subor_mouse_dy: Arc<Mutex<[i32; 2]>>,
     pub subor_mouse_latch: [u8; 2],
+    pub hori_track_state: [u32; 2],
+    pub hori_track_dx: Arc<Mutex<[f32; 2]>>,
+    pub hori_track_dy: Arc<Mutex<[f32; 2]>>,
+    pub hori_track_readbit: [u8; 2],
 
     pub controller_port3: Arc<AtomicU8>,
     pub controller_port4: Arc<AtomicU8>,
@@ -759,9 +793,17 @@ impl Emulator {
             oeka_strobe: false, oeka_shift: false, oeka_state_buffer: 0,
             family_trainer_state: Arc::new(Mutex::new([0; 12])), family_trainer_ignore_rows: 0,
             hyper_shot_state: Arc::new(Mutex::new([0; 4])), hyper_shot_enable_p1: true, hyper_shot_enable_p2: true,
+            bandai_hyper_state: [0; 2], bandai_hyper_readbit: [0; 2],
+            bandai_hyper_buttons: Arc::new(Mutex::new([0; 9])),
+            turbo_file_data: [0; 0x2000], turbo_file_position: 0, turbo_file_last_write: 0,
+            battle_box_data: [0; 0x200], battle_box_last_write: 0, battle_box_address: 0, battle_box_chip_select: 0, battle_box_output: 0, battle_box_write_enabled: false, battle_box_input_bit_position: 0, battle_box_input_data: 0, battle_box_is_write: false, battle_box_is_read: false,
             family_basic_state: Arc::new(Mutex::new([0; 72])), family_basic_row: 0, family_basic_column: 0, family_basic_enabled: false,
             party_tap_state: Arc::new(Mutex::new([0; 6])), party_tap_buffer: 0, party_tap_read_count: 0, party_tap_strobe: false,
             pachinko_state: Arc::new(Mutex::new([0; 10])), pachinko_analog: 0, pachinko_buffer: 0, pachinko_strobe: false,
+            punching_bag_state: Arc::new(Mutex::new([0; 8])), punching_bag_selected_sensors: 0,
+            jissen_mahjong_state: Arc::new(Mutex::new([0; 21])), jissen_mahjong_row: 0, jissen_mahjong_state_buffer: 0, jissen_mahjong_strobe: false,
+            subor_keyboard_state: Arc::new(Mutex::new([0; 104])), subor_keyboard_row: 0, subor_keyboard_column: 0, subor_keyboard_enabled: false,
+            master_cycle_counter: 0, barcode_battler_stream: [0; 200], barcode_battler_insert_cycle: 0, barcode_battler_active: false,
             famicom_mic: Arc::new(AtomicBool::new(false)),
             paddle_x: Arc::new(Mutex::new([0; 3])), paddle_button: Arc::new(Mutex::new([false; 3])), paddle_readbit: [0; 3],
             powerpad_state: Arc::new(Mutex::new([0; 2])), powerpad_shift_data: [0; 2], powerpad_shift_count: [0; 2],
@@ -773,6 +815,7 @@ impl Emulator {
             subor_mouse_dx: Arc::new(Mutex::new([0; 2])),
             subor_mouse_dy: Arc::new(Mutex::new([0; 2])),
             subor_mouse_latch: [0; 2],
+            hori_track_state: [0; 2], hori_track_dx: Arc::new(Mutex::new([0.0; 2])), hori_track_dy: Arc::new(Mutex::new([0.0; 2])), hori_track_readbit: [0; 2],
             controller_port3: Arc::new(AtomicU8::new(0)),
             controller_port4: Arc::new(AtomicU8::new(0)),
             fourscore_readbit: [0; 2],
@@ -828,6 +871,12 @@ impl Emulator {
         }
         if let Some(ref mut cart) = self.cart {
             cart.mapper_chip.set_cpu_clock(cpu_clock);
+        }
+        self.load_turbo_file();
+        self.load_battle_box();
+        let host_rate = self.audio_host_sample_rate as u32;
+        if let Some(ref mut cart) = self.cart {
+            cart.mapper_chip.set_audio_sample_rate(host_rate);
         }
         self.reset_audio();
     }
@@ -1035,6 +1084,91 @@ impl Emulator {
         }
     }
 
+    /// ascii turbo file: persist the 0x2000-byte SRAM to a per-rom .turbofile.sav
+    pub fn save_turbo_file(&self) {
+        if !self.expansion_type.is_turbo_file() {
+            return;
+        }
+        if let Some(cart) = &self.cart {
+            let sav_path = crate::config::turbofile_save_path(&cart.name);
+            let data = self.turbo_file_data.to_vec();
+            std::thread::spawn(move || {
+                if let Some(parent) = sav_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if let Err(e) = std::fs::write(&sav_path, &data) {
+                    eprintln!("Failed to save Turbo File SRAM to {:?}: {}", sav_path, e);
+                } else {
+                    println!("Saved Turbo File SRAM to {:?}", sav_path);
+                }
+            });
+        }
+    }
+
+    /// ascii turbo file: load SRAM from the per-rom .turbofile.sav
+    pub fn load_turbo_file(&mut self) {
+        self.turbo_file_data = [0; 0x2000];
+        self.turbo_file_position = 0;
+        self.turbo_file_last_write = 0;
+        if !self.expansion_type.is_turbo_file() {
+            return;
+        }
+        if let Some(cart) = &self.cart {
+            let sav_path = crate::config::turbofile_save_path(&cart.name);
+            if let Ok(data) = std::fs::read(&sav_path) {
+                if data.len() >= 0x2000 {
+                    self.turbo_file_data[..0x2000].copy_from_slice(&data[..0x2000]);
+                }
+            }
+        }
+    }
+
+    /// battle box: persist the 0x200-byte storage to a per-rom .battlebox.sav
+    pub fn save_battle_box(&self) {
+        if !self.expansion_type.is_battle_box() {
+            return;
+        }
+        if let Some(cart) = &self.cart {
+            let sav_path = crate::config::battlebox_save_path(&cart.name);
+            let data = self.battle_box_data.to_vec();
+            std::thread::spawn(move || {
+                if let Some(parent) = sav_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if let Err(e) = std::fs::write(&sav_path, &data) {
+                    eprintln!("Failed to save Battle Box SRAM to {:?}: {}", sav_path, e);
+                } else {
+                    println!("Saved Battle Box SRAM to {:?}", sav_path);
+                }
+            });
+        }
+    }
+
+    /// battle box: load storage from the per-rom .battlebox.sav
+    pub fn load_battle_box(&mut self) {
+        self.battle_box_data = [0; 0x200];
+        self.battle_box_last_write = 0;
+        self.battle_box_address = 0;
+        self.battle_box_chip_select = 0;
+        self.battle_box_output = 0;
+        self.battle_box_write_enabled = false;
+        self.battle_box_input_bit_position = 0;
+        self.battle_box_input_data = 0;
+        self.battle_box_is_write = false;
+        self.battle_box_is_read = false;
+        if !self.expansion_type.is_battle_box() {
+            return;
+        }
+        if let Some(cart) = &self.cart {
+            let sav_path = crate::config::battlebox_save_path(&cart.name);
+            if let Ok(data) = std::fs::read(&sav_path) {
+                if data.len() >= 0x200 {
+                    self.battle_box_data[..0x200].copy_from_slice(&data[..0x200]);
+                }
+            }
+        }
+    }
+
     pub fn set_audio_output(
         &mut self,
                 buffer: std::sync::Arc<std::sync::Mutex<crate::audio::AudioRingBuffer>>,
@@ -1144,11 +1278,38 @@ impl Emulator {
     }
 
     pub fn set_barcode(&mut self, rcode: &[u8]) -> bool {
+        if self.expansion_type.is_barcode_battler() {
+            self.set_barcode_battler(rcode);
+            return true;
+        }
         if let Some(ref mut cart) = self.cart {
             cart.mapper_chip.set_barcode(rcode)
         } else {
             false
         }
+    }
+
+    pub fn set_barcode_battler(&mut self, rcode: &[u8]) {
+        let barcode_text = std::str::from_utf8(rcode).unwrap_or("");
+        let mut stream = [0u8; 200];
+        let mut text = String::from(barcode_text);
+        text += "EPOCH\r\n";
+        text.insert_str(0, &(0..20usize.saturating_sub(text.len())).map(|_| ' ').collect::<String>());
+        let mut pos = 0usize;
+        for i in 0..20.min(text.len()) {
+            let ch = text.as_bytes()[i];
+            stream[pos] = 1;
+            pos += 1;
+            for j in 0..8u8 {
+                stream[pos] = !(((ch >> j) & 0x01) as u8);
+                pos += 1;
+            }
+            stream[pos] = 0;
+            pos += 1;
+        }
+        self.barcode_battler_stream = stream;
+        self.barcode_battler_insert_cycle = self.master_cycle_counter;
+        self.barcode_battler_active = true;
     }
 
     #[allow(dead_code)]
@@ -1239,6 +1400,7 @@ impl Emulator {
 
     // ntsc core logic
     fn emulator_core_ntsc(&mut self) {
+        self.master_cycle_counter += 1;
         if self.cpu_clock == 12 {
             self.cpu_clock = 0;
             if let Some(cart) = self.cart.as_mut() {
@@ -1292,6 +1454,7 @@ impl Emulator {
 
     // pal core logic
     fn emulator_core_pal(&mut self) {
+        self.master_cycle_counter += 1;
         if self.cpu_clock == 16 {
             self.cpu_clock = 0;
             if let Some(cart) = self.cart.as_mut() {
@@ -1345,6 +1508,7 @@ impl Emulator {
 
     // dendy core logic
     fn emulator_core_dendy(&mut self) {
+        self.master_cycle_counter += 1;
         if self.cpu_clock == 15 {
             self.cpu_clock = 0;
             if let Some(cart) = self.cart.as_mut() {
@@ -1721,6 +1885,10 @@ impl Emulator {
         out.push(self.snes_mouse_readbit[1]);
         out.push(self.subor_mouse_latch[0]);
         out.push(self.subor_mouse_latch[1]);
+        out.extend_from_slice(&self.hori_track_state[0].to_le_bytes());
+        out.extend_from_slice(&self.hori_track_state[1].to_le_bytes());
+        out.push(self.hori_track_readbit[0]);
+        out.push(self.hori_track_readbit[1]);
         out.push(self.fourscore_readbit[0]);
         out.push(self.fourscore_readbit[1]);
         out.push(self.expansion_adapter_ports[0].load(Ordering::Relaxed));
@@ -1739,6 +1907,23 @@ impl Emulator {
         out.extend_from_slice(&self.hyper_shot_state.lock().unwrap()[..]);
         out.push(if self.hyper_shot_enable_p1 { 1 } else { 0 });
         out.push(if self.hyper_shot_enable_p2 { 1 } else { 0 });
+        out.extend_from_slice(&self.bandai_hyper_state[0].to_le_bytes());
+        out.extend_from_slice(&self.bandai_hyper_state[1].to_le_bytes());
+        out.push(self.bandai_hyper_readbit[0]);
+        out.push(self.bandai_hyper_readbit[1]);
+        out.extend_from_slice(&self.turbo_file_data);
+        out.extend_from_slice(&self.turbo_file_position.to_le_bytes());
+        out.push(self.turbo_file_last_write);
+        out.extend_from_slice(&self.battle_box_data);
+        out.push(self.battle_box_last_write);
+        out.push(self.battle_box_address);
+        out.push(self.battle_box_chip_select);
+        out.push(self.battle_box_output);
+        out.push(if self.battle_box_write_enabled { 1 } else { 0 });
+        out.push(self.battle_box_input_bit_position);
+        out.extend_from_slice(&self.battle_box_input_data.to_le_bytes());
+        out.push(if self.battle_box_is_write { 1 } else { 0 });
+        out.push(if self.battle_box_is_read { 1 } else { 0 });
         out.extend_from_slice(&self.family_basic_state.lock().unwrap()[..]);
         out.push(self.family_basic_row);
         out.push(self.family_basic_column);
@@ -1751,6 +1936,20 @@ impl Emulator {
         out.push(self.pachinko_analog);
         out.extend_from_slice(&self.pachinko_buffer.to_le_bytes());
         out.push(if self.pachinko_strobe { 1 } else { 0 });
+        out.extend_from_slice(&self.punching_bag_state.lock().unwrap()[..]);
+        out.push(self.punching_bag_selected_sensors);
+        out.extend_from_slice(&self.jissen_mahjong_state.lock().unwrap()[..]);
+        out.push(self.jissen_mahjong_row);
+        out.extend_from_slice(&self.jissen_mahjong_state_buffer.to_le_bytes());
+        out.push(if self.jissen_mahjong_strobe { 1 } else { 0 });
+        out.extend_from_slice(&self.subor_keyboard_state.lock().unwrap()[..]);
+        out.push(self.subor_keyboard_row);
+        out.push(self.subor_keyboard_column);
+        out.push(if self.subor_keyboard_enabled { 1 } else { 0 });
+        out.extend_from_slice(&self.master_cycle_counter.to_le_bytes());
+        out.extend_from_slice(&self.barcode_battler_stream);
+        out.extend_from_slice(&self.barcode_battler_insert_cycle.to_le_bytes());
+        out.push(if self.barcode_battler_active { 1 } else { 0 });
         out.push(self.virtualboy_readbit[0]);
         out.push(self.virtualboy_readbit[1]);
         out.extend_from_slice(&self.virtualboy_state_buffer[0].to_le_bytes());
@@ -2102,6 +2301,12 @@ impl Emulator {
         self.snes_mouse_readbit[1] = read_u8()?;
         self.subor_mouse_latch[0] = read_u8()?;
         self.subor_mouse_latch[1] = read_u8()?;
+        let mut ht0 = [0u8; 4]; for b in ht0.iter_mut() { *b = read_u8()?; }
+        let mut ht1 = [0u8; 4]; for b in ht1.iter_mut() { *b = read_u8()?; }
+        self.hori_track_state[0] = u32::from_le_bytes(ht0);
+        self.hori_track_state[1] = u32::from_le_bytes(ht1);
+        self.hori_track_readbit[0] = read_u8()?;
+        self.hori_track_readbit[1] = read_u8()?;
         self.fourscore_readbit[0] = read_u8()?;
         self.fourscore_readbit[1] = read_u8()?;
         self.expansion_adapter_ports[0].store(read_u8()?, Ordering::Relaxed);
@@ -2128,6 +2333,29 @@ impl Emulator {
         drop(hs_state);
         self.hyper_shot_enable_p1 = read_u8()? != 0;
         self.hyper_shot_enable_p2 = read_u8()? != 0;
+        let mut bh0 = [0u8; 4]; for b in bh0.iter_mut() { *b = read_u8()?; }
+        let mut bh1 = [0u8; 4]; for b in bh1.iter_mut() { *b = read_u8()?; }
+        self.bandai_hyper_state[0] = u32::from_le_bytes(bh0);
+        self.bandai_hyper_state[1] = u32::from_le_bytes(bh1);
+        self.bandai_hyper_readbit[0] = read_u8()?;
+        self.bandai_hyper_readbit[1] = read_u8()?;
+        for slot in self.turbo_file_data.iter_mut() {
+            *slot = read_u8()?;
+        }
+        self.turbo_file_position = u16::from_le_bytes([read_u8()?, read_u8()?]);
+        self.turbo_file_last_write = read_u8()?;
+        for slot in self.battle_box_data.iter_mut() {
+            *slot = read_u8()?;
+        }
+        self.battle_box_last_write = read_u8()?;
+        self.battle_box_address = read_u8()?;
+        self.battle_box_chip_select = read_u8()?;
+        self.battle_box_output = read_u8()?;
+        self.battle_box_write_enabled = read_u8()? != 0;
+        self.battle_box_input_bit_position = read_u8()?;
+        self.battle_box_input_data = u16::from_le_bytes([read_u8()?, read_u8()?]);
+        self.battle_box_is_write = read_u8()? != 0;
+        self.battle_box_is_read = read_u8()? != 0;
         let mut fb_state = self.family_basic_state.lock().unwrap();
         for slot in fb_state.iter_mut() {
             *slot = read_u8()?;
@@ -2152,6 +2380,36 @@ impl Emulator {
         self.pachinko_analog = read_u8()?;
         self.pachinko_buffer = u16::from_le_bytes([read_u8()?, read_u8()?]);
         self.pachinko_strobe = read_u8()? != 0;
+        let mut pb_state = self.punching_bag_state.lock().unwrap();
+        for slot in pb_state.iter_mut() {
+            *slot = read_u8()?;
+        }
+        drop(pb_state);
+        self.punching_bag_selected_sensors = read_u8()?;
+        let mut jm_state = self.jissen_mahjong_state.lock().unwrap();
+        for slot in jm_state.iter_mut() {
+            *slot = read_u8()?;
+        }
+        drop(jm_state);
+        self.jissen_mahjong_row = read_u8()?;
+        self.jissen_mahjong_state_buffer = u32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        self.jissen_mahjong_strobe = read_u8()? != 0;
+        let mut sk_state = self.subor_keyboard_state.lock().unwrap();
+        for slot in sk_state.iter_mut() {
+            *slot = read_u8()?;
+        }
+        drop(sk_state);
+        self.subor_keyboard_row = read_u8()?;
+        self.subor_keyboard_column = read_u8()?;
+        self.subor_keyboard_enabled = read_u8()? != 0;
+        let mut mcc_bytes = [0u8; 8];
+        for b in mcc_bytes.iter_mut() { *b = read_u8()?; }
+        self.master_cycle_counter = u64::from_le_bytes(mcc_bytes);
+        for slot in self.barcode_battler_stream.iter_mut() { *slot = read_u8()?; }
+        let mut bbc_bytes = [0u8; 8];
+        for b in bbc_bytes.iter_mut() { *b = read_u8()?; }
+        self.barcode_battler_insert_cycle = u64::from_le_bytes(bbc_bytes);
+        self.barcode_battler_active = read_u8()? != 0;
         self.virtualboy_readbit[0] = read_u8()?;
         self.virtualboy_readbit[1] = read_u8()?;
         self.virtualboy_state_buffer[0] = u16::from_le_bytes([read_u8()?, read_u8()?]);

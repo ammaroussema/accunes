@@ -21,6 +21,7 @@ pub mod one_bus;
 pub mod one_bus_gpio;
 pub mod sl12;
 pub mod sl1632;
+pub mod studybox;
 pub mod taito_x1005;
 pub mod uxrom;
 pub mod vrc2_4;

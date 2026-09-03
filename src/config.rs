@@ -21,6 +21,18 @@ pub fn save_file_path(rom_path: &str) -> PathBuf {
     exe_dir().join("saves").join(name).with_extension("sav")
 }
 
+pub fn turbofile_save_path(rom_path: &str) -> PathBuf {
+    let path = Path::new(rom_path);
+    let name = path.file_stem().unwrap_or(path.as_os_str());
+    exe_dir().join("saves").join(format!("{}.turbofile.sav", name.to_string_lossy()))
+}
+
+pub fn battlebox_save_path(rom_path: &str) -> PathBuf {
+    let path = Path::new(rom_path);
+    let name = path.file_stem().unwrap_or(path.as_os_str());
+    exe_dir().join("saves").join(format!("{}.battlebox.sav", name.to_string_lossy()))
+}
+
 pub fn state_file_path(rom_path: &str, slot: usize) -> PathBuf {
     let path = Path::new(rom_path);
     let name = path.file_stem().unwrap_or(path.as_os_str());
@@ -275,6 +287,26 @@ pub fn load_fds_bios_path() -> String {
 
 pub fn save_fds_bios_path(bios_path: &str) {
     upsert_config("fds_bios_path", bios_path);
+}
+
+pub fn load_study_box_bios_path() -> String {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("study_box_bios_path=") {
+                let v = value.trim().to_string();
+                if !v.is_empty() {
+                    return v;
+                }
+            }
+        }
+    }
+    "StudyBox.bin".to_string()
+}
+
+pub fn save_study_box_bios_path(bios_path: &str) {
+    upsert_config("study_box_bios_path", bios_path);
 }
 
 pub fn load_audio_enabled() -> bool {
@@ -535,6 +567,14 @@ pub enum ExpansionType {
     FamilyBasicKeyboard,
     PartyTap,
     PachinkoController,
+    ExcitingBoxing,
+    JissenMahjong,
+    SuborKeyboard,
+    BarcodeBattler,
+    HoriTrack,
+    BandaiHyperShot,
+    TurboFile,
+    BattleBox,
 }
 
 pub fn load_expansion_type() -> ExpansionType {
@@ -553,6 +593,14 @@ pub fn load_expansion_type() -> ExpansionType {
                     "familybasickeyboard" | "family basic keyboard" | "family_basic_keyboard" | "fbkeyboard" | "familybasic" => ExpansionType::FamilyBasicKeyboard,
                     "partytap" | "party tap" | "party_tap" => ExpansionType::PartyTap,
                     "pachinko" | "pachinko controller" | "pachinko_controller" => ExpansionType::PachinkoController,
+                    "punchingbag" | "punching bag" | "punching_bag" | "excitingboxing" | "exciting boxing" | "boxing" => ExpansionType::ExcitingBoxing,
+                    "jissenmahjong" | "jissen mahjong" | "jissen_mahjong" | "mahjong" => ExpansionType::JissenMahjong,
+                    "suborkeyboard" | "subor keyboard" | "subor_keyboard" => ExpansionType::SuborKeyboard,
+                    "barcodebattler" | "barcode battler" | "barcode_battler" => ExpansionType::BarcodeBattler,
+                    "horitrack" | "hori track" | "hori_track" => ExpansionType::HoriTrack,
+                    "bandaihypershot" | "bandai hyper shot" | "bandai_hyper_shot" => ExpansionType::BandaiHyperShot,
+                    "turbofile" | "turbo file" | "turbo_file" => ExpansionType::TurboFile,
+                    "battlebox" | "battle box" | "battle_box" => ExpansionType::BattleBox,
                     _ => ExpansionType::None,
                 };
             }
@@ -573,6 +621,14 @@ pub fn save_expansion_type(et: ExpansionType) {
         ExpansionType::FamilyBasicKeyboard => "familybasickeyboard",
         ExpansionType::PartyTap => "partytap",
         ExpansionType::PachinkoController => "pachinko",
+        ExpansionType::ExcitingBoxing => "punchingbag",
+        ExpansionType::JissenMahjong => "jissenmahjong",
+        ExpansionType::SuborKeyboard => "suborkeyboard",
+        ExpansionType::BarcodeBattler => "barcodebattler",
+        ExpansionType::HoriTrack => "horitrack",
+        ExpansionType::BandaiHyperShot => "bandaihypershot",
+        ExpansionType::TurboFile => "turbofile",
+        ExpansionType::BattleBox => "battlebox",
     };
     upsert_config("expansion_type", s);
 }
@@ -622,6 +678,14 @@ pub enum ExpansionPortType {
     FamilyBasicKeyboard,
     PartyTap,
     PachinkoController,
+    ExcitingBoxing,
+    JissenMahjong,
+    SuborKeyboard,
+    BarcodeBattler,
+    HoriTrack,
+    BandaiHyperShot,
+    TurboFile,
+    BattleBox,
     TwoPlayerAdapter,
     FourPlayerAdapter,
 }
@@ -638,7 +702,15 @@ impl ExpansionPortType {
             ExpansionPortType::KonamiHyperShot => ExpansionPortType::FamilyBasicKeyboard,
             ExpansionPortType::FamilyBasicKeyboard => ExpansionPortType::PartyTap,
             ExpansionPortType::PartyTap => ExpansionPortType::PachinkoController,
-            ExpansionPortType::PachinkoController => ExpansionPortType::TwoPlayerAdapter,
+            ExpansionPortType::PachinkoController => ExpansionPortType::ExcitingBoxing,
+            ExpansionPortType::ExcitingBoxing => ExpansionPortType::JissenMahjong,
+            ExpansionPortType::JissenMahjong => ExpansionPortType::SuborKeyboard,
+            ExpansionPortType::SuborKeyboard => ExpansionPortType::BarcodeBattler,
+            ExpansionPortType::BarcodeBattler => ExpansionPortType::HoriTrack,
+            ExpansionPortType::HoriTrack => ExpansionPortType::BandaiHyperShot,
+            ExpansionPortType::BandaiHyperShot => ExpansionPortType::TurboFile,
+            ExpansionPortType::TurboFile => ExpansionPortType::BattleBox,
+            ExpansionPortType::BattleBox => ExpansionPortType::TwoPlayerAdapter,
             ExpansionPortType::TwoPlayerAdapter => ExpansionPortType::FourPlayerAdapter,
             ExpansionPortType::FourPlayerAdapter => ExpansionPortType::None,
         }
@@ -655,6 +727,14 @@ impl ExpansionPortType {
             ExpansionPortType::FamilyBasicKeyboard => "Family Basic",
             ExpansionPortType::PartyTap => "Party Tap",
             ExpansionPortType::PachinkoController => "Pachinko",
+            ExpansionPortType::ExcitingBoxing => "Punching Bag",
+            ExpansionPortType::JissenMahjong => "Jissen Mahjong",
+            ExpansionPortType::SuborKeyboard => "Subor Keyboard",
+            ExpansionPortType::BarcodeBattler => "Barcode Battler",
+            ExpansionPortType::HoriTrack => "Hori Track",
+            ExpansionPortType::BandaiHyperShot => "Bandai Hyper Shot",
+            ExpansionPortType::TurboFile => "Turbo File",
+            ExpansionPortType::BattleBox => "Battle Box",
             ExpansionPortType::TwoPlayerAdapter => "2-Player Adapter",
             ExpansionPortType::FourPlayerAdapter => "4-Player Adapter",
         }
@@ -676,6 +756,14 @@ pub fn save_expansion_port_type(et: ExpansionPortType) -> (ExpansionType, Expans
         ExpansionPortType::FamilyBasicKeyboard => (ExpansionType::FamilyBasicKeyboard, ExpansionAdapterType::None),
         ExpansionPortType::PartyTap => (ExpansionType::PartyTap, ExpansionAdapterType::None),
         ExpansionPortType::PachinkoController => (ExpansionType::PachinkoController, ExpansionAdapterType::None),
+        ExpansionPortType::ExcitingBoxing => (ExpansionType::ExcitingBoxing, ExpansionAdapterType::None),
+        ExpansionPortType::JissenMahjong => (ExpansionType::JissenMahjong, ExpansionAdapterType::None),
+        ExpansionPortType::SuborKeyboard => (ExpansionType::SuborKeyboard, ExpansionAdapterType::None),
+        ExpansionPortType::BarcodeBattler => (ExpansionType::BarcodeBattler, ExpansionAdapterType::None),
+        ExpansionPortType::HoriTrack => (ExpansionType::HoriTrack, ExpansionAdapterType::None),
+        ExpansionPortType::BandaiHyperShot => (ExpansionType::BandaiHyperShot, ExpansionAdapterType::None),
+        ExpansionPortType::TurboFile => (ExpansionType::TurboFile, ExpansionAdapterType::None),
+        ExpansionPortType::BattleBox => (ExpansionType::BattleBox, ExpansionAdapterType::None),
         ExpansionPortType::TwoPlayerAdapter => (ExpansionType::None, ExpansionAdapterType::TwoPlayer),
         ExpansionPortType::FourPlayerAdapter => (ExpansionType::None, ExpansionAdapterType::FourPlayer),
     };
@@ -744,6 +832,24 @@ pub fn load_allow_opposing_dpad() -> bool {
 
 pub fn save_allow_opposing_dpad(enabled: bool) {
     upsert_config("allow_opposing_dpad", if enabled { "on" } else { "off" });
+}
+
+pub fn load_auto_detect_game_controller() -> bool {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("auto_detect_game_controller=") {
+                let v = value.trim().to_lowercase();
+                return v == "yes" || v == "1" || v == "true" || v == "on";
+            }
+        }
+    }
+    true
+}
+
+pub fn save_auto_detect_game_controller(enabled: bool) {
+    upsert_config("auto_detect_game_controller", if enabled { "on" } else { "off" });
 }
 
 pub const GAMEPAD_BUTTONS: &[&str] = &["A","B","TurboA","TurboB","Select","Start","Up","Down","Left","Right"];
@@ -942,11 +1048,36 @@ impl ExpansionType {
     pub fn is_pachinko(self) -> bool {
         matches!(self, ExpansionType::PachinkoController)
     }
+    pub fn is_exciting_boxing(self) -> bool {
+        matches!(self, ExpansionType::ExcitingBoxing)
+    }
+    pub fn is_jissen_mahjong(self) -> bool {
+        matches!(self, ExpansionType::JissenMahjong)
+    }
+    pub fn is_subor_keyboard(self) -> bool {
+        matches!(self, ExpansionType::SuborKeyboard)
+    }
+    pub fn is_barcode_battler(self) -> bool {
+        matches!(self, ExpansionType::BarcodeBattler)
+    }
+    pub fn is_bandai_hyper_shot(self) -> bool {
+        matches!(self, ExpansionType::BandaiHyperShot)
+    }
+    pub fn is_turbo_file(self) -> bool {
+        matches!(self, ExpansionType::TurboFile)
+    }
+    pub fn is_battle_box(self) -> bool {
+        matches!(self, ExpansionType::BattleBox)
+    }
 }
 
 pub const HYPER_SHOT_BUTTON_COUNT: usize = 4;
 pub const HYPER_SHOT_BUTTONS: &[&str] = &["P1R", "P1J", "P2R", "P2J"];
 pub const HYPER_SHOT_LABELS: &[&str] = &["P1 Run", "P1 Jump", "P2 Run", "P2 Jump"];
+
+pub const BANDAI_HYPER_SHOT_BUTTON_COUNT: usize = 9;
+pub const BANDAI_HYPER_SHOT_BUTTONS: &[&str] = &["A", "B", "Sel", "Sta", "U", "D", "L", "R", "Fire"];
+pub const BANDAI_HYPER_SHOT_LABELS: &[&str] = &["A", "B", "Select", "Start", "Up", "Down", "Left", "Right", "Fire"];
 
 pub fn save_hyper_shot_binding(prefix: &str, button: usize, key: &str) {
     upsert_config(&format!("{}_{}", prefix, HYPER_SHOT_BUTTONS[button]), key);
@@ -982,6 +1113,48 @@ pub fn load_hyper_shot_bindings(prefix: &str) -> [String; HYPER_SHOT_BUTTON_COUN
         }
     }
     let defaults: [&str; HYPER_SHOT_BUTTON_COUNT] = ["Z", "X", "N", "M"];
+    for (i, val) in defaults.iter().enumerate() {
+        if b[i].is_empty() {
+            b[i] = val.to_string();
+        }
+    }
+    b
+}
+
+pub fn save_bandai_hyper_shot_binding(prefix: &str, button: usize, key: &str) {
+    upsert_config(&format!("{}_{}", prefix, BANDAI_HYPER_SHOT_BUTTONS[button]), key);
+}
+
+pub fn clear_bandai_hyper_shot_bindings(prefix: &str) {
+    for btn in BANDAI_HYPER_SHOT_BUTTONS {
+        upsert_config(&format!("{}_{}", prefix, btn), "");
+    }
+}
+
+pub fn reset_bandai_hyper_shot_bindings(prefix: &str) {
+    let defaults: [&str; BANDAI_HYPER_SHOT_BUTTON_COUNT] = ["Left", "Down", "Right", "Up", "J", "K", "Space", "Enter", "F"];
+    for (i, val) in defaults.iter().enumerate() {
+        upsert_config(&format!("{}_{}", prefix, BANDAI_HYPER_SHOT_BUTTONS[i]), val);
+    }
+}
+
+pub fn load_bandai_hyper_shot_bindings(prefix: &str) -> [String; BANDAI_HYPER_SHOT_BUTTON_COUNT] {
+    let mut b = [(); BANDAI_HYPER_SHOT_BUTTON_COUNT].map(|_| String::new());
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            for (i, btn) in BANDAI_HYPER_SHOT_BUTTONS.iter().enumerate() {
+                let key = format!("{}_{}", prefix, btn);
+                if let Some(v) = trimmed.strip_prefix(&key) {
+                    if let Some(value) = v.strip_prefix('=') {
+                        b[i] = value.trim().to_string();
+                    }
+                }
+            }
+        }
+    }
+    let defaults: [&str; BANDAI_HYPER_SHOT_BUTTON_COUNT] = ["Left", "Down", "Right", "Up", "J", "K", "Space", "Enter", "F"];
     for (i, val) in defaults.iter().enumerate() {
         if b[i].is_empty() {
             b[i] = val.to_string();
@@ -1148,8 +1321,188 @@ pub fn load_pachinko_bindings(prefix: &str) -> [String; PACHINKO_BUTTON_COUNT] {
     b
 }
 
-pub const SNES_BUTTON_COUNT: usize = 12;
-pub const SNES_BUTTONS: &[&str] = &["B","Y","Select","Start","Up","Down","Left","Right","A","X","L","R"];
+pub const EXCITING_BOXING_BUTTON_COUNT: usize = 8;
+pub const EXCITING_BOXING_BUTTONS: &[&str] = &["LeftHook", "MoveRight", "MoveLeft", "RightHook", "LeftJab", "HitBody", "RightJab", "Straight"];
+pub const EXCITING_BOXING_LABELS: &[&str] = &["Left Hook", "Move Right", "Move Left", "Right Hook", "Left Jab", "Hit Body", "Right Jab", "Straight"];
+
+pub fn save_exciting_boxing_binding(prefix: &str, button: usize, key: &str) {
+    upsert_config(&format!("{}_{}", prefix, EXCITING_BOXING_BUTTONS[button]), key);
+}
+
+pub fn clear_exciting_boxing_bindings(prefix: &str) {
+    for btn in EXCITING_BOXING_BUTTONS {
+        upsert_config(&format!("{}_{}", prefix, btn), "");
+    }
+}
+
+pub fn reset_exciting_boxing_bindings(prefix: &str) {
+    let defaults: [&str; EXCITING_BOXING_BUTTON_COUNT] = ["S", "D", "A", "F", "Q", "W", "E", "R"];
+    for (i, val) in defaults.iter().enumerate() {
+        upsert_config(&format!("{}_{}", prefix, EXCITING_BOXING_BUTTONS[i]), val);
+    }
+}
+
+pub fn load_exciting_boxing_bindings(prefix: &str) -> [String; EXCITING_BOXING_BUTTON_COUNT] {
+    let mut b = [(); EXCITING_BOXING_BUTTON_COUNT].map(|_| String::new());
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            for (i, btn) in EXCITING_BOXING_BUTTONS.iter().enumerate() {
+                let key = format!("{}_{}", prefix, btn);
+                if let Some(v) = trimmed.strip_prefix(&key) {
+                    if let Some(value) = v.strip_prefix('=') {
+                        b[i] = value.trim().to_string();
+                    }
+                }
+            }
+        }
+    }
+    let defaults: [&str; EXCITING_BOXING_BUTTON_COUNT] = ["S", "D", "A", "F", "Q", "W", "E", "R"];
+    for (i, val) in defaults.iter().enumerate() {
+        if b[i].is_empty() {
+            b[i] = val.to_string();
+        }
+    }
+    b
+}
+
+pub const JISSEN_MAHJONG_BUTTON_COUNT: usize = 21;
+pub const JISSEN_MAHJONG_BUTTONS: &[&str] = &["A","B","C","D","E","F","G","H","I","J","K","L","M","N","Select","Start","Kan","Pon","Chii","Riichi","Ron"];
+pub const JISSEN_MAHJONG_LABELS: &[&str] = &["A","B","C","D","E","F","G","H","I","J","K","L","M","N","Select","Start","Kan","Pon","Chii","Riichi","Ron"];
+
+pub fn save_jissen_mahjong_binding(prefix: &str, button: usize, key: &str) {
+    upsert_config(&format!("{}_{}", prefix, JISSEN_MAHJONG_BUTTONS[button]), key);
+}
+
+pub fn clear_jissen_mahjong_bindings(prefix: &str) {
+    for btn in JISSEN_MAHJONG_BUTTONS {
+        upsert_config(&format!("{}_{}", prefix, btn), "");
+    }
+}
+
+pub fn reset_jissen_mahjong_bindings(prefix: &str) {
+    let defaults: [&str; JISSEN_MAHJONG_BUTTON_COUNT] = ["1","2","3","4","5","6","7","8","9","0","Q","W","E","R","T","Y","U","I","O","P","A"];
+    for (i, val) in defaults.iter().enumerate() {
+        upsert_config(&format!("{}_{}", prefix, JISSEN_MAHJONG_BUTTONS[i]), val);
+    }
+}
+
+pub fn load_jissen_mahjong_bindings(prefix: &str) -> [String; JISSEN_MAHJONG_BUTTON_COUNT] {
+    let mut b = [(); JISSEN_MAHJONG_BUTTON_COUNT].map(|_| String::new());
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            for (i, btn) in JISSEN_MAHJONG_BUTTONS.iter().enumerate() {
+                let key = format!("{}_{}", prefix, btn);
+                if let Some(v) = trimmed.strip_prefix(&key) {
+                    if let Some(value) = v.strip_prefix('=') {
+                        b[i] = value.trim().to_string();
+                    }
+                }
+            }
+        }
+    }
+    let defaults: [&str; JISSEN_MAHJONG_BUTTON_COUNT] = ["1","2","3","4","5","6","7","8","9","0","Q","W","E","R","T","Y","U","I","O","P","A"];
+    for (i, val) in defaults.iter().enumerate() {
+        if b[i].is_empty() {
+            b[i] = val.to_string();
+        }
+    }
+    b
+}
+
+pub const SUBOR_KEYBOARD_MATRIX: [u8; 104] = [
+    30, 6, 5, 2, 37, 4, 31, 21,
+    28, 3, 18, 86, 36, 22, 29, 23,
+    88, 82, 91, 95, 43, 90, 89, 87,
+    35, 8, 11, 65, 40, 14, 26, 66,
+    75, 85, 92, 94, 42, 74, 70, 93,
+    16, 76, 25, 83, 84, 0, 27, 78,
+    33, 24, 10, 12, 39, 20, 34, 9,
+    72, 67, 68, 69, 41, 15, 71, 79,
+    19, 7, 13, 81, 38, 17, 32, 1,
+    54, 58, 52, 56, 99, 96, 97, 98,
+    80, 52, 55, 46, 47, 49, 50, 56,
+    63, 60, 61, 57, 45, 53, 62, 64,
+    73, 54, 77, 81, 44, 51, 59, 48,
+];
+
+pub const SUBOR_KEYBOARD_BUTTON_COUNT: usize = 99;
+pub const SUBOR_KEYBOARD_BUTTONS: &[&str] = &[
+    "A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z",
+    "0","1","2","3","4","5","6","7","8","9",
+    "F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12",
+    "Np0","Np1","Np2","Np3","Np4","Np5","Np6","Np7","Np8","Np9",
+    "NpEnt","NpDot","Np+","Np*","Np/","Np-","NumLk",
+    ",",".",";","'","/","\\","=","-","`","[","]",
+    "Caps","Pause","Ctrl","Shift","Alt","Space","Bksp","Tab","Esc","Enter","End","Home","Ins","Del","PgUp","PgDn",
+    "Up","Down","Left","Right","--","--","--",
+];
+pub const SUBOR_KEYBOARD_LABELS: &[&str] = SUBOR_KEYBOARD_BUTTONS;
+
+pub fn save_subor_keyboard_binding(prefix: &str, button: usize, key: &str) {
+    upsert_config(&format!("{}_{}", prefix, SUBOR_KEYBOARD_BUTTONS[button]), key);
+}
+
+pub fn clear_subor_keyboard_bindings(prefix: &str) {
+    for btn in SUBOR_KEYBOARD_BUTTONS {
+        upsert_config(&format!("{}_{}", prefix, btn), "");
+    }
+}
+
+pub fn reset_subor_keyboard_bindings(prefix: &str) {
+    let defaults: [&str; SUBOR_KEYBOARD_BUTTON_COUNT] = [
+        "A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z",
+        "Key0","Key1","Key2","Key3","Key4","Key5","Key6","Key7","Key8","Key9",
+        "F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12",
+        "Numpad0","Numpad1","Numpad2","Numpad3","Numpad4","Numpad5","Numpad6","Numpad7","Numpad8","Numpad9",
+        "NumpadEnter","NumpadDecimal","NumpadAdd","NumpadMultiply","NumpadDivide","NumpadSubtract","Numlock",
+        "Comma","Period","Semicolon","Apostrophe","Slash","Backslash","Equals","Minus","Grave","LBracket","RBracket",
+        "Capital","Pause","LControl","LShift","LAlt","Space","Back","Tab","Escape","Return","End","Home","Insert","Delete","PageUp","PageDown",
+        "Up","Down","Left","Right","","","",
+    ];
+    for (i, val) in defaults.iter().enumerate() {
+        upsert_config(&format!("{}_{}", prefix, SUBOR_KEYBOARD_BUTTONS[i]), val);
+    }
+}
+
+pub fn load_subor_keyboard_bindings(prefix: &str) -> [String; SUBOR_KEYBOARD_BUTTON_COUNT] {
+    let mut b = [(); SUBOR_KEYBOARD_BUTTON_COUNT].map(|_| String::new());
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            for (i, btn) in SUBOR_KEYBOARD_BUTTONS.iter().enumerate() {
+                let key = format!("{}_{}", prefix, btn);
+                if let Some(v) = trimmed.strip_prefix(&key) {
+                    if let Some(value) = v.strip_prefix('=') {
+                        b[i] = value.trim().to_string();
+                    }
+                }
+            }
+        }
+    }
+    let defaults: [&str; SUBOR_KEYBOARD_BUTTON_COUNT] = [
+        "A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z",
+        "Key0","Key1","Key2","Key3","Key4","Key5","Key6","Key7","Key8","Key9",
+        "F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12",
+        "Numpad0","Numpad1","Numpad2","Numpad3","Numpad4","Numpad5","Numpad6","Numpad7","Numpad8","Numpad9",
+        "NumpadEnter","NumpadDecimal","NumpadAdd","NumpadMultiply","NumpadDivide","NumpadSubtract","Numlock",
+        "Comma","Period","Semicolon","Apostrophe","Slash","Backslash","Equals","Minus","Grave","LBracket","RBracket",
+        "Capital","Pause","LControl","LShift","LAlt","Space","Back","Tab","Escape","Return","End","Home","Insert","Delete","PageUp","PageDown",
+        "Up","Down","Left","Right","","","",
+    ];
+    for (i, val) in defaults.iter().enumerate() {
+        if b[i].is_empty() {
+            b[i] = val.to_string();
+        }
+    }
+    b
+}
+
+pub const SNES_BUTTON_COUNT: usize = 12;pub const SNES_BUTTONS: &[&str] = &["B","Y","Select","Start","Up","Down","Left","Right","A","X","L","R"];
 pub const SNES_LABELS: &[&str] = &["B","Y","Select","Start","Up","Down","Left","Right","A","X","L","R"];
 
 pub fn load_snes_bindings(prefix: &str) -> [String; SNES_BUTTON_COUNT] {
