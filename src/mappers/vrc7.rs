@@ -239,7 +239,7 @@ impl Vrc7 {
         if (self.misc & 0x40) != 0 {
             self.current_sample = 0.0;
         } else {
-            self.current_sample = output_mix * 3.0;
+            self.current_sample = output_mix * 1500.0;
         }
     }
 
@@ -543,6 +543,10 @@ impl Mapper for Vrc7 {
 
     fn audio_sample(&self) -> f32 {
         self.current_sample
+    }
+
+    fn expansion_audio_type(&self) -> crate::mapper::ExpansionAudioType {
+        crate::mapper::ExpansionAudioType::Vrc7
     }
 
     fn take_irq_ack(&mut self) -> bool {

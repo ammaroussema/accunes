@@ -369,7 +369,25 @@ pub fn save_audio_depth(depth: u8) {
     upsert_config("audio_depth", if depth == 8 { "8" } else { "16" });
 }
 
-pub const CHANNEL_NAMES: &[&str] = &["master", "triangle", "square1", "square2", "noise", "pcm"];
+pub fn load_swap_duty_cycles() -> bool {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("swap_duty_cycles=") {
+                let value = trimmed.strip_prefix("swap_duty_cycles=").unwrap_or("").trim();
+                return value.eq_ignore_ascii_case("yes") || value == "1" || value.eq_ignore_ascii_case("true");
+            }
+        }
+    }
+    false
+}
+
+pub fn save_swap_duty_cycles(enabled: bool) {
+    upsert_config("swap_duty_cycles", if enabled { "yes" } else { "no" });
+}
+
+pub const CHANNEL_NAMES: &[&str] = &["master", "triangle", "square1", "square2", "noise", "pcm", "expansion"];
 
 pub fn load_channel_volume(channel: &str) -> u8 {
     let path = config_path();
@@ -1681,4 +1699,98 @@ pub fn clear_vb_bindings(prefix: &str) {
     }
 }
 
+pub const HOTKEY_COUNT: usize = 17;
 
+pub const HOTKEY_LABELS: [&str; HOTKEY_COUNT] = [
+    "Open ROM",
+    "Close ROM",
+    "Recent ROMs (1-8)",
+    "Quick Save",
+    "Quick Load",
+    "Save State (1-9)",
+    "Load State (1-9)",
+    "Exit",
+    "Pause/Resume",
+    "DIP Switches",
+    "Insert Coin 1/2",
+    "Service Button",
+    "Insert/Eject Disk",
+    "Swap Disk",
+    "Input Barcode",
+    "Reset",
+    "Power Cycle",
+];
+
+pub const HOTKEY_CONFIG_KEYS: [&str; HOTKEY_COUNT] = [
+    "hotkey_open_rom",
+    "hotkey_close_rom",
+    "hotkey_recent_roms",
+    "hotkey_quick_save",
+    "hotkey_quick_load",
+    "hotkey_save_state",
+    "hotkey_load_state",
+    "hotkey_exit",
+    "hotkey_pause",
+    "hotkey_dip_switches",
+    "hotkey_insert_coin",
+    "hotkey_service_button",
+    "hotkey_insert_eject_disk",
+    "hotkey_swap_disk",
+    "hotkey_input_barcode",
+    "hotkey_reset",
+    "hotkey_power_cycle",
+];
+
+pub const DEFAULT_HOTKEYS: [&str; HOTKEY_COUNT] = [
+    "Ctrl + O",
+    "Ctrl + C",
+    "Ctrl + O + (1-8)",
+    "Ctrl + S",
+    "Ctrl + L",
+    "Ctrl + S + (1-9)",
+    "Ctrl + L + (1-9)",
+    "Ctrl + Esc",
+    "Ctrl + P",
+    "Ctrl + D",
+    "Ctrl + I + (1-2)",
+    "Ctrl + U",
+    "Ctrl + E",
+    "Ctrl + Y",
+    "Ctrl + B",
+    "Ctrl + R",
+    "Ctrl + Shift + R",
+];
+
+pub fn load_hotkeys() -> [String; HOTKEY_COUNT] {
+    let mut b = [(); HOTKEY_COUNT].map(|_| String::new());
+    for (i, d) in DEFAULT_HOTKEYS.iter().enumerate() {
+        b[i] = d.to_string();
+    }
+    if let Ok(content) = std::fs::read_to_string(&config_path()) {
+        for line in content.lines() {
+            let t = line.trim();
+            for (i, key) in HOTKEY_CONFIG_KEYS.iter().enumerate() {
+                let prefix = format!("{}=", key);
+                if let Some(v) = t.strip_prefix(&prefix) {
+                    let val = v.trim();
+                    if !val.is_empty() {
+                        b[i] = val.to_string();
+                    }
+                }
+            }
+        }
+    }
+    b
+}
+
+pub fn save_hotkey(index: usize, binding: &str) {
+    if index < HOTKEY_COUNT {
+        upsert_config(HOTKEY_CONFIG_KEYS[index], binding);
+    }
+}
+
+pub fn reset_hotkeys() {
+    for (i, val) in DEFAULT_HOTKEYS.iter().enumerate() {
+        upsert_config(HOTKEY_CONFIG_KEYS[i], val);
+    }
+}

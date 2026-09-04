@@ -201,6 +201,7 @@ impl Mapper for Mapper548 {
         false
     }
     fn audio_sample(&self) -> f32 { self.fds.current_audio_sample }
+    fn expansion_audio_type(&self) -> crate::mapper::ExpansionAudioType { crate::mapper::ExpansionAudioType::Fds }
     fn take_irq_ack(&mut self) -> bool {
         if self.irq_acknowledged { self.irq_acknowledged = false; return true; }
         false

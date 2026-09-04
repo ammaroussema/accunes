@@ -388,8 +388,11 @@ impl Mapper for Mapper284 {
     }
 
     fn audio_sample(&self) -> f32 {
-        let total = (self.audio[0].pos as i32 + self.audio[1].pos as i32) << 3;
-        total as f32 / 32768.0
+        (self.audio[0].pos as f32 + self.audio[1].pos as f32) * 3.0
+    }
+
+    fn expansion_audio_type(&self) -> crate::mapper::ExpansionAudioType {
+        crate::mapper::ExpansionAudioType::Vrc7
     }
 
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {

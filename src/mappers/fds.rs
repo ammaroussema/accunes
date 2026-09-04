@@ -740,14 +740,10 @@ impl Mapper for Mapper20 {
 
             if !self.wave_write_enabled {
                 let idx = ((self.wave_phase >> 16) & 0x3F) as usize;
-                let sample = self.wave_table[idx] as i32;
-                let vol = (self.vol_gain.min(32)) as i32;
-                let fout = sample * vol - vol * 31;
-
-                let master_scale = match self.master_vol & 3 {
-                    0 => 1.0, 1 => 2.0 / 3.0, 2 => 0.5, 3 => 0.4, _ => 1.0,
-                };
-                self.current_audio_sample = (fout as f32) / (32.0 * 32.0) * master_scale;
+                const WAVE_VOLUME_TABLE: [u32; 4] = [36, 24, 17, 14];
+                let level = (self.vol_gain.min(32) as u32) * WAVE_VOLUME_TABLE[(self.master_vol & 3) as usize];
+                let output_level = ((self.wave_table[idx] as u32) * level) / 1152;
+                self.current_audio_sample = output_level as f32;
             }
         }
 
@@ -936,6 +932,10 @@ impl Mapper for Mapper20 {
 
     fn audio_sample(&self) -> f32 {
         self.current_audio_sample
+    }
+
+    fn expansion_audio_type(&self) -> crate::mapper::ExpansionAudioType {
+        crate::mapper::ExpansionAudioType::Fds
     }
 }
 

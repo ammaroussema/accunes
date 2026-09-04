@@ -116,8 +116,10 @@ impl MapperFME7 {
     }
 
     fn channel_amp(&self, ch: usize) -> f32 {
-        let raw = (self.sreg[0x8 + ch] & 0x0F) as f32;
-        (raw + raw * 0.5) / 15.0
+        const VOLUME_LUT: [f32; 16] = [
+            0.0, 1.0, 1.0, 2.0, 3.0, 5.0, 7.0, 11.0, 15.0, 22.0, 31.0, 44.0, 63.0, 89.0, 125.0, 177.0,
+        ];
+        VOLUME_LUT[(self.sreg[0x8 + ch] & 0x0F) as usize]
     }
 
     fn channel_enabled(&self, ch: usize) -> bool {
@@ -163,7 +165,7 @@ impl MapperFME7 {
                 self.vcount[ch] += self.channel_period(ch);
             }
         }
-        self.current_audio_sample = mix * 0.12;
+        self.current_audio_sample = mix;
     }
 }
 
@@ -344,6 +346,10 @@ impl Mapper for MapperFME7 {
 
     fn audio_sample(&self) -> f32 {
         self.current_audio_sample
+    }
+
+    fn expansion_audio_type(&self) -> crate::mapper::ExpansionAudioType {
+        crate::mapper::ExpansionAudioType::Sunsoft5b
     }
 
     fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8> {

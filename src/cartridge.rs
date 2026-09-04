@@ -846,6 +846,8 @@ impl Cartridge {
             let battery_bytes = if battery_shift == 0 { 0 } else { 64usize << battery_shift };
             let total_ram = vram_bytes + battery_bytes;
             vec![0u8; total_ram]
+        } else if memory_mapper == 682 {
+            vec![0u8; 32 * 1024]
         } else if matches!(memory_mapper, 124 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 262 | 268 | 342 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 501 | 502 | 508 | 512 | 515 | 517 | 518 | 520 | 522 | 536 | 541 | 544 | 547 | 555 | 573 | 574 | 581 | 583 | 587 | 589 | 595 | 598 | 599 | 605 | 606 | 607 | 608 | 609 | 612 | 613 | 614 | 615 | 616 | 617 | 761 | 764 | 767) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             vec![0u8; 0x2000]
         } else if using_chr_ram {
@@ -958,15 +960,20 @@ impl Cartridge {
             vec![0u8; 0x4000]
         } else if memory_mapper == 405 {
             vec![0u8; crate::mappers::mapper405::prg_ram_size(&rom[0..16])]
-        } else if memory_mapper == 682 && rom.len() > 10 && (rom[10] & 0x0F) != 0 {
-            let volatile = (rom[10] & 0x0F) as usize;
-            let battery = ((rom[10] >> 4) & 0x0F) as usize;
+        } else if memory_mapper == 682 {
             let mut size = 0;
-            if volatile != 0 {
-                size += 64usize << volatile;
+            if rom.len() > 10 {
+                let volatile = (rom[10] & 0x0F) as usize;
+                let battery = ((rom[10] >> 4) & 0x0F) as usize;
+                if volatile != 0 {
+                    size += 64usize << volatile;
+                }
+                if battery != 0 {
+                    size += 64usize << battery;
+                }
             }
-            if battery != 0 {
-                size += 64usize << battery;
+            if size == 0 {
+                size = 32 * 1024;
             }
             vec![0u8; size]
         } else {

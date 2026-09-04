@@ -199,6 +199,10 @@ impl Mapper for Mapper515 {
         self.vrc7.get_audio_sample() * 2.0
     }
 
+    fn expansion_audio_type(&self) -> crate::mapper::ExpansionAudioType {
+        crate::mapper::ExpansionAudioType::Vrc7
+    }
+
     fn get_dip_switches(&self) -> u8 {
         0
     }

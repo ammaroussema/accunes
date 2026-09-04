@@ -229,7 +229,7 @@ impl RainbowAudio {
     #[inline]
     pub fn sample(&self) -> f32 {
         if self.output_exp_pin6 || self.output_exp_pin9 {
-            (self.last_output as f32 / 61.0) * (self.volume as f32 / 15.0)
+            (self.last_output as f32) * 15.0 * (self.volume as f32 / 15.0)
         } else {
             0.0
         }

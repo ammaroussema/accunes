@@ -1,5 +1,5 @@
 use crate::cartridge::Cartridge;
-use crate::mapper::{mirror_h_or_v, FetchResult, Mapper};
+use crate::mapper::{FetchResult, Mapper};
 use crate::mappers::flash_s29::FlashS29;
 use crate::mappers::rainbow_audio::RainbowAudio;
 
@@ -262,17 +262,22 @@ impl MapperRainbow {
         self.write_internal_reg(0x412F, 0x80);
         self.write_internal_reg(0x4241, 0x07);
         self.write_internal_reg(0x4242, 0x06);
+        self.write_internal_reg(0x4243, 0x3F);
         self.write_internal_reg(0x4152, 0x00);
         self.write_internal_reg(0x4153, 0x87);
         self.write_internal_reg(0x415A, 0x00);
+        self.write_internal_reg(0x416B, 0x00);
         self.write_internal_reg(0x4190, 0x00);
         self.write_internal_reg(0x41A9, 0x00);
         self.write_internal_reg(0x41AA, 0x0F);
+        self.audio.reset();
+        self.oam_code_locked = false;
     }
 
     fn update_irq_status(&mut self) {
         let active = (self.cpu_irq_enabled && self.cpu_irq_pending)
-            || (self.sl_irq_enabled && self.sl_irq_pending);
+            || (self.sl_irq_enabled && self.sl_irq_pending)
+            || (self.wifi_irq_enabled && self.wifi_irq_pending);
         if active {
             if !self.irq_active {
                 self.jitter_counter = 0;
@@ -285,6 +290,9 @@ impl MapperRainbow {
 
     fn ack_cpu_irq(&mut self) {
         self.cpu_irq_enabled = self.cpu_irq_enable_after_ack;
+        if self.cpu_irq_enabled {
+            self.cpu_irq_counter = self.cpu_irq_reload_value;
+        }
         self.cpu_irq_pending = false;
         self.update_irq_status();
     }
@@ -403,7 +411,7 @@ impl MapperRainbow {
         }
     }
 
-    fn read_chr_direct(&self, addr: usize, chr_rom: &[u8], chr_ram: &[u8]) -> u8 {
+    fn read_chr_direct(&self, addr: usize, chr_rom: &[u8], chr_ram: &[u8], vram: &[u8]) -> u8 {
         match self.chr_source {
             0 => {
                 if !self.chr_flash_data.is_empty() {
@@ -426,6 +434,14 @@ impl MapperRainbow {
                     0
                 }
             }
+            2 => self.mapper_ram[addr & 0x0FFF],
+            3 => {
+                if !vram.is_empty() {
+                    vram[addr & 0x07FF]
+                } else {
+                    0
+                }
+            }
             _ => self.mapper_ram[addr & 0x1FFF],
         }
     }
@@ -442,15 +458,19 @@ impl MapperRainbow {
             if self.chr_source == 2 {
                 self.mapper_ram[addr as usize & 0x0FFF]
             } else if self.chr_source == 3 {
-                vram[(addr as usize) & 0x07FF]
+                if !vram.is_empty() {
+                    vram[(addr as usize) & 0x07FF]
+                } else {
+                    0
+                }
             } else {
-                let chr_mode = (self.chr_mode as usize).min(7);
+                let chr_mode = (self.chr_mode as usize).min(4);
                 let chr_bank_size = (0x2000 >> chr_mode) as usize;
                 let chr_bank_count = 1 << chr_mode;
                 let slot = (addr as usize / chr_bank_size) % chr_bank_count;
                 let offset = addr as usize % chr_bank_size;
                 let abs_addr = (self.chr_banks[slot] as usize * chr_bank_size) + offset;
-                self.read_chr_direct(abs_addr, chr_rom, chr_ram)
+                self.read_chr_direct(abs_addr, chr_rom, chr_ram, vram)
             }
         } else if addr < 0x3F00 {
             let quadrant = ((addr >> 10) & 3) as usize;
@@ -637,9 +657,12 @@ impl MapperRainbow {
             0x4190 => {
                 self.esp_enabled = (value & 0x01) != 0;
                 self.wifi_irq_enabled = (value & 0x02) != 0;
+                self.update_irq_status();
             }
             0x4191 => {
                 self.data_received = false;
+                self.wifi_irq_pending = false;
+                self.update_irq_status();
             }
             0x4192 => {
                 self.data_sent = false;
@@ -655,12 +678,15 @@ impl MapperRainbow {
             }
             0x4241 => {
                 self.oam_slow_update_page = value & 0x07;
+                self.oam_code_locked = false;
             }
             0x4242 => {
                 self.oam_ext_update_page = value & 0x07;
+                self.oam_code_locked = false;
             }
             0x4243 => {
                 self.oam_sprite_limit = value & 0x3F;
+                self.oam_code_locked = false;
             }
             0x4106..=0x4107 => {
                 let idx = (addr - 0x4106) as usize;
@@ -746,7 +772,14 @@ impl Mapper for MapperRainbow {
     }
 
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
+        if address < 0x4280 || address >= 0x4800 {
+            self.oam_code_locked = false;
+        }
+
         if address == 0x4011 {
+            if self.cpu_irq_ack_on_4011 {
+                self.ack_cpu_irq();
+            }
             if self.audio.output_to_4011 {
                 return FetchResult {
                     data: self.audio.get_last_output() << 1,
@@ -1034,20 +1067,22 @@ impl Mapper for MapperRainbow {
     }
 
     fn handle_cpu_write(&mut self, address: u16, data: u8) {
-        match address {
-            0x2000 => {
-                self.large_sprites = (data & 0x20) != 0;
-            }
-            0x2003 => {
-                self.oam_addr = data;
-            }
-            0x2004 => {
-                if (self.oam_addr & 0x03) == 0 {
-                    self.oam_pos_y[(self.oam_addr >> 2) as usize] = data;
+        if (0x2000..0x4000).contains(&address) {
+            match address & 0x2007 {
+                0x2000 => {
+                    self.large_sprites = (data & 0x20) != 0;
                 }
-                self.oam_addr = self.oam_addr.wrapping_add(1);
+                0x2003 => {
+                    self.oam_addr = data;
+                }
+                0x2004 => {
+                    if (self.oam_addr & 0x03) == 0 {
+                        self.oam_pos_y[(self.oam_addr >> 2) as usize] = data;
+                    }
+                    self.oam_addr = self.oam_addr.wrapping_add(1);
+                }
+                _ => {}
             }
-            _ => {}
         }
     }
 
@@ -1058,7 +1093,9 @@ impl Mapper for MapperRainbow {
     }
 
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
-        mirror_h_or_v(false, address)
+        let quadrant = ((address >> 10) & 3) as usize;
+        let bank = (self.nt_banks[quadrant] & 1) as u16;
+        0x2000 + (bank * 0x400) + (address & 0x3FF)
     }
 
     fn fetch_ppu(
@@ -1078,8 +1115,14 @@ impl Mapper for MapperRainbow {
         let addr = (ppu_address_bus & 0x3F00) | (ppu_octal_latch as u16);
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
 
-        if self.chr_flash.is_software_id_mode() && self.chr_source == 0 {
-            if let Some(id) = self.chr_flash.read(addr as u32) {
+        if addr < 0x2000 && self.chr_flash.is_software_id_mode() && self.chr_source == 0 {
+            let chr_mode = (self.chr_mode as usize).min(4);
+            let chr_bank_size = (0x2000 >> chr_mode) as usize;
+            let chr_bank_count = 1 << chr_mode;
+            let slot = (addr as usize / chr_bank_size) % chr_bank_count;
+            let offset = addr as usize % chr_bank_size;
+            let abs_addr = (self.chr_banks[slot] as usize * chr_bank_size) + offset;
+            if let Some(id) = self.chr_flash.read(abs_addr as u32) {
                 new_addr_bus |= id as u16;
                 return (id, new_addr_bus);
             }
@@ -1198,7 +1241,7 @@ impl Mapper for MapperRainbow {
                         | (window_scanline & 0x07)
                         | ((self.ext_data as usize & 0x3F) << 12)
                         | ((self.bg_ext_mode_offset as usize) << 18);
-                    self.read_chr_direct(chr_addr, chr_rom, chr_ram)
+                    self.read_chr_direct(chr_addr, chr_rom, chr_ram, vram)
                 } else {
                     let chr_addr = ((addr & 0x1FF8) as usize) | (window_scanline & 0x07);
                     self.internal_read_vram(chr_addr as u16, chr_rom, chr_ram, vram, using_chr_ram)
@@ -1207,7 +1250,7 @@ impl Mapper for MapperRainbow {
                 let chr_addr = (addr as usize & 0xFFF)
                     | ((self.ext_data as usize & 0x3F) << 12)
                     | ((self.bg_ext_mode_offset as usize) << 18);
-                self.read_chr_direct(chr_addr, chr_rom, chr_ram)
+                self.read_chr_direct(chr_addr, chr_rom, chr_ram, vram)
             } else if self.sprite_ext_mode && !is_bg_fetch {
                 let fetch_idx = (self.nt_fetch_counter.saturating_sub(33) as usize).min(7);
                 let sprite_index = self.oam_mappings[fetch_idx] as usize;
@@ -1220,7 +1263,7 @@ impl Mapper for MapperRainbow {
                         | ((self.sprite_ext_data[sprite_index] as usize) << 12)
                         | (addr as usize & 0xFFF)
                 };
-                self.read_chr_direct(chr_addr, chr_rom, chr_ram)
+                self.read_chr_direct(chr_addr, chr_rom, chr_ram, vram)
             } else {
                 self.internal_read_vram(addr, chr_rom, chr_ram, vram, using_chr_ram)
             }
@@ -1239,7 +1282,7 @@ impl Mapper for MapperRainbow {
                 vram[(addr as usize) & 0x07FF] = data;
             } else if self.chr_source == 1 {
                 if !cart.chr_ram.is_empty() {
-                    let chr_mode = (self.chr_mode as usize).min(7);
+                    let chr_mode = (self.chr_mode as usize).min(4);
                     let chr_bank_size = (0x2000 >> chr_mode) as usize;
                     let chr_bank_count = 1 << chr_mode;
                     let slot = (addr as usize / chr_bank_size) % chr_bank_count;
@@ -1249,7 +1292,7 @@ impl Mapper for MapperRainbow {
                     cart.chr_ram[abs_addr & (len - 1)] = data;
                 }
             } else {
-                let chr_mode = (self.chr_mode as usize).min(7);
+                let chr_mode = (self.chr_mode as usize).min(4);
                 let chr_bank_size = (0x2000 >> chr_mode) as usize;
                 let chr_bank_count = 1 << chr_mode;
                 let slot = (addr as usize / chr_bank_size) % chr_bank_count;
@@ -1318,6 +1361,10 @@ impl Mapper for MapperRainbow {
 
     fn audio_sample(&self) -> f32 {
         self.audio.sample()
+    }
+
+    fn expansion_audio_type(&self) -> crate::mapper::ExpansionAudioType {
+        crate::mapper::ExpansionAudioType::Vrc6
     }
 
     fn battery_save_data(&self, cart: &Cartridge) -> Option<Vec<u8>> {

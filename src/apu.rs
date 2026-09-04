@@ -59,7 +59,10 @@ impl Emulator {
         // --- pulse 1 ---
         let p1_current_period = (self.apu_register[2] as u16) | (((self.apu_register[3] & 0x7) as u16) << 8);
         let p1_target_period = self.pulse_target_period(1, p1_current_period, self.apu_register[1]);
-        let p1_duty = (self.apu_register[0] >> 6) as usize;
+        let mut p1_duty = (self.apu_register[0] >> 6) as usize;
+        if self.swap_duty_cycles {
+            p1_duty = ((p1_duty & 2) >> 1) | ((p1_duty & 1) << 1);
+        }
         let p1_active = self.apu_status_pulse1
             && self.apu_length_counter_pulse1 > 0
             && p1_current_period >= 8
@@ -79,7 +82,10 @@ impl Emulator {
         // --- pulse 2 ---
         let p2_current_period = (self.apu_register[6] as u16) | (((self.apu_register[7] & 0x7) as u16) << 8);
         let p2_target_period = self.pulse_target_period(2, p2_current_period, self.apu_register[5]);
-        let p2_duty = (self.apu_register[4] >> 6) as usize;
+        let mut p2_duty = (self.apu_register[4] >> 6) as usize;
+        if self.swap_duty_cycles {
+            p2_duty = ((p2_duty & 2) >> 1) | ((p2_duty & 1) << 1);
+        }
         let p2_active = self.apu_status_pulse2
             && self.apu_length_counter_pulse2 > 0
             && p2_current_period >= 8
@@ -143,13 +149,27 @@ impl Emulator {
             0.0
         };
 
-        let ext_val = if let Some(cart) = &self.cart {
-            cart.mapper_chip.audio_sample()
+        let (ext_type, ext_val) = if let Some(cart) = &self.cart {
+            (
+                cart.mapper_chip.expansion_audio_type(),
+                cart.mapper_chip.audio_sample(),
+            )
         } else {
-            0.0
+            (crate::mapper::ExpansionAudioType::None, 0.0)
         };
 
-        square_volume + tnd_volume + (ext_val * 0.1 * 5000.0)
+        let ext_mix = match ext_type {
+            crate::mapper::ExpansionAudioType::None => 0.0,
+            crate::mapper::ExpansionAudioType::Fds => ext_val * 20.0 * self.fds_volume,
+            crate::mapper::ExpansionAudioType::Mmc5 => ext_val * 43.0 * self.mmc5_volume,
+            crate::mapper::ExpansionAudioType::Vrc6 => ext_val * 5.0 * self.vrc6_volume,
+            crate::mapper::ExpansionAudioType::Vrc7 => ext_val * 1.0 * self.vrc7_volume,
+            crate::mapper::ExpansionAudioType::Namco163 => ext_val * 20.0 * self.n163_volume,
+            crate::mapper::ExpansionAudioType::Sunsoft5b => ext_val * 15.0 * self.sunsoft5b_volume,
+            crate::mapper::ExpansionAudioType::Other => ext_val * 0.1 * 5000.0 * self.expansion_volume,
+        };
+
+        square_volume + tnd_volume + ext_mix
     }
 
     // apu emulation every cpu cycle

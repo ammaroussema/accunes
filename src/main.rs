@@ -397,6 +397,176 @@ fn compute_vs_ppu_variant(game: &DipGame, dip_val: u8, crc: u32) -> u8 {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+fn format_key_name(code: winit::event::VirtualKeyCode) -> String {
+    match code {
+        winit::event::VirtualKeyCode::A => "A".to_string(),
+        winit::event::VirtualKeyCode::B => "B".to_string(),
+        winit::event::VirtualKeyCode::C => "C".to_string(),
+        winit::event::VirtualKeyCode::D => "D".to_string(),
+        winit::event::VirtualKeyCode::E => "E".to_string(),
+        winit::event::VirtualKeyCode::F => "F".to_string(),
+        winit::event::VirtualKeyCode::G => "G".to_string(),
+        winit::event::VirtualKeyCode::H => "H".to_string(),
+        winit::event::VirtualKeyCode::I => "I".to_string(),
+        winit::event::VirtualKeyCode::J => "J".to_string(),
+        winit::event::VirtualKeyCode::K => "K".to_string(),
+        winit::event::VirtualKeyCode::L => "L".to_string(),
+        winit::event::VirtualKeyCode::M => "M".to_string(),
+        winit::event::VirtualKeyCode::N => "N".to_string(),
+        winit::event::VirtualKeyCode::O => "O".to_string(),
+        winit::event::VirtualKeyCode::P => "P".to_string(),
+        winit::event::VirtualKeyCode::Q => "Q".to_string(),
+        winit::event::VirtualKeyCode::R => "R".to_string(),
+        winit::event::VirtualKeyCode::S => "S".to_string(),
+        winit::event::VirtualKeyCode::T => "T".to_string(),
+        winit::event::VirtualKeyCode::U => "U".to_string(),
+        winit::event::VirtualKeyCode::V => "V".to_string(),
+        winit::event::VirtualKeyCode::W => "W".to_string(),
+        winit::event::VirtualKeyCode::X => "X".to_string(),
+        winit::event::VirtualKeyCode::Y => "Y".to_string(),
+        winit::event::VirtualKeyCode::Z => "Z".to_string(),
+        winit::event::VirtualKeyCode::Escape => "Esc".to_string(),
+        winit::event::VirtualKeyCode::Return => "Enter".to_string(),
+        winit::event::VirtualKeyCode::Space => "Space".to_string(),
+        winit::event::VirtualKeyCode::Tab => "Tab".to_string(),
+        winit::event::VirtualKeyCode::Back => "Backspace".to_string(),
+        winit::event::VirtualKeyCode::Delete => "Delete".to_string(),
+        winit::event::VirtualKeyCode::Insert => "Insert".to_string(),
+        winit::event::VirtualKeyCode::Home => "Home".to_string(),
+        winit::event::VirtualKeyCode::End => "End".to_string(),
+        winit::event::VirtualKeyCode::PageUp => "PageUp".to_string(),
+        winit::event::VirtualKeyCode::PageDown => "PageDown".to_string(),
+        winit::event::VirtualKeyCode::Key0 => "0".to_string(),
+        winit::event::VirtualKeyCode::Key1 => "1".to_string(),
+        winit::event::VirtualKeyCode::Key2 => "2".to_string(),
+        winit::event::VirtualKeyCode::Key3 => "3".to_string(),
+        winit::event::VirtualKeyCode::Key4 => "4".to_string(),
+        winit::event::VirtualKeyCode::Key5 => "5".to_string(),
+        winit::event::VirtualKeyCode::Key6 => "6".to_string(),
+        winit::event::VirtualKeyCode::Key7 => "7".to_string(),
+        winit::event::VirtualKeyCode::Key8 => "8".to_string(),
+        winit::event::VirtualKeyCode::Key9 => "9".to_string(),
+        winit::event::VirtualKeyCode::Numpad0 => "Num0".to_string(),
+        winit::event::VirtualKeyCode::Numpad1 => "Num1".to_string(),
+        winit::event::VirtualKeyCode::Numpad2 => "Num2".to_string(),
+        winit::event::VirtualKeyCode::Numpad3 => "Num3".to_string(),
+        winit::event::VirtualKeyCode::Numpad4 => "Num4".to_string(),
+        winit::event::VirtualKeyCode::Numpad5 => "Num5".to_string(),
+        winit::event::VirtualKeyCode::Numpad6 => "Num6".to_string(),
+        winit::event::VirtualKeyCode::Numpad7 => "Num7".to_string(),
+        winit::event::VirtualKeyCode::Numpad8 => "Num8".to_string(),
+        winit::event::VirtualKeyCode::Numpad9 => "Num9".to_string(),
+        winit::event::VirtualKeyCode::F1 => "F1".to_string(),
+        winit::event::VirtualKeyCode::F2 => "F2".to_string(),
+        winit::event::VirtualKeyCode::F3 => "F3".to_string(),
+        winit::event::VirtualKeyCode::F4 => "F4".to_string(),
+        winit::event::VirtualKeyCode::F5 => "F5".to_string(),
+        winit::event::VirtualKeyCode::F6 => "F6".to_string(),
+        winit::event::VirtualKeyCode::F7 => "F7".to_string(),
+        winit::event::VirtualKeyCode::F8 => "F8".to_string(),
+        winit::event::VirtualKeyCode::F9 => "F9".to_string(),
+        winit::event::VirtualKeyCode::F10 => "F10".to_string(),
+        winit::event::VirtualKeyCode::F11 => "F11".to_string(),
+        winit::event::VirtualKeyCode::F12 => "F12".to_string(),
+        winit::event::VirtualKeyCode::Up => "Up".to_string(),
+        winit::event::VirtualKeyCode::Down => "Down".to_string(),
+        winit::event::VirtualKeyCode::Left => "Left".to_string(),
+        winit::event::VirtualKeyCode::Right => "Right".to_string(),
+        other => format!("{:?}", other),
+    }
+}
+
+fn format_hotkey_combo(ctrl: bool, shift: bool, alt: bool, key_name: &str, suffix: Option<&str>) -> String {
+    let mut parts = Vec::new();
+    if ctrl { parts.push("Ctrl"); }
+    if shift { parts.push("Shift"); }
+    if alt { parts.push("Alt"); }
+    parts.push(key_name);
+    if let Some(sfx) = suffix {
+        format!("{} + {}", parts.join(" + "), sfx)
+    } else {
+        parts.join(" + ")
+    }
+}
+
+fn hotkey_matches_base(binding: &str, ctrl: bool, shift: bool, alt: bool, keycode: winit::event::VirtualKeyCode) -> bool {
+    let req_ctrl = binding.contains("Ctrl");
+    let req_shift = binding.contains("Shift");
+    let req_alt = binding.contains("Alt");
+    if ctrl != req_ctrl || shift != req_shift || alt != req_alt {
+        return false;
+    }
+    let parts: Vec<&str> = binding.split('+').map(|s| s.trim()).collect();
+    let mut main_key = "";
+    for p in parts {
+        if p == "Ctrl" || p == "Shift" || p == "Alt" || p.starts_with('(') || p.contains("1-") {
+            continue;
+        }
+        main_key = p;
+        break;
+    }
+    if main_key.is_empty() {
+        return false;
+    }
+    let actual_key = format_key_name(keycode);
+    if main_key.eq_ignore_ascii_case(&actual_key) {
+        return true;
+    }
+    if (main_key.eq_ignore_ascii_case("Esc") || main_key.eq_ignore_ascii_case("Escape"))
+        && (actual_key.eq_ignore_ascii_case("Esc") || actual_key.eq_ignore_ascii_case("Escape"))
+    {
+        return true;
+    }
+    false
+}
+
+fn keycode_to_digit(code: winit::event::VirtualKeyCode) -> Option<usize> {
+    match code {
+        winit::event::VirtualKeyCode::Key1 | winit::event::VirtualKeyCode::Numpad1 => Some(1),
+        winit::event::VirtualKeyCode::Key2 | winit::event::VirtualKeyCode::Numpad2 => Some(2),
+        winit::event::VirtualKeyCode::Key3 | winit::event::VirtualKeyCode::Numpad3 => Some(3),
+        winit::event::VirtualKeyCode::Key4 | winit::event::VirtualKeyCode::Numpad4 => Some(4),
+        winit::event::VirtualKeyCode::Key5 | winit::event::VirtualKeyCode::Numpad5 => Some(5),
+        winit::event::VirtualKeyCode::Key6 | winit::event::VirtualKeyCode::Numpad6 => Some(6),
+        winit::event::VirtualKeyCode::Key7 | winit::event::VirtualKeyCode::Numpad7 => Some(7),
+        winit::event::VirtualKeyCode::Key8 | winit::event::VirtualKeyCode::Numpad8 => Some(8),
+        winit::event::VirtualKeyCode::Key9 | winit::event::VirtualKeyCode::Numpad9 => Some(9),
+        _ => None,
+    }
+}
+
+fn get_base_key(binding: &str) -> String {
+    let parts: Vec<&str> = binding.split('+').map(|s| s.trim()).collect();
+    for p in parts {
+        if p != "Ctrl" && p != "Shift" && p != "Alt" && !p.starts_with('(') && !p.contains("1-") {
+            return p.to_string();
+        }
+    }
+    String::new()
+}
+
+fn hotkey_base_equals(b1: &str, b2: &str) -> bool {
+    let req_ctrl1 = b1.contains("Ctrl");
+    let req_shift1 = b1.contains("Shift");
+    let req_alt1 = b1.contains("Alt");
+    let req_ctrl2 = b2.contains("Ctrl");
+    let req_shift2 = b2.contains("Shift");
+    let req_alt2 = b2.contains("Alt");
+    if req_ctrl1 != req_ctrl2 || req_shift1 != req_shift2 || req_alt1 != req_alt2 {
+        return false;
+    }
+    let k1 = get_base_key(b1);
+    let k2 = get_base_key(b2);
+    if k1.is_empty() || k2.is_empty() {
+        return false;
+    }
+    k1.eq_ignore_ascii_case(&k2)
+        || ((k1.eq_ignore_ascii_case("Esc") || k1.eq_ignore_ascii_case("Escape"))
+            && (k2.eq_ignore_ascii_case("Esc") || k2.eq_ignore_ascii_case("Escape")))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 struct MenuState {
     hovered_menu: Option<Menu>,
     active_menu: Option<Menu>,
@@ -415,11 +585,14 @@ struct MenuState {
     show_controller1_settings: bool,
     show_controller2_settings: bool,
     show_expansion_settings: bool,
+    show_hotkeys_settings: bool,
     adapter_pair: Option<usize>,
     rebind_controller: Option<u8>,
     rebind_button: Option<usize>,
+    rebind_hotkey: Option<usize>,
     hovered_ctrl_button: Option<usize>,
     hovered_expansion_button: Option<usize>,
+    hovered_hotkey_button: Option<usize>,
     hovered_recent_index: Option<usize>,
     hovered_region_index: Option<usize>,
     hovered_options_index: Option<usize>,
@@ -472,11 +645,14 @@ impl MenuState {
             show_controller1_settings: false,
             show_controller2_settings: false,
             show_expansion_settings: false,
+            show_hotkeys_settings: false,
             adapter_pair: None,
             rebind_controller: None,
             rebind_button: None,
+            rebind_hotkey: None,
             hovered_ctrl_button: None,
             hovered_expansion_button: None,
+            hovered_hotkey_button: None,
             hovered_recent_index: None,
             hovered_region_index: None,
             hovered_options_index: None,
@@ -1095,6 +1271,7 @@ fn active_audio_channels(_rate: u32) -> &'static [(usize, &'static str)] {
         (3, "Square 2:"),
         (4, "Noise:"),
         (5, "PCM:"),
+        (6, "Expansion:"),
     ];
     ALL
 }
@@ -1338,18 +1515,21 @@ fn main() {
 
     let audio_enabled = Rc::new(RefCell::new(config::load_audio_enabled()));
     let audio_depth = Rc::new(RefCell::new(config::load_audio_depth()));
-    let channel_volumes: Rc<RefCell<[u8; 6]>> = Rc::new(RefCell::new([
+    let swap_duty_cycles = Rc::new(RefCell::new(config::load_swap_duty_cycles()));
+    let channel_volumes: Rc<RefCell<[u8; 7]>> = Rc::new(RefCell::new([
         config::load_channel_volume("master"),
         config::load_channel_volume("triangle"),
         config::load_channel_volume("square1"),
         config::load_channel_volume("square2"),
         config::load_channel_volume("noise"),
         config::load_channel_volume("pcm"),
+        config::load_channel_volume("expansion"),
     ]));
     {
         let mut e = emu.lock().unwrap();
         e.audio_enabled = *audio_enabled.borrow();
         e.audio_depth = *audio_depth.borrow();
+        e.swap_duty_cycles = *swap_duty_cycles.borrow();
         let vols = channel_volumes.borrow();
         e.master_volume = vols[0] as f32 / 100.0;
         e.triangle_volume = vols[1] as f32 / 100.0;
@@ -1357,6 +1537,14 @@ fn main() {
         e.square2_volume = vols[3] as f32 / 100.0;
         e.noise_volume = vols[4] as f32 / 100.0;
         e.pcm_volume = vols[5] as f32 / 100.0;
+        let exp_vol = vols[6] as f32 / 100.0;
+        e.expansion_volume = exp_vol;
+        e.fds_volume = exp_vol;
+        e.mmc5_volume = exp_vol;
+        e.vrc6_volume = exp_vol;
+        e.vrc7_volume = exp_vol;
+        e.n163_volume = exp_vol;
+        e.sunsoft5b_volume = exp_vol;
     }
 
     let fullscreen = Rc::new(RefCell::new(config::load_fullscreen()));
@@ -1527,8 +1715,14 @@ fn main() {
     let menu_state_clone = menu_state.clone();
     let recent_roms_clone = recent_roms.clone();
     let quick_save_slot_clone = quick_save_slot.clone();
-
-
+    let hotkey_bindings = Rc::new(RefCell::new(config::load_hotkeys()));
+    let hotkey_bindings_clone = hotkey_bindings.clone();
+    let modifiers_ctrl = Arc::new(AtomicBool::new(false));
+    let modifiers_shift = Arc::new(AtomicBool::new(false));
+    let modifiers_alt = Arc::new(AtomicBool::new(false));
+    let modifiers_ctrl_clone = modifiers_ctrl.clone();
+    let modifiers_shift_clone = modifiers_shift.clone();
+    let modifiers_alt_clone = modifiers_alt.clone();
     let emu_clone = emu.clone();
     let rom_loaded_clone = rom_loaded.clone();
     let current_rom_clone = current_rom.clone();
@@ -1659,6 +1853,7 @@ fn main() {
     let phase_inc_clone = phase_inc.clone();
     let audio_buffer_clone2 = audio_buffer.clone();
     let channel_volumes_clone = channel_volumes.clone();
+    let swap_duty_cycles_clone = swap_duty_cycles.clone();
 
     let fullscreen_clone = fullscreen.clone();
     let fullscreen_on_game_load_clone = fullscreen_on_game_load.clone();
@@ -1794,6 +1989,10 @@ fn main() {
     let mut last_rendered_frame: u32 = u32::MAX;
     let mut last_rendered_mouse: (usize, usize) = (usize::MAX, usize::MAX);
     let mut last_menu_active: bool = false;
+    let mut open_chord_time: Option<Instant> = None;
+    let mut save_chord_time: Option<Instant> = None;
+    let mut load_chord_time: Option<Instant> = None;
+    let mut coin_chord_time: Option<Instant> = None;
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(4));
@@ -2308,6 +2507,15 @@ fn main() {
                 }
             }
             WinitEvent::WindowEvent {
+                event: WindowEvent::ModifiersChanged(modifiers),
+                ..
+            } => {
+                modifiers_ctrl_clone.store(modifiers.ctrl(), Ordering::Relaxed);
+                modifiers_shift_clone.store(modifiers.shift(), Ordering::Relaxed);
+                modifiers_alt_clone.store(modifiers.alt(), Ordering::Relaxed);
+                barcode_ctrl_clone.store(modifiers.ctrl(), Ordering::Relaxed);
+            }
+            WinitEvent::WindowEvent {
                 event: WindowEvent::KeyboardInput {
                     input: winit::event::KeyboardInput {
                         virtual_keycode: Some(keycode),
@@ -2323,6 +2531,15 @@ fn main() {
                     winit::event::VirtualKeyCode::LControl
                     | winit::event::VirtualKeyCode::RControl => {
                         barcode_ctrl_clone.store(pressed, Ordering::Relaxed);
+                        modifiers_ctrl_clone.store(pressed, Ordering::Relaxed);
+                    }
+                    winit::event::VirtualKeyCode::LShift
+                    | winit::event::VirtualKeyCode::RShift => {
+                        modifiers_shift_clone.store(pressed, Ordering::Relaxed);
+                    }
+                    winit::event::VirtualKeyCode::LAlt
+                    | winit::event::VirtualKeyCode::RAlt => {
+                        modifiers_alt_clone.store(pressed, Ordering::Relaxed);
                     }
                     _ => {}
                 }
@@ -2385,7 +2602,42 @@ fn main() {
                 } else {
                 let rebound = {
                     let ms = menu_state_clone.borrow();
-                    if ms.rebind_controller.is_some() && ms.rebind_button.is_some() && pressed {
+                    if let Some(idx) = ms.rebind_hotkey {
+                        if pressed {
+                            let is_modifier = matches!(
+                                keycode,
+                                winit::event::VirtualKeyCode::LControl
+                                    | winit::event::VirtualKeyCode::RControl
+                                    | winit::event::VirtualKeyCode::LShift
+                                    | winit::event::VirtualKeyCode::RShift
+                                    | winit::event::VirtualKeyCode::LAlt
+                                    | winit::event::VirtualKeyCode::RAlt
+                            );
+                            if !is_modifier {
+                                drop(ms);
+                                let ctrl = modifiers_ctrl_clone.load(Ordering::Relaxed);
+                                let shift = modifiers_shift_clone.load(Ordering::Relaxed);
+                                let alt = modifiers_alt_clone.load(Ordering::Relaxed);
+                                if keycode == winit::event::VirtualKeyCode::Escape && !ctrl && !shift && !alt {
+                                    menu_state_clone.borrow_mut().rebind_hotkey = None;
+                                } else {
+                                    let kn = format_key_name(keycode);
+                                    let sfx = match idx {
+                                        2 => Some("(1-8)"),
+                                        5 => Some("(1-9)"),
+                                        6 => Some("(1-9)"),
+                                        10 => Some("(1-2)"),
+                                        _ => None,
+                                    };
+                                    let combo = format_hotkey_combo(ctrl, shift, alt, &kn, sfx);
+                                    hotkey_bindings_clone.borrow_mut()[idx] = combo.clone();
+                                    config::save_hotkey(idx, &combo);
+                                    menu_state_clone.borrow_mut().rebind_hotkey = None;
+                                }
+                            }
+                        }
+                        true
+                    } else if ms.rebind_controller.is_some() && ms.rebind_button.is_some() && pressed {
                         let ctrl = ms.rebind_controller.unwrap();
                         let btn = ms.rebind_button.unwrap();
                         drop(ms);
@@ -2847,17 +3099,363 @@ fn main() {
                         }
                     }
                 }
-                if pressed {
-                    match keycode {
-                        winit::event::VirtualKeyCode::P => {
-                            paused_clone.store(!paused_clone.load(Ordering::Relaxed), Ordering::Relaxed);
+                let is_settings_modal_open = {
+                    let ms = menu_state_clone.borrow();
+                    ms.show_dip_switches
+                        || ms.show_general_settings
+                        || ms.show_audio_settings
+                        || ms.show_video_settings
+                        || ms.show_input_settings
+                        || ms.show_controller1_settings
+                        || ms.show_controller2_settings
+                        || ms.show_expansion_settings
+                        || ms.show_hotkeys_settings
+                        || ms.show_about
+                        || ms.show_error
+                        || ms.show_confirm_exit_dialog
+                        || ms.show_barcode_input
+                };
+
+                if is_settings_modal_open {
+                    if pressed && keycode == winit::event::VirtualKeyCode::Escape {
+                        let mut ms = menu_state_clone.borrow_mut();
+                        if ms.show_hotkeys_settings {
+                            ms.show_hotkeys_settings = false;
+                            ms.rebind_hotkey = None;
                         }
-                        winit::event::VirtualKeyCode::R => {
-                            if *rom_loaded_clone.borrow() {
-                                let _ = cmd_tx.send(EmuCommand::Reset);
+                    }
+                } else {
+                    let ctrl = modifiers_ctrl_clone.load(Ordering::Relaxed);
+                    let shift = modifiers_shift_clone.load(Ordering::Relaxed);
+                    let alt = modifiers_alt_clone.load(Ordering::Relaxed);
+                    let bindings = hotkey_bindings_clone.borrow().clone();
+
+                    if pressed {
+                        let is_open_base = hotkey_matches_base(&bindings[0], ctrl, shift, alt, keycode);
+                        let is_recent_base = hotkey_matches_base(&bindings[2], ctrl, shift, alt, keycode);
+                        let is_save_base = hotkey_matches_base(&bindings[3], ctrl, shift, alt, keycode);
+                        let is_savestate_base = hotkey_matches_base(&bindings[5], ctrl, shift, alt, keycode);
+                        let is_load_base = hotkey_matches_base(&bindings[4], ctrl, shift, alt, keycode);
+                        let is_loadstate_base = hotkey_matches_base(&bindings[6], ctrl, shift, alt, keycode);
+                        let is_coin_base = hotkey_matches_base(&bindings[10], ctrl, shift, alt, keycode);
+
+                        let open_shares_recent = hotkey_base_equals(&bindings[0], &bindings[2]);
+                        let save_shares_state = hotkey_base_equals(&bindings[3], &bindings[5]);
+                        let load_shares_state = hotkey_base_equals(&bindings[4], &bindings[6]);
+
+                        if keycode == winit::event::VirtualKeyCode::Escape && !ctrl && !shift && !alt {
+                            open_chord_time = None;
+                            save_chord_time = None;
+                            load_chord_time = None;
+                            coin_chord_time = None;
+                        }
+
+                        let mut chord_consumed = false;
+                        if let Some(digit) = keycode_to_digit(keycode) {
+                            if let Some(t) = open_chord_time {
+                                if t.elapsed() < Duration::from_millis(2000) && digit >= 1 && digit <= 8 {
+                                    open_chord_time = None;
+                                    chord_consumed = true;
+                                    let roms = recent_roms_clone.borrow();
+                                    if let Some(path_str) = roms.get(digit - 1).cloned() {
+                                        drop(roms);
+                                        match cartridge::Cartridge::from_file(&path_str) {
+                                            Ok(cart) => {
+                                                let crc = cart.prg_rom_crc32;
+                                                let mapper_id = cart.memory_mapper;
+                                                let dip_needed = load_dip_game(crc, mapper_id);
+                                                auto_apply_input(&cart);
+                                                let _ = cmd_tx.send(EmuCommand::LoadCartridge(cart));
+                                                let _ = cmd_tx.send(EmuCommand::PowerCycle(*initial_ram_clone.borrow()));
+                                                *rom_loaded_clone.borrow_mut() = true;
+                                                rom_loaded_flag_clone.store(true, Ordering::Relaxed);
+                                                *current_rom_clone.borrow_mut() = Some(path_str.clone());
+                                                if let Some(game) = dip_needed {
+                                                    let dip_val = 0u8;
+                                                    let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
+                                                    let variant = compute_vs_ppu_variant(&game, new_val as u8, crc);
+                                                    let _ = cmd_tx.send(EmuCommand::SetDipSwitches(new_val as u8));
+                                                    let _ = cmd_tx.send(EmuCommand::SetVsPpuVariant(variant));
+                                                    let mut ms = menu_state_clone.borrow_mut();
+                                                    ms.dip_definition = Some(game);
+                                                    ms.show_dip_switches = true;
+                                                    paused_clone.store(true, Ordering::Relaxed);
+                                                }
+                                                if *fullscreen_on_game_load_clone.borrow() {
+                                                    window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
+                                                }
+                                                window.set_cursor_visible(!*hide_mouse_cursor_clone.borrow());
+                                                let mut roms_mut = recent_roms_clone.borrow_mut();
+                                                if let Some(pos) = roms_mut.iter().position(|r| r == &path_str) {
+                                                    roms_mut.remove(pos);
+                                                }
+                                                roms_mut.insert(0, path_str);
+                                                roms_mut.truncate(8);
+                                                let _ = std::fs::write(".recent_roms", roms_mut.join("\n"));
+                                            }
+                                            Err(e) => {
+                                                let mut ms = menu_state_clone.borrow_mut();
+                                                ms.show_error = true;
+                                                ms.error_message = e;
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if let Some(t) = save_chord_time {
+                                if t.elapsed() < Duration::from_millis(2000) && digit >= 1 && digit <= 9 {
+                                    save_chord_time = None;
+                                    chord_consumed = true;
+                                    if *rom_loaded_clone.borrow() {
+                                        if let Some(ref rom_path) = *current_rom_clone.borrow() {
+                                            let state_data = emu_clone.lock().unwrap().save_state_to_bytes();
+                                            let state_path = config::state_file_path(rom_path, digit);
+                                            if let Some(parent) = state_path.parent() {
+                                                let _ = std::fs::create_dir_all(parent);
+                                            }
+                                            if let Err(e) = std::fs::write(&state_path, &state_data) {
+                                                eprintln!("Failed to save state to {}: {}", state_path.display(), e);
+                                            } else {
+                                                println!("Saved state to {}", state_path.display());
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if let Some(t) = load_chord_time {
+                                if t.elapsed() < Duration::from_millis(2000) && digit >= 1 && digit <= 9 {
+                                    load_chord_time = None;
+                                    chord_consumed = true;
+                                    if *rom_loaded_clone.borrow() {
+                                        if let Some(ref rom_path) = *current_rom_clone.borrow() {
+                                            let state_path = config::state_file_path(rom_path, digit);
+                                            if state_path.exists() {
+                                                match std::fs::read(&state_path) {
+                                                    Ok(state_data) => {
+                                                        if let Err(e) = emu_clone.lock().unwrap().load_state_from_bytes(&state_data) {
+                                                            eprintln!("Failed to load state: {}", e);
+                                                        } else {
+                                                            println!("Loaded state from {}", state_path.display());
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        eprintln!("Failed to read state from {}: {}", state_path.display(), e);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if let Some(t) = coin_chord_time {
+                                if t.elapsed() < Duration::from_millis(2000) && (digit == 1 || digit == 2) {
+                                    coin_chord_time = None;
+                                    chord_consumed = true;
+                                    if *rom_loaded_clone.borrow() {
+                                        let _ = cmd_tx.send(EmuCommand::InsertCoin((digit - 1) as u8));
+                                    }
+                                }
                             }
                         }
-                        _ => {}
+
+                        if !chord_consumed {
+                            if open_shares_recent && (is_open_base || is_recent_base) {
+                                open_chord_time = Some(Instant::now());
+                                save_chord_time = None;
+                                load_chord_time = None;
+                                coin_chord_time = None;
+                            } else if !open_shares_recent && is_open_base {
+                                open_chord_time = None;
+                                save_chord_time = None;
+                                load_chord_time = None;
+                                coin_chord_time = None;
+                                if let Some(path) = rfd::FileDialog::new()
+                                    .add_filter("All ROMs", &["nes", "unif", "unf", "fds", "qd", "wxn", "studybox", "study"])
+                                    .add_filter("NES ROMs", &["nes", "unif", "unf"])
+                                    .add_filter("FDS / QD ROMs", &["fds", "qd"])
+                                    .add_filter("Waixing ROMs", &["wxn"])
+                                    .add_filter("Study Box Tapes", &["studybox", "study"])
+                                    .pick_file() {
+                                    let path_str = path.to_string_lossy().to_string();
+                                    match cartridge::Cartridge::from_file(&path_str) {
+                                        Ok(cart) => {
+                                            let crc = cart.prg_rom_crc32;
+                                            let mapper_id = cart.memory_mapper;
+                                            let dip_needed = load_dip_game(crc, mapper_id);
+                                            auto_apply_input(&cart);
+                                            let _ = cmd_tx.send(EmuCommand::LoadCartridge(cart));
+                                            let _ = cmd_tx.send(EmuCommand::PowerCycle(*initial_ram_clone.borrow()));
+                                            *rom_loaded_clone.borrow_mut() = true;
+                                            rom_loaded_flag_clone.store(true, Ordering::Relaxed);
+                                            *current_rom_clone.borrow_mut() = Some(path_str.clone());
+                                            if let Some(game) = dip_needed {
+                                                let dip_val = 0u8;
+                                                let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
+                                                let variant = compute_vs_ppu_variant(&game, new_val as u8, crc);
+                                                let _ = cmd_tx.send(EmuCommand::SetDipSwitches(new_val as u8));
+                                                let _ = cmd_tx.send(EmuCommand::SetVsPpuVariant(variant));
+                                                let mut ms = menu_state_clone.borrow_mut();
+                                                ms.dip_definition = Some(game);
+                                                ms.show_dip_switches = true;
+                                                paused_clone.store(true, Ordering::Relaxed);
+                                            }
+                                            if *fullscreen_on_game_load_clone.borrow() {
+                                                window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
+                                            }
+                                            window.set_cursor_visible(!*hide_mouse_cursor_clone.borrow());
+                                            let mut roms = recent_roms_clone.borrow_mut();
+                                            if let Some(pos) = roms.iter().position(|r| r == &path_str) {
+                                                roms.remove(pos);
+                                            }
+                                            roms.insert(0, path_str);
+                                            roms.truncate(8);
+                                            let _ = std::fs::write(".recent_roms", roms.join("\n"));
+                                        }
+                                        Err(e) => {
+                                            let mut ms = menu_state_clone.borrow_mut();
+                                            ms.show_error = true;
+                                            ms.error_message = e;
+                                        }
+                                    }
+                                }
+                            } else if !open_shares_recent && is_recent_base {
+                                open_chord_time = Some(Instant::now());
+                                save_chord_time = None;
+                                load_chord_time = None;
+                                coin_chord_time = None;
+                            } else if save_shares_state && (is_save_base || is_savestate_base) {
+                                save_chord_time = Some(Instant::now());
+                                open_chord_time = None;
+                                load_chord_time = None;
+                                coin_chord_time = None;
+                            } else if !save_shares_state && is_save_base {
+                                open_chord_time = None;
+                                save_chord_time = None;
+                                load_chord_time = None;
+                                coin_chord_time = None;
+                                if *rom_loaded_clone.borrow() {
+                                    let state_data = emu_clone.lock().unwrap().save_state_to_bytes();
+                                    *quick_save_slot_clone.borrow_mut() = Some(state_data);
+                                    println!("Quick saved successfully");
+                                }
+                            } else if !save_shares_state && is_savestate_base {
+                                save_chord_time = Some(Instant::now());
+                                open_chord_time = None;
+                                load_chord_time = None;
+                                coin_chord_time = None;
+                            } else if load_shares_state && (is_load_base || is_loadstate_base) {
+                                load_chord_time = Some(Instant::now());
+                                open_chord_time = None;
+                                save_chord_time = None;
+                                coin_chord_time = None;
+                            } else if !load_shares_state && is_load_base {
+                                open_chord_time = None;
+                                save_chord_time = None;
+                                load_chord_time = None;
+                                coin_chord_time = None;
+                                if *rom_loaded_clone.borrow() {
+                                    if let Some(ref state_data) = *quick_save_slot_clone.borrow() {
+                                        if let Err(e) = emu_clone.lock().unwrap().load_state_from_bytes(state_data) {
+                                            eprintln!("Failed to quick load: {}", e);
+                                        } else {
+                                            println!("Quick loaded successfully");
+                                        }
+                                    }
+                                }
+                            } else if !load_shares_state && is_loadstate_base {
+                                load_chord_time = Some(Instant::now());
+                                open_chord_time = None;
+                                save_chord_time = None;
+                                coin_chord_time = None;
+                            } else if is_coin_base {
+                                coin_chord_time = Some(Instant::now());
+                                open_chord_time = None;
+                                save_chord_time = None;
+                                load_chord_time = None;
+                            } else if hotkey_matches_base(&bindings[16], ctrl, shift, alt, keycode) {
+                                open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
+                                if *rom_loaded_clone.borrow() {
+                                    let _ = cmd_tx.send(EmuCommand::PowerCycle(*initial_ram_clone.borrow()));
+                                }
+                            } else if hotkey_matches_base(&bindings[15], ctrl, shift, alt, keycode) {
+                                open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
+                                if *rom_loaded_clone.borrow() {
+                                    let _ = cmd_tx.send(EmuCommand::Reset);
+                                }
+                            } else if hotkey_matches_base(&bindings[1], ctrl, shift, alt, keycode) {
+                                open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
+                                if *auto_save_sram_clone.borrow() && *rom_loaded_clone.borrow() {
+                                    let _ = cmd_tx.send(EmuCommand::SavePrgRam);
+                                }
+                                let _ = cmd_tx.send(EmuCommand::ClearCart);
+                                *rom_loaded_clone.borrow_mut() = false;
+                                rom_loaded_flag_clone.store(false, Ordering::Relaxed);
+                                *current_rom_clone.borrow_mut() = None;
+                            } else if hotkey_matches_base(&bindings[7], ctrl, shift, alt, keycode) {
+                                open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
+                                if *confirm_on_exit_clone.borrow() && *rom_loaded_clone.borrow() {
+                                    menu_state_clone.borrow_mut().show_confirm_exit_dialog = true;
+                                    paused_clone.store(true, Ordering::Relaxed);
+                                    window.request_redraw();
+                                } else {
+                                    if *auto_save_sram_clone.borrow() && *rom_loaded_clone.borrow() {
+                                        let _ = cmd_tx.send(EmuCommand::SavePrgRam);
+                                    }
+                                    *control_flow = ControlFlow::Exit;
+                                }
+                            } else if hotkey_matches_base(&bindings[8], ctrl, shift, alt, keycode) {
+                                open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
+                                paused_clone.store(!paused_clone.load(Ordering::Relaxed), Ordering::Relaxed);
+                            } else if hotkey_matches_base(&bindings[9], ctrl, shift, alt, keycode) {
+                                open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
+                                if *rom_loaded_clone.borrow() {
+                                    let dip_info = emu_clone.lock().ok().map(|e| (e.has_dip_switches(), e.memory_mapper(), e.prg_rom_crc32(), e.get_dip_switches()));
+                                    if let Some((has_dip, mapper_id, crc, dip_val)) = dip_info {
+                                        if has_dip {
+                                            let game = load_dip_game(crc, mapper_id);
+                                            if let Some(ref g) = game {
+                                                let variant = compute_vs_ppu_variant(g, dip_val, crc);
+                                                let _ = cmd_tx.send(EmuCommand::SetVsPpuVariant(variant));
+                                            }
+                                            let mut ms = menu_state_clone.borrow_mut();
+                                            ms.dip_definition = game;
+                                            ms.show_dip_switches = true;
+                                            paused_clone.store(true, Ordering::Relaxed);
+                                        }
+                                    }
+                                }
+                            } else if hotkey_matches_base(&bindings[11], ctrl, shift, alt, keycode) {
+                                open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
+                                if *rom_loaded_clone.borrow() {
+                                    let _ = cmd_tx.send(EmuCommand::ServiceButton);
+                                }
+                            } else if hotkey_matches_base(&bindings[12], ctrl, shift, alt, keycode) {
+                                open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
+                                if *rom_loaded_clone.borrow() {
+                                    if disk_inserted_clone.load(Ordering::Relaxed) {
+                                        let _ = cmd_tx.send(EmuCommand::EjectDisk);
+                                        disk_inserted_clone.store(false, Ordering::Relaxed);
+                                    } else {
+                                        let _ = cmd_tx.send(EmuCommand::InsertDisk);
+                                        disk_inserted_clone.store(true, Ordering::Relaxed);
+                                    }
+                                }
+                            } else if hotkey_matches_base(&bindings[13], ctrl, shift, alt, keycode) {
+                                open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
+                                if *rom_loaded_clone.borrow() {
+                                    let _ = cmd_tx.send(EmuCommand::ChangeDisk);
+                                }
+                            } else if hotkey_matches_base(&bindings[14], ctrl, shift, alt, keycode) {
+                                open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
+                                if *rom_loaded_clone.borrow() {
+                                    barcode_ctrl_clone.store(false, Ordering::Relaxed);
+                                    let mut ms = menu_state_clone.borrow_mut();
+                                    ms.barcode_input.clear();
+                                    ms.barcode_caret = 0;
+                                    ms.barcode_sel_anchor = None;
+                                    ms.barcode_dragging = false;
+                                    ms.show_barcode_input = true;
+                                    paused_clone.store(true, Ordering::Relaxed);
+                                }
+                            }
+                        }
                     }
                 }
                 }
@@ -2872,10 +3470,42 @@ fn main() {
                 ms.mouse_pos = (mx, my);
                 ms.hovered_ctrl_button = None;
                 ms.hovered_expansion_button = None;
+                ms.hovered_hotkey_button = None;
                 let sc = ms.scale;
                 let ws = window.inner_size();
                 let width = ws.width as usize;
                 let height = ws.height as usize;
+                if ms.show_hotkeys_settings {
+                    let hw = (460.0 * sc).round() as usize;
+                    let title_h = (30.0 * sc).round() as usize;
+                    let pad_x = (14.0 * sc).round() as usize;
+                    let col_gap = (14.0 * sc).round() as usize;
+                    let col_w = (hw.saturating_sub(pad_x * 2 + col_gap)) / 2;
+                    let lbl_h = (10.0 * sc).round() as usize;
+                    let lbl_btn_gap = (3.0 * sc).round() as usize;
+                    let btn_h = (22.0 * sc).round() as usize;
+                    let item_gap = (5.0 * sc).round() as usize;
+                    let item_total_h = lbl_h + lbl_btn_gap + btn_h + item_gap;
+                    let grid_h = 9 * item_total_h - item_gap;
+                    let top_pad = (8.0 * sc).round() as usize;
+                    let bottom_gap = (8.0 * sc).round() as usize;
+                    let btn_bottom_h = (24.0 * sc).round() as usize;
+                    let bottom_margin = (10.0 * sc).round() as usize;
+                    let hh = title_h + top_pad + grid_h + bottom_gap + btn_bottom_h + bottom_margin;
+                    let hx = (width.saturating_sub(hw)) / 2;
+                    let hy = (height.saturating_sub(hh)) / 2;
+                    let grid_y0 = hy + title_h + top_pad;
+                    for i in 0..config::HOTKEY_COUNT {
+                        let (col, r) = if i < 9 { (0, i) } else { (1, i - 9) };
+                        let bx = if col == 0 { hx + pad_x } else { hx + pad_x + col_w + col_gap };
+                        let item_y = grid_y0 + r * item_total_h;
+                        let btn_y = item_y + lbl_h + lbl_btn_gap;
+                        if point_in_rect(mx, my, bx, btn_y, col_w, btn_h) {
+                            ms.hovered_hotkey_button = Some(i);
+                            break;
+                        }
+                    }
+                }
                 if ms.show_barcode_input && ms.barcode_dragging {
                     let dlg_w = (320.0 * sc).round() as usize;
                     let dlg_h = (160.0 * sc).round() as usize;
@@ -3368,20 +3998,33 @@ fn main() {
                 if let Some(drag_chan) = drag_chan {
                     let channels = active_audio_channels(0);
                     if let Some(ch_row) = channels.iter().position(|&(idx, _)| idx == drag_chan) {
-                        let aw = (400.0 * sc).round() as usize;
-                        let gap = (8.0 * sc).round() as usize;
-                        let title_h = (30.0 * sc).round() as usize;
-                        let row_h = (22.0 * sc).round() as usize;
+                        let aw = (420.0 * sc).round() as usize;
+                        let gap = (7.0 * sc).round() as usize;
+                        let title_h = (28.0 * sc).round() as usize;
+                        let row_h = (20.0 * sc).round() as usize;
                         let slider_w = (120.0 * sc).round() as usize;
                         let border_thickness = (2.0 * sc).round() as usize;
-                        let content_rows = 3 + channels.len();
+                        let content_rows = 2 + channels.len();
+                        let inner_h = title_h + gap + content_rows * (row_h + gap) - gap + border_thickness * 2;
+                        let menu_height = (BASE_MENU_HEIGHT as f32 * sc).round() as usize;
+                        let avail_h = height.saturating_sub(menu_height);
+                        let (row_h, gap, title_h) = if inner_h + 10 > avail_h && avail_h > 120 {
+                            let factor = (avail_h - 10) as f32 / inner_h as f32;
+                            (
+                                ((20.0 * sc * factor).round() as usize).max(10),
+                                ((7.0 * sc * factor).round() as usize).max(2),
+                                ((28.0 * sc * factor).round() as usize).max(16),
+                            )
+                        } else {
+                            (row_h, gap, title_h)
+                        };
                         let ah = title_h + gap + content_rows * (row_h + gap) - gap + border_thickness * 2;
                         let ax = (width.saturating_sub(aw)) / 2;
-                        let ay = (height.saturating_sub(ah)) / 2;
+                        let ay = menu_height + (avail_h.saturating_sub(ah)) / 2;
                         let slider_x = ax + aw - (15.0 * sc).round() as usize - slider_w;
-                        let slider_start = ay + title_h + gap + 4 * (row_h + gap);
+                        let slider_start = ay + title_h + gap + 2 * (row_h + gap);
                         let drag_row_y = slider_start + ch_row * (row_h + gap);
-                        if my >= drag_row_y && my < drag_row_y + row_h {
+                        if my + (15.0 * sc) as usize >= drag_row_y && my <= drag_row_y + row_h + (15.0 * sc) as usize {
                             let rel_x = mx.saturating_sub(slider_x);
                             let pct = ((rel_x as f32 / slider_w as f32) * 100.0).round().min(100.0).max(0.0) as u8;
                             let mut vols = channel_volumes_clone.borrow_mut();
@@ -3395,7 +4038,16 @@ fn main() {
                                 2 => e.square1_volume = vol_f32,
                                 3 => e.square2_volume = vol_f32,
                                 4 => e.noise_volume = vol_f32,
-                                _ => e.pcm_volume = vol_f32,
+                                5 => e.pcm_volume = vol_f32,
+                                _ => {
+                                    e.expansion_volume = vol_f32;
+                                    e.fds_volume = vol_f32;
+                                    e.mmc5_volume = vol_f32;
+                                    e.vrc6_volume = vol_f32;
+                                    e.vrc7_volume = vol_f32;
+                                    e.n163_volume = vol_f32;
+                                    e.sunsoft5b_volume = vol_f32;
+                                }
                             }
                         }
                     }
@@ -3488,6 +4140,10 @@ fn main() {
                 let pressed = state == winit::event::ElementState::Pressed;
                 let btn_str = mouse_button_str(&button);
                 if pressed {
+                    open_chord_time = None;
+                    save_chord_time = None;
+                    load_chord_time = None;
+                    coin_chord_time = None;
                     let rebound = {
                         let ms = menu_state_clone.borrow();
                         if ms.rebind_controller.is_some() && ms.rebind_button.is_some() {
@@ -3625,7 +4281,7 @@ fn main() {
                     ms.show_dip_switches || ms.show_general_settings || ms.show_audio_settings
                         || ms.show_video_settings || ms.show_input_settings
                         || ms.show_controller1_settings || ms.show_controller2_settings
-                        || ms.show_expansion_settings
+                        || ms.show_expansion_settings || ms.show_hotkeys_settings
                         || ms.show_about || ms.show_error || ms.show_confirm_exit_dialog
                         || ms.show_barcode_input
                 };
@@ -4271,46 +4927,56 @@ fn main() {
                         }
                     } else if ms.show_audio_settings {
                         let sc = ms.scale;
-                        let aw = (400.0 * sc).round() as usize;
-                        let gap = (8.0 * sc).round() as usize;
-                        let title_h = (30.0 * sc).round() as usize;
-                        let row_h = (22.0 * sc).round() as usize;
+                        let aw = (420.0 * sc).round() as usize;
+                        let gap = (7.0 * sc).round() as usize;
+                        let title_h = (28.0 * sc).round() as usize;
+                        let row_h = (20.0 * sc).round() as usize;
                         let border_thickness = (2.0 * sc).round() as usize;
                         let rate_val = *audio_rate_clone.borrow();
                         let channels = active_audio_channels(rate_val);
-                        let content_rows = 3 + channels.len();
+                        let content_rows = 2 + channels.len();
+                        let inner_h = title_h + gap + content_rows * (row_h + gap) - gap + border_thickness * 2;
+                        let menu_height = (BASE_MENU_HEIGHT as f32 * sc).round() as usize;
+                        let avail_h = height.saturating_sub(menu_height);
+                        let (row_h, gap, title_h) = if inner_h + 10 > avail_h && avail_h > 120 {
+                            let factor = (avail_h - 10) as f32 / inner_h as f32;
+                            (
+                                ((20.0 * sc * factor).round() as usize).max(10),
+                                ((7.0 * sc * factor).round() as usize).max(2),
+                                ((28.0 * sc * factor).round() as usize).max(16),
+                            )
+                        } else {
+                            (row_h, gap, title_h)
+                        };
                         let ah = title_h + gap + content_rows * (row_h + gap) - gap + border_thickness * 2;
                         let ax = (width.saturating_sub(aw)) / 2;
-                        let ay = (height.saturating_sub(ah)) / 2;
+                        let ay = menu_height + (avail_h.saturating_sub(ah)) / 2;
                         let close_w = (20.0 * sc).round() as usize;
                         let close_h = (20.0 * sc).round() as usize;
                         let close_x = ax + aw - close_w - (10.0 * sc).round() as usize;
-                        let close_y = ay + (5.0 * sc).round() as usize;
+                        let close_y = ay + (4.0 * sc).round() as usize;
                         if point_in_rect(mx, my, close_x, close_y, close_w, close_h) {
                             drop(ms);
                             menu_state_clone.borrow_mut().show_audio_settings = false;
                             paused_clone.store(false, Ordering::Relaxed);
                         } else {
-                            let sc = ms.scale;
-                            let title_h = (30.0 * sc).round() as usize;
-                            let row_h = (22.0 * sc).round() as usize;
-                            let gap = (8.0 * sc).round() as usize;
-                            let box_w = (80.0 * sc).round() as usize;
+                            let label_x = ax + (15.0 * sc).round() as usize;
                             let slider_w = (120.0 * sc).round() as usize;
-                            let mut row_y = ay + title_h + gap;
-                            let box_x = ax + aw - (15.0 * sc).round() as usize - box_w;
                             let slider_x = ax + aw - (15.0 * sc).round() as usize - slider_w;
-                            let channels = active_audio_channels(*audio_rate_clone.borrow());
+                            let btn_w = (85.0 * sc).round() as usize;
 
-                            if point_in_rect(mx, my, box_x, row_y, box_w, row_h) {
+                            let mut row_y = ay + title_h + gap;
+                            let box1_w = btn_w;
+                            let box1_x = label_x + (110.0 * sc).round() as usize;
+                            let box2_w = btn_w;
+                            let box2_x = ax + aw - (15.0 * sc).round() as usize - box2_w;
+
+                            if point_in_rect(mx, my, box1_x, row_y, box1_w, row_h) {
                                 let new_val = !*audio_enabled_clone.borrow();
                                 *audio_enabled_clone.borrow_mut() = new_val;
                                 config::save_audio_enabled(new_val);
                                 emu_clone.lock().unwrap().audio_enabled = new_val;
-                            }
-
-                            row_y += row_h + gap;
-                            if point_in_rect(mx, my, box_x, row_y, box_w, row_h) {
+                            } else if point_in_rect(mx, my, box2_x, row_y, box2_w, row_h) {
                                 let mut depth = audio_depth_clone.borrow_mut();
                                 *depth = if *depth == 8 { 16 } else { 8 };
                                 config::save_audio_depth(*depth);
@@ -4318,16 +4984,31 @@ fn main() {
                             }
 
                             row_y += row_h + gap;
-                            if point_in_rect(mx, my, box_x, row_y, box_w, row_h) {
+                            let rate_box_w = btn_w;
+                            let rate_box_x = box1_x;
+                            if point_in_rect(mx, my, rate_box_x, row_y, rate_box_w, row_h) {
                                 const RATES: &[u32] = &[11025, 22050, 32000, 44100, 48000, 96000];
                                 let current = *audio_rate_clone.borrow();
                                 let pos = RATES.iter().position(|r| *r == current).unwrap_or(0);
                                 let new_rate = RATES[(pos + 1) % RATES.len()];
                                 *audio_rate_clone.borrow_mut() = new_rate;
                                 config::save_audio_rate(new_rate);
-                                                                let dev_rate = *audio_device_rate_clone.lock().unwrap();
+                                let dev_rate = *audio_device_rate_clone.lock().unwrap();
                                 *phase_inc_clone.lock().unwrap() = new_rate as f64 / dev_rate as f64;
                                 emu_clone.lock().unwrap().set_audio_output(audio_buffer_clone2.clone(), new_rate as f64);
+                            }
+
+                            let cb_w = (14.0 * sc).round() as usize;
+                            let swap_text = "Swap Duty Cycles";
+                            let swap_text_w = (swap_text.len() as f32 * 8.0 * sc).round() as usize;
+                            let swap_gap = (6.0 * sc).round() as usize;
+                            let swap_total_w = cb_w + swap_gap + swap_text_w;
+                            let swap_x = ax + aw - (15.0 * sc).round() as usize - swap_total_w;
+                            if point_in_rect(mx, my, swap_x, row_y, swap_total_w, row_h) {
+                                let new_val = !*swap_duty_cycles_clone.borrow();
+                                *swap_duty_cycles_clone.borrow_mut() = new_val;
+                                config::save_swap_duty_cycles(new_val);
+                                emu_clone.lock().unwrap().swap_duty_cycles = new_val;
                             }
 
                             drop(ms);
@@ -4347,7 +5028,16 @@ fn main() {
                                         2 => e.square1_volume = vol_f32,
                                         3 => e.square2_volume = vol_f32,
                                         4 => e.noise_volume = vol_f32,
-                                        _ => e.pcm_volume = vol_f32,
+                                        5 => e.pcm_volume = vol_f32,
+                                        _ => {
+                                            e.expansion_volume = vol_f32;
+                                            e.fds_volume = vol_f32;
+                                            e.mmc5_volume = vol_f32;
+                                            e.vrc6_volume = vol_f32;
+                                            e.vrc7_volume = vol_f32;
+                                            e.n163_volume = vol_f32;
+                                            e.sunsoft5b_volume = vol_f32;
+                                        }
                                     }
                                     menu_state_clone.borrow_mut().dragging_audio_slider = Some(chan_idx);
                                 }
@@ -5308,11 +5998,67 @@ fn main() {
                                 config::save_crop_overscan(new_val);
                             }
                         }
+                    } else if ms.show_hotkeys_settings {
+                        let sc = ms.scale;
+                        let hw = (460.0 * sc).round() as usize;
+                        let title_h = (30.0 * sc).round() as usize;
+                        let pad_x = (14.0 * sc).round() as usize;
+                        let col_gap = (14.0 * sc).round() as usize;
+                        let col_w = (hw.saturating_sub(pad_x * 2 + col_gap)) / 2;
+                        let lbl_h = (10.0 * sc).round() as usize;
+                        let lbl_btn_gap = (3.0 * sc).round() as usize;
+                        let btn_h = (22.0 * sc).round() as usize;
+                        let item_gap = (5.0 * sc).round() as usize;
+                        let item_total_h = lbl_h + lbl_btn_gap + btn_h + item_gap;
+                        let grid_h = 9 * item_total_h - item_gap;
+                        let top_pad = (8.0 * sc).round() as usize;
+                        let bottom_gap = (8.0 * sc).round() as usize;
+                        let btn_bottom_w = (120.0 * sc).round() as usize;
+                        let btn_bottom_h = (24.0 * sc).round() as usize;
+                        let bottom_margin = (10.0 * sc).round() as usize;
+                        let hh = title_h + top_pad + grid_h + bottom_gap + btn_bottom_h + bottom_margin;
+                        let hx = (width.saturating_sub(hw)) / 2;
+                        let hy = (height.saturating_sub(hh)) / 2;
+                        let close_w = (20.0 * sc).round() as usize;
+                        let close_h = (20.0 * sc).round() as usize;
+                        let close_x = hx + hw - close_w - (10.0 * sc).round() as usize;
+                        let close_y = hy + (5.0 * sc).round() as usize;
+                        let defaults_x = hx + pad_x;
+                        let defaults_y = hy + hh - bottom_margin - btn_bottom_h;
+                        let close_btn_x = hx + hw - pad_x - btn_bottom_w;
+                        let close_btn_y = defaults_y;
+
+                        if point_in_rect(mx, my, close_x, close_y, close_w, close_h)
+                            || point_in_rect(mx, my, close_btn_x, close_btn_y, btn_bottom_w, btn_bottom_h)
+                        {
+                            drop(ms);
+                            let mut ms_mut = menu_state_clone.borrow_mut();
+                            ms_mut.show_hotkeys_settings = false;
+                            ms_mut.rebind_hotkey = None;
+                        } else if point_in_rect(mx, my, defaults_x, defaults_y, btn_bottom_w, btn_bottom_h) {
+                            drop(ms);
+                            config::reset_hotkeys();
+                            *hotkey_bindings_clone.borrow_mut() = config::load_hotkeys();
+                            menu_state_clone.borrow_mut().rebind_hotkey = None;
+                        } else {
+                            let grid_y0 = hy + title_h + top_pad;
+                            for i in 0..config::HOTKEY_COUNT {
+                                let (col, r) = if i < 9 { (0, i) } else { (1, i - 9) };
+                                let bx = if col == 0 { hx + pad_x } else { hx + pad_x + col_w + col_gap };
+                                let item_y = grid_y0 + r * item_total_h;
+                                let btn_y = item_y + lbl_h + lbl_btn_gap;
+                                if point_in_rect(mx, my, bx, btn_y, col_w, btn_h) {
+                                    drop(ms);
+                                    menu_state_clone.borrow_mut().rebind_hotkey = Some(i);
+                                    break;
+                                }
+                            }
+                        }
                     } else if ms.show_input_settings {
                         let sc = ms.scale;
                     let input_w = (480.0 * sc).round() as usize;
-                    let input_h_4p = (410.0 * sc).round() as usize;
-                    let input_h = if *expansion_adapter_type_clone.borrow() == config::ExpansionAdapterType::FourPlayer { input_h_4p } else { (380.0 * sc).round() as usize };
+                    let input_h_4p = (365.0 * sc).round() as usize;
+                    let input_h = if *expansion_adapter_type_clone.borrow() == config::ExpansionAdapterType::FourPlayer { input_h_4p } else { (335.0 * sc).round() as usize };
                         let input_x = (width.saturating_sub(input_w)) / 2;
                         let input_y = (height.saturating_sub(input_h)) / 2;
                         let title_h = (30.0 * sc).round() as usize;
@@ -5463,10 +6209,22 @@ fn main() {
                                     let new_val = !*allow_opposing_dpad_clone.borrow();
                                     *allow_opposing_dpad_clone.borrow_mut() = new_val;
                                     config::save_allow_opposing_dpad(new_val);
-                                } else if point_in_rect(mx, my, col1_x, dpad_y + row_h + (10.0 * sc).round() as usize, (20.0 * sc).round() as usize, (20.0 * sc).round() as usize) {
-                                    let new_val = !*auto_detect_game_controller_clone.borrow();
-                                    *auto_detect_game_controller_clone.borrow_mut() = new_val;
-                                    config::save_auto_detect_game_controller(new_val);
+                                } else {
+                                    let auto_y = dpad_y + row_h + (10.0 * sc).round() as usize;
+                                    let cb_w = (14.0 * sc).round() as usize;
+                                    let auto_label = "Auto-detect game controller";
+                                    let auto_text_gap = (6.0 * sc).round() as usize;
+                                    let auto_total_w = cb_w + auto_text_gap + (auto_label.len() as f32 * 8.0 * sc).round() as usize;
+                                    let hk_y = auto_y + row_h + (10.0 * sc).round() as usize;
+                                    let hk_btn_x = dpad_box_x;
+                                    if point_in_rect(mx, my, col1_x, auto_y, auto_total_w, row_h) {
+                                        let new_val = !*auto_detect_game_controller_clone.borrow();
+                                        *auto_detect_game_controller_clone.borrow_mut() = new_val;
+                                        config::save_auto_detect_game_controller(new_val);
+                                    } else if point_in_rect(mx, my, hk_btn_x, hk_y, box_w, configure_h) {
+                                        drop(ms);
+                                        menu_state_clone.borrow_mut().show_hotkeys_settings = true;
+                                    }
                                 }
                             }
                         }
@@ -6049,6 +6807,101 @@ fn main() {
             }
 
             WinitEvent::MainEventsCleared => {
+                let ctrl_held = modifiers_ctrl_clone.load(Ordering::Relaxed);
+                let bindings = hotkey_bindings_clone.borrow().clone();
+                let open_shares_recent = hotkey_base_equals(&bindings[0], &bindings[2]);
+                let save_shares_state = hotkey_base_equals(&bindings[3], &bindings[5]);
+                let load_shares_state = hotkey_base_equals(&bindings[4], &bindings[6]);
+
+                if let Some(t) = open_chord_time {
+                    if (!ctrl_held && t.elapsed() >= Duration::from_millis(350)) || t.elapsed() >= Duration::from_millis(1500) {
+                        open_chord_time = None;
+                        if open_shares_recent {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .add_filter("All ROMs", &["nes", "unif", "unf", "fds", "qd", "wxn", "studybox", "study"])
+                                .add_filter("NES ROMs", &["nes", "unif", "unf"])
+                                .add_filter("FDS / QD ROMs", &["fds", "qd"])
+                                .add_filter("Waixing ROMs", &["wxn"])
+                                .add_filter("Study Box Tapes", &["studybox", "study"])
+                                .pick_file() {
+                                let path_str = path.to_string_lossy().to_string();
+                                match cartridge::Cartridge::from_file(&path_str) {
+                                    Ok(cart) => {
+                                        let crc = cart.prg_rom_crc32;
+                                        let mapper_id = cart.memory_mapper;
+                                        let dip_needed = load_dip_game(crc, mapper_id);
+                                        auto_apply_input(&cart);
+                                        let _ = cmd_tx.send(EmuCommand::LoadCartridge(cart));
+                                        let _ = cmd_tx.send(EmuCommand::PowerCycle(*initial_ram_clone.borrow()));
+                                        *rom_loaded_clone.borrow_mut() = true;
+                                        rom_loaded_flag_clone.store(true, Ordering::Relaxed);
+                                        *current_rom_clone.borrow_mut() = Some(path_str.clone());
+                                        if let Some(game) = dip_needed {
+                                            let dip_val = 0u8;
+                                            let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
+                                            let variant = compute_vs_ppu_variant(&game, new_val as u8, crc);
+                                            let _ = cmd_tx.send(EmuCommand::SetDipSwitches(new_val as u8));
+                                            let _ = cmd_tx.send(EmuCommand::SetVsPpuVariant(variant));
+                                            let mut ms = menu_state_clone.borrow_mut();
+                                            ms.dip_definition = Some(game);
+                                            ms.show_dip_switches = true;
+                                            paused_clone.store(true, Ordering::Relaxed);
+                                        }
+                                        if *fullscreen_on_game_load_clone.borrow() {
+                                            window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
+                                        }
+                                        window.set_cursor_visible(!*hide_mouse_cursor_clone.borrow());
+                                        let mut roms = recent_roms_clone.borrow_mut();
+                                        if let Some(pos) = roms.iter().position(|r| r == &path_str) {
+                                            roms.remove(pos);
+                                        }
+                                        roms.insert(0, path_str);
+                                        roms.truncate(8);
+                                        let _ = std::fs::write(".recent_roms", roms.join("\n"));
+                                    }
+                                    Err(e) => {
+                                        let mut ms = menu_state_clone.borrow_mut();
+                                        ms.show_error = true;
+                                        ms.error_message = e;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let Some(t) = save_chord_time {
+                    if (!ctrl_held && t.elapsed() >= Duration::from_millis(350)) || t.elapsed() >= Duration::from_millis(1500) {
+                        save_chord_time = None;
+                        if save_shares_state && *rom_loaded_clone.borrow() {
+                            let state_data = emu_clone.lock().unwrap().save_state_to_bytes();
+                            *quick_save_slot_clone.borrow_mut() = Some(state_data);
+                            println!("Quick saved successfully");
+                        }
+                    }
+                }
+
+                if let Some(t) = load_chord_time {
+                    if (!ctrl_held && t.elapsed() >= Duration::from_millis(350)) || t.elapsed() >= Duration::from_millis(1500) {
+                        load_chord_time = None;
+                        if load_shares_state && *rom_loaded_clone.borrow() {
+                            if let Some(ref state_data) = *quick_save_slot_clone.borrow() {
+                                if let Err(e) = emu_clone.lock().unwrap().load_state_from_bytes(state_data) {
+                                    eprintln!("Failed to quick load: {}", e);
+                                } else {
+                                    println!("Quick loaded successfully");
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let Some(t) = coin_chord_time {
+                    if t.elapsed() >= Duration::from_millis(1500) {
+                        coin_chord_time = None;
+                    }
+                }
+
                 let (mx, my) = menu_state_clone.borrow().mouse_pos;
                 let mut ms_mut = menu_state_clone.borrow_mut();
                 let window_size = window.inner_size();
@@ -6317,10 +7170,12 @@ fn main() {
                     || ms_mut.show_controller1_settings
                     || ms_mut.show_controller2_settings
                     || ms_mut.show_expansion_settings
+                    || ms_mut.show_hotkeys_settings
                     || ms_mut.show_confirm_exit_dialog
                     || ms_mut.show_barcode_input
                     || ms_mut.show_error
-                    || ms_mut.rebind_button.is_some();
+                    || ms_mut.rebind_button.is_some()
+                    || ms_mut.rebind_hotkey.is_some();
                 let menu_changed = menu_active != last_menu_active;
                 if cur_frame != last_rendered_frame || mouse_changed || menu_changed || menu_active {
                     last_rendered_frame = cur_frame;
@@ -6997,17 +7852,28 @@ fn main() {
                 }
 
                 if ms.show_audio_settings {
-                    let aw = (400.0 * scale).round() as usize;
-                    let row_h = (22.0 * scale).round() as usize;
-                    let gap = (8.0 * scale).round() as usize;
-                    let title_h = (30.0 * scale).round() as usize;
+                    let aw = (420.0 * scale).round() as usize;
+                    let gap = (7.0 * scale).round() as usize;
+                    let title_h = (28.0 * scale).round() as usize;
+                    let row_h = (20.0 * scale).round() as usize;
                     let border_thickness = (2.0 * scale).round() as usize;
                     let channels = active_audio_channels(*audio_rate_clone.borrow());
-                    let content_rows = 3 + channels.len();
+                    let content_rows = 2 + channels.len();
                     let inner_h = title_h + gap + content_rows * (row_h + gap) - gap + border_thickness * 2;
-                    let ah = inner_h;
+                    let avail_h = height.saturating_sub(menu_height);
+                    let (row_h, gap, title_h) = if inner_h + 10 > avail_h && avail_h > 120 {
+                        let factor = (avail_h - 10) as f32 / inner_h as f32;
+                        (
+                            ((20.0 * scale * factor).round() as usize).max(10),
+                            ((7.0 * scale * factor).round() as usize).max(2),
+                            ((28.0 * scale * factor).round() as usize).max(16),
+                        )
+                    } else {
+                        (row_h, gap, title_h)
+                    };
+                    let ah = title_h + gap + content_rows * (row_h + gap) - gap + border_thickness * 2;
                     let ax = (width.saturating_sub(aw)) / 2;
-                    let ay = (height.saturating_sub(ah)) / 2;
+                    let ay = menu_height + (avail_h.saturating_sub(ah)) / 2;
                     let window_bg = colors.window_bg;
                     let window_border = colors.window_border;
                     let title_bg = colors.dropdown_bg;
@@ -7016,7 +7882,7 @@ fn main() {
                     draw_rect(&mut buffer, ax, ay, aw, ah, width, window_bg);
 
                     draw_rect(&mut buffer, ax, ay, aw, title_h, width, title_bg);
-                    draw_text(&mut buffer, ax + (10.0 * scale).round() as usize, ay + (8.0 * scale).round() as usize, width, "Audio Settings", menu_text, scale);
+                    draw_text(&mut buffer, ax + (10.0 * scale).round() as usize, ay + (6.0 * scale).round() as usize, width, "Audio Settings", menu_text, scale);
 
                     draw_rect(&mut buffer, ax, ay, aw, border_thickness, width, window_border);
                     draw_rect(&mut buffer, ax, ay, border_thickness, ah, width, window_border);
@@ -7026,60 +7892,86 @@ fn main() {
                     let close_w = (20.0 * scale).round() as usize;
                     let close_h = (20.0 * scale).round() as usize;
                     let close_x = ax + aw - close_w - (10.0 * scale).round() as usize;
-                    let close_y = ay + (5.0 * scale).round() as usize;
+                    let close_y = ay + (4.0 * scale).round() as usize;
                     draw_rect(&mut buffer, close_x, close_y, close_w, close_h, width, colors.close_bg);
-                    draw_text(&mut buffer, close_x + (6.0 * scale).round() as usize, close_y + (6.0 * scale).round() as usize, width, "X", colors.menu_text, scale);
+                    draw_text(&mut buffer, close_x + (6.0 * scale).round() as usize, close_y + (5.0 * scale).round() as usize, width, "X", colors.menu_text, scale);
 
                     let label_x = ax + (15.0 * scale).round() as usize;
                     let mut row_y = ay + title_h + gap;
+                    let btn_w = (85.0 * scale).round() as usize;
 
-                    draw_text(&mut buffer, label_x, row_y + (6.0 * scale).round() as usize, width, "Enable Audio:", menu_text, scale);
-                    let box_w = (80.0 * scale).round() as usize;
-                    let box_x = ax + aw - (15.0 * scale).round() as usize - box_w;
+                    draw_text(&mut buffer, label_x, row_y + (4.0 * scale).round() as usize, width, "Enable Audio:", menu_text, scale);
+                    let box1_w = btn_w;
+                    let box1_x = label_x + (110.0 * scale).round() as usize;
                     let val = if *audio_enabled_clone.borrow() { "ON" } else { "OFF" };
-                    let hovered = point_in_rect(mouse_x, mouse_y, box_x, row_y, box_w, row_h);
+                    let hovered = point_in_rect(mouse_x, mouse_y, box1_x, row_y, box1_w, row_h);
                     let bg = if hovered { colors.box_bg_hover } else { colors.box_bg_default };
-                    draw_rect(&mut buffer, box_x, row_y, box_w, row_h, width, colors.box_border);
-                    draw_rect(&mut buffer, box_x + 1, row_y + 1, box_w - 2, row_h - 2, width, bg);
+                    draw_rect(&mut buffer, box1_x, row_y, box1_w, row_h, width, colors.box_border);
+                    draw_rect(&mut buffer, box1_x + 1, row_y + 1, box1_w - 2, row_h - 2, width, bg);
                     let vw = val.len() as f32 * 8.0 * scale;
-                    draw_text(&mut buffer, box_x + ((box_w as f32 - vw) / 2.0).round() as usize, row_y + (6.0 * scale).round() as usize, width, val, menu_text, scale);
+                    draw_text(&mut buffer, box1_x + ((box1_w as f32 - vw) / 2.0).round() as usize, row_y + (4.0 * scale).round() as usize, width, val, menu_text, scale);
 
-                    row_y += row_h + gap;
-                    draw_text(&mut buffer, label_x, row_y + (6.0 * scale).round() as usize, width, "Depth:", menu_text, scale);
+                    let box2_w = btn_w;
+                    let box2_x = ax + aw - (15.0 * scale).round() as usize - box2_w;
+                    let depth_label_x = box2_x - (55.0 * scale).round() as usize;
+                    draw_text(&mut buffer, depth_label_x, row_y + (4.0 * scale).round() as usize, width, "Depth:", menu_text, scale);
                     let depth_val = *audio_depth_clone.borrow();
                     let depth_str = if depth_val == 8 { "8-bit" } else { "16-bit" };
-                    let hovered = point_in_rect(mouse_x, mouse_y, box_x, row_y, box_w, row_h);
+                    let hovered = point_in_rect(mouse_x, mouse_y, box2_x, row_y, box2_w, row_h);
                     let bg = if hovered { colors.box_bg_hover } else { colors.box_bg_default };
-                    draw_rect(&mut buffer, box_x, row_y, box_w, row_h, width, colors.box_border);
-                    draw_rect(&mut buffer, box_x + 1, row_y + 1, box_w - 2, row_h - 2, width, bg);
+                    draw_rect(&mut buffer, box2_x, row_y, box2_w, row_h, width, colors.box_border);
+                    draw_rect(&mut buffer, box2_x + 1, row_y + 1, box2_w - 2, row_h - 2, width, bg);
                     let vw = depth_str.len() as f32 * 8.0 * scale;
-                    draw_text(&mut buffer, box_x + ((box_w as f32 - vw) / 2.0).round() as usize, row_y + (6.0 * scale).round() as usize, width, depth_str, menu_text, scale);
+                    draw_text(&mut buffer, box2_x + ((box2_w as f32 - vw) / 2.0).round() as usize, row_y + (4.0 * scale).round() as usize, width, depth_str, menu_text, scale);
 
                     row_y += row_h + gap;
-                    draw_text(&mut buffer, label_x, row_y + (6.0 * scale).round() as usize, width, "Sample Rate:", menu_text, scale);
+                    draw_text(&mut buffer, label_x, row_y + (4.0 * scale).round() as usize, width, "Sample Rate:", menu_text, scale);
+                    let rate_box_w = btn_w;
+                    let rate_box_x = box1_x;
                     let rate_val = *audio_rate_clone.borrow();
                     let rate_str = format!("{} Hz", rate_val);
-                    let hovered = point_in_rect(mouse_x, mouse_y, box_x, row_y, box_w, row_h);
+                    let hovered = point_in_rect(mouse_x, mouse_y, rate_box_x, row_y, rate_box_w, row_h);
                     let bg = if hovered { colors.box_bg_hover } else { colors.box_bg_default };
-                    draw_rect(&mut buffer, box_x, row_y, box_w, row_h, width, colors.box_border);
-                    draw_rect(&mut buffer, box_x + 1, row_y + 1, box_w - 2, row_h - 2, width, bg);
+                    draw_rect(&mut buffer, rate_box_x, row_y, rate_box_w, row_h, width, colors.box_border);
+                    draw_rect(&mut buffer, rate_box_x + 1, row_y + 1, rate_box_w - 2, row_h - 2, width, bg);
                     let vw = rate_str.len() as f32 * 8.0 * scale;
-                    draw_text(&mut buffer, box_x + ((box_w as f32 - vw) / 2.0).round() as usize, row_y + (6.0 * scale).round() as usize, width, &rate_str, menu_text, scale);
+                    draw_text(&mut buffer, rate_box_x + ((rate_box_w as f32 - vw) / 2.0).round() as usize, row_y + (4.0 * scale).round() as usize, width, &rate_str, menu_text, scale);
+
+                    let cb_w = (14.0 * scale).round() as usize;
+                    let cb_h = (14.0 * scale).round() as usize;
+                    let cb_y = row_y + ((row_h.saturating_sub(cb_h)) / 2);
+                    let swap_text = "Swap Duty Cycles";
+                    let swap_text_w = (swap_text.len() as f32 * 8.0 * scale).round() as usize;
+                    let swap_gap = (6.0 * scale).round() as usize;
+                    let swap_total_w = cb_w + swap_gap + swap_text_w;
+                    let swap_x = ax + aw - (15.0 * scale).round() as usize - swap_total_w;
+                    let cb_x = swap_x;
+                    let swap_text_x = cb_x + cb_w + swap_gap;
+
+                    let swap_hovered = point_in_rect(mouse_x, mouse_y, swap_x, row_y, swap_total_w, row_h);
+                    let swap_bg = if swap_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                    draw_rect(&mut buffer, cb_x, cb_y, cb_w, cb_h, width, colors.box_border);
+                    draw_rect(&mut buffer, cb_x + 1, cb_y + 1, cb_w.saturating_sub(2), cb_h.saturating_sub(2), width, swap_bg);
+                    if *swap_duty_cycles_clone.borrow() {
+                        let check_pad = (3.0 * scale).round() as usize;
+                        draw_rect(&mut buffer, cb_x + check_pad, cb_y + check_pad, cb_w.saturating_sub(check_pad * 2), cb_h.saturating_sub(check_pad * 2), width, colors.menu_text);
+                    }
+                    draw_text(&mut buffer, swap_text_x, row_y + (4.0 * scale).round() as usize, width, swap_text, menu_text, scale);
 
                     let slider_w = (120.0 * scale).round() as usize;
-                    let slider_h = (14.0 * scale).round() as usize;
+                    let slider_h = (13.0 * scale).round() as usize;
                     let slider_x = ax + aw - (15.0 * scale).round() as usize - slider_w;
                     let slider_track_color = colors.slider_track;
                     let slider_fill_color = colors.slider_fill;
                     let vols = channel_volumes_clone.borrow();
 
-                    for &(chan_idx, label) in channels {
+                    for &(chan_idx, default_label) in channels {
                         row_y += row_h + gap;
-                        draw_text(&mut buffer, label_x, row_y + (4.0 * scale).round() as usize, width, label, menu_text, scale);
+                        draw_text(&mut buffer, label_x, row_y + (3.0 * scale).round() as usize, width, default_label, menu_text, scale);
                         let pct = format!("{}%", vols[chan_idx]);
                         let pct_w = (pct.len() as f32 * 8.0 * scale).round() as usize;
                         let pct_x = slider_x - (6.0 * scale).round() as usize - pct_w;
-                        draw_text(&mut buffer, pct_x, row_y + (4.0 * scale).round() as usize, width, &pct, menu_text, scale);
+                        draw_text(&mut buffer, pct_x, row_y + (3.0 * scale).round() as usize, width, &pct, menu_text, scale);
                         let sy = row_y + ((row_h as f32 - slider_h as f32) / 2.0).round() as usize;
                         draw_rect(&mut buffer, slider_x, sy, slider_w, slider_h, width, slider_track_color);
                         let fill_w = ((vols[chan_idx] as f32 / 100.0) * slider_w as f32).round() as usize;
@@ -7239,8 +8131,8 @@ fn main() {
 
                 if ms.show_input_settings {
                     let input_w = (480.0 * scale).round() as usize;
-                    let input_h_base = (380.0 * scale).round() as usize;
-                    let input_h_4p = (410.0 * scale).round() as usize;
+                    let input_h_base = (335.0 * scale).round() as usize;
+                    let input_h_4p = (365.0 * scale).round() as usize;
                     let input_h = {
                             let dt = *expansion_type_clone.borrow();
                             let at = *expansion_adapter_type_clone.borrow();
@@ -7432,17 +8324,120 @@ fn main() {
                     let dpad_vw = dpad_val.len() as f32 * 8.0 * scale;
                     draw_text(&mut buffer, dpad_box_x + ((box_w as f32 - dpad_vw) / 2.0).round() as usize, dpad_y + (6.0 * scale).round() as usize, width, dpad_val, menu_text, scale);
                     let auto_y = dpad_y + row_h + (10.0 * scale).round() as usize;
-                    let cb = (20.0 * scale).round() as usize;
+                    let cb_w = (14.0 * scale).round() as usize;
+                    let cb_h = (14.0 * scale).round() as usize;
+                    let cb_y = auto_y + ((row_h.saturating_sub(cb_h)) / 2);
                     let cb_x = col1_x;
-                    let auto_val = *auto_detect_game_controller_clone.borrow();
-                    let cb_hovered = point_in_rect(mouse_x, mouse_y, cb_x, auto_y, cb, cb);
-                    let cb_bg = if cb_hovered { colors.box_bg_hover } else { colors.box_bg_default };
-                    draw_rect(&mut buffer, cb_x, auto_y, cb, cb, width, colors.box_border);
-                    draw_rect(&mut buffer, cb_x + 1, auto_y + 1, cb.saturating_sub(2), cb.saturating_sub(2), width, cb_bg);
-                    if auto_val {
-                        draw_text(&mut buffer, cb_x + (2.0 * scale).round() as usize, auto_y + ((cb as f32 - 8.0 * scale) / 2.0).round() as usize, width, "X", menu_text, scale);
+                    let auto_label = "Auto-detect game controller";
+                    let auto_text_gap = (6.0 * scale).round() as usize;
+                    let auto_total_w = cb_w + auto_text_gap + (auto_label.len() as f32 * 8.0 * scale).round() as usize;
+                    let auto_hovered = point_in_rect(mouse_x, mouse_y, col1_x, auto_y, auto_total_w, row_h);
+                    let auto_bg = if auto_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                    draw_rect(&mut buffer, cb_x, cb_y, cb_w, cb_h, width, colors.box_border);
+                    draw_rect(&mut buffer, cb_x + 1, cb_y + 1, cb_w.saturating_sub(2), cb_h.saturating_sub(2), width, auto_bg);
+                    if *auto_detect_game_controller_clone.borrow() {
+                        let check_pad = (3.0 * scale).round() as usize;
+                        draw_rect(&mut buffer, cb_x + check_pad, cb_y + check_pad, cb_w.saturating_sub(check_pad * 2), cb_h.saturating_sub(check_pad * 2), width, colors.menu_text);
                     }
-                    draw_text(&mut buffer, cb_x + cb + (8.0 * scale).round() as usize, auto_y + ((cb as f32 - 8.0 * scale) / 2.0).round() as usize, width, "Auto-detect game controller", menu_text, scale);
+                    draw_text(&mut buffer, cb_x + cb_w + auto_text_gap, auto_y + (6.0 * scale).round() as usize, width, auto_label, menu_text, scale);
+
+                    let hk_y = auto_y + row_h + (10.0 * scale).round() as usize;
+                    draw_text(&mut buffer, col1_x, hk_y + (6.0 * scale).round() as usize, width, "Hotkeys:", menu_text, scale);
+                    let hk_btn_x = dpad_box_x;
+                    let hk_hovered = point_in_rect(mouse_x, mouse_y, hk_btn_x, hk_y, box_w, configure_h);
+                    let hk_bg = if hk_hovered { colors.box_bg_hover } else { colors.dropdown_bg };
+                    draw_rect(&mut buffer, hk_btn_x, hk_y, box_w, configure_h, width, colors.btn_border);
+                    draw_rect(&mut buffer, hk_btn_x + 1, hk_y + 1, box_w - 2, configure_h - 2, width, hk_bg);
+                    let cfg_btn_label = "Configure";
+                    let cfg_btn_vw = cfg_btn_label.len() as f32 * 8.0 * scale;
+                    draw_text(&mut buffer, hk_btn_x + ((box_w as f32 - cfg_btn_vw) / 2.0).round() as usize, hk_y + (7.0 * scale).round() as usize, width, cfg_btn_label, menu_text, scale);
+                }
+
+                if ms.show_hotkeys_settings {
+                    let (mouse_x, mouse_y) = ms.mouse_pos;
+                    let hw = (460.0 * scale).round() as usize;
+                    let title_h = (30.0 * scale).round() as usize;
+                    let border_thickness = (2.0 * scale).round() as usize;
+                    let pad_x = (14.0 * scale).round() as usize;
+                    let col_gap = (14.0 * scale).round() as usize;
+                    let col_w = (hw.saturating_sub(pad_x * 2 + col_gap)) / 2;
+                    let lbl_h = (10.0 * scale).round() as usize;
+                    let lbl_btn_gap = (3.0 * scale).round() as usize;
+                    let btn_h = (22.0 * scale).round() as usize;
+                    let item_gap = (5.0 * scale).round() as usize;
+                    let item_total_h = lbl_h + lbl_btn_gap + btn_h + item_gap;
+                    let grid_h = 9 * item_total_h - item_gap;
+                    let top_pad = (8.0 * scale).round() as usize;
+                    let bottom_gap = (8.0 * scale).round() as usize;
+                    let btn_bottom_w = (120.0 * scale).round() as usize;
+                    let btn_bottom_h = (24.0 * scale).round() as usize;
+                    let bottom_margin = (10.0 * scale).round() as usize;
+                    let hh = title_h + top_pad + grid_h + bottom_gap + btn_bottom_h + bottom_margin;
+                    let hx = (width.saturating_sub(hw)) / 2;
+                    let hy = (height.saturating_sub(hh)) / 2;
+
+                    draw_rect(&mut buffer, hx, hy, hw, hh, width, colors.window_bg);
+                    draw_rect(&mut buffer, hx, hy, hw, title_h, width, colors.dropdown_bg);
+                    draw_text(&mut buffer, hx + (10.0 * scale).round() as usize, hy + (8.0 * scale).round() as usize, width, "Hotkey Settings", menu_text, scale);
+
+                    draw_rect(&mut buffer, hx, hy, hw, border_thickness, width, colors.window_border);
+                    draw_rect(&mut buffer, hx, hy, border_thickness, hh, width, colors.window_border);
+                    draw_rect(&mut buffer, hx + hw - border_thickness, hy, border_thickness, hh, width, colors.window_border);
+                    draw_rect(&mut buffer, hx, hy + hh - border_thickness, hw, border_thickness, width, colors.window_border);
+
+                    let close_w = (20.0 * scale).round() as usize;
+                    let close_h = (20.0 * scale).round() as usize;
+                    let close_x = hx + hw - close_w - (10.0 * scale).round() as usize;
+                    let close_y = hy + (5.0 * scale).round() as usize;
+                    let close_hovered = point_in_rect(mouse_x, mouse_y, close_x, close_y, close_w, close_h);
+                    draw_rect(&mut buffer, close_x, close_y, close_w, close_h, width, if close_hovered { colors.box_bg_hover } else { colors.close_bg });
+                    draw_text(&mut buffer, close_x + (6.0 * scale).round() as usize, close_y + (6.0 * scale).round() as usize, width, "X", colors.menu_text, scale);
+
+                    let grid_y0 = hy + title_h + top_pad;
+                    let hotkeys = hotkey_bindings_clone.borrow();
+                    for i in 0..config::HOTKEY_COUNT {
+                        let (col, r) = if i < 9 { (0, i) } else { (1, i - 9) };
+                        let bx = if col == 0 { hx + pad_x } else { hx + pad_x + col_w + col_gap };
+                        let item_y = grid_y0 + r * item_total_h;
+                        let btn_y = item_y + lbl_h + lbl_btn_gap;
+
+                        let label_text = format!("{}:", config::HOTKEY_LABELS[i]);
+                        draw_text(&mut buffer, bx, item_y, width, &label_text, menu_text, scale);
+
+                        let is_hovered = ms.hovered_hotkey_button == Some(i);
+                        let is_rebinding = ms.rebind_hotkey == Some(i);
+                        let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                        let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                        draw_rect(&mut buffer, bx, btn_y, col_w, btn_h, width, border);
+                        draw_rect(&mut buffer, bx + 1, btn_y + 1, col_w - 2, btn_h - 2, width, bg);
+
+                        let txt = if is_rebinding { "?".to_string() } else { hotkeys[i].clone() };
+                        let txt_vw = txt.len() as f32 * 8.0 * scale;
+                        let txt_x = bx + ((col_w as f32 - txt_vw) / 2.0).round() as usize;
+                        let txt_y = btn_y + ((btn_h.saturating_sub((8.0 * scale).round() as usize)) / 2);
+                        draw_text(&mut buffer, txt_x, txt_y, width, &txt, menu_text, scale);
+                    }
+
+                    let defaults_x = hx + pad_x;
+                    let defaults_y = hy + hh - bottom_margin - btn_bottom_h;
+                    let close_btn_x = hx + hw - pad_x - btn_bottom_w;
+                    let close_btn_y = defaults_y;
+
+                    let def_hovered = point_in_rect(mouse_x, mouse_y, defaults_x, defaults_y, btn_bottom_w, btn_bottom_h);
+                    let def_bg = if def_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                    draw_rect(&mut buffer, defaults_x, defaults_y, btn_bottom_w, btn_bottom_h, width, colors.box_border);
+                    draw_rect(&mut buffer, defaults_x + 1, defaults_y + 1, btn_bottom_w - 2, btn_bottom_h - 2, width, def_bg);
+                    let def_lbl = "Reset Defaults";
+                    let def_vw = def_lbl.len() as f32 * 8.0 * scale;
+                    draw_text(&mut buffer, defaults_x + ((btn_bottom_w as f32 - def_vw) / 2.0).round() as usize, defaults_y + (8.0 * scale).round() as usize, width, def_lbl, menu_text, scale);
+
+                    let close_btn_hovered = point_in_rect(mouse_x, mouse_y, close_btn_x, close_btn_y, btn_bottom_w, btn_bottom_h);
+                    let close_btn_bg = if close_btn_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                    draw_rect(&mut buffer, close_btn_x, close_btn_y, btn_bottom_w, btn_bottom_h, width, colors.box_border);
+                    draw_rect(&mut buffer, close_btn_x + 1, close_btn_y + 1, btn_bottom_w - 2, btn_bottom_h - 2, width, close_btn_bg);
+                    let close_lbl = "Close";
+                    let close_vw = close_lbl.len() as f32 * 8.0 * scale;
+                    draw_text(&mut buffer, close_btn_x + ((btn_bottom_w as f32 - close_vw) / 2.0).round() as usize, close_btn_y + (8.0 * scale).round() as usize, width, close_lbl, menu_text, scale);
                 }
                 
                 if ms.show_controller1_settings {
@@ -8613,6 +9608,7 @@ fn main() {
                         || ms_state.show_controller1_settings
                         || ms_state.show_controller2_settings
                         || ms_state.show_expansion_settings
+                        || ms_state.show_hotkeys_settings
                         || ms_state.show_about
                         || ms_state.show_error
                         || ms_state.show_dip_switches

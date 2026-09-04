@@ -595,6 +595,18 @@ pub struct FetchResult {
     pub driven: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExpansionAudioType {
+    None,
+    Fds,
+    Mmc5,
+    Vrc6,
+    Vrc7,
+    Namco163,
+    Sunsoft5b,
+    Other,
+}
+
 /// the mapper trait with all its handling templates
 pub trait Mapper: Send {
     // fetching and storing prg by bus through mapper
@@ -734,6 +746,7 @@ pub trait Mapper: Send {
 
     // expanded audio for mappers with extra audio channels
     fn audio_sample(&self) -> f32 { 0.0 }
+    fn expansion_audio_type(&self) -> ExpansionAudioType { ExpansionAudioType::Other }
 
     // dedicated PCM channel for mappers that stream audio (e.g. the Famicom
     // Study Box tape player). Called once per audio flush; `out` is filled with

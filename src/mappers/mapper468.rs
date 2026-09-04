@@ -1993,6 +1993,14 @@ impl Mapper for Mapper468 {
         }
     }
 
+    fn expansion_audio_type(&self) -> crate::mapper::ExpansionAudioType {
+        match self.fusemap() {
+            0x50 => crate::mapper::ExpansionAudioType::Sunsoft5b,
+            0x41 => crate::mapper::ExpansionAudioType::Vrc7,
+            _ => crate::mapper::ExpansionAudioType::None,
+        }
+    }
+
     fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8> {
         let mut state = Vec::new();
         for r in &self.reg {

@@ -199,6 +199,7 @@ impl Mapper for Mapper539 {
 
     fn cpu_clock(&mut self, cycles: u8) -> bool { if cycles > 0 { self.fds.run(cycles as u32); } false }
     fn audio_sample(&self) -> f32 { self.fds.current_audio_sample }
+    fn expansion_audio_type(&self) -> crate::mapper::ExpansionAudioType { crate::mapper::ExpansionAudioType::Fds }
 
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
         vec![self.prg, self.horizontal_mirroring as u8]

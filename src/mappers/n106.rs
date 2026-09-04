@@ -12,6 +12,11 @@ pub struct Mapper19 {
     irq_count: u16,
     irq_enable: bool,
     irq_pending: bool,
+    channel_output: [i16; 8],
+    update_counter: u8,
+    current_channel: usize,
+    disable_sound: bool,
+    current_audio_sample: f32,
 }
 
 impl Mapper19 {
@@ -27,7 +32,65 @@ impl Mapper19 {
             irq_count: 0,
             irq_enable: false,
             irq_pending: false,
+            channel_output: [0; 8],
+            update_counter: 0,
+            current_channel: 7,
+            disable_sound: false,
+            current_audio_sample: 0.0,
         }
+    }
+
+    fn get_freq(&self, ch: usize) -> u32 {
+        let base = 0x40 + ch * 8;
+        ((self.iram[base + 4] as u32 & 0x03) << 16)
+            | ((self.iram[base + 2] as u32) << 8)
+            | (self.iram[base] as u32)
+    }
+
+    fn get_phase(&self, ch: usize) -> u32 {
+        let base = 0x40 + ch * 8;
+        ((self.iram[base + 5] as u32) << 16)
+            | ((self.iram[base + 3] as u32) << 8)
+            | (self.iram[base + 1] as u32)
+    }
+
+    fn set_phase(&mut self, ch: usize, phase: u32) {
+        let base = 0x40 + ch * 8;
+        self.iram[base + 5] = (phase >> 16) as u8;
+        self.iram[base + 3] = (phase >> 8) as u8;
+        self.iram[base + 1] = phase as u8;
+    }
+
+    fn clock_audio_channel(&mut self, ch: usize) {
+        let base = 0x40 + ch * 8;
+        let mut phase = self.get_phase(ch);
+        let freq = self.get_freq(ch);
+        let length = 256usize.saturating_sub((self.iram[base + 4] & 0xFC) as usize);
+        let offset = self.iram[base + 6];
+        let volume = self.iram[base + 7] & 0x0F;
+
+        if length > 0 {
+            phase = (phase.wrapping_add(freq)) % ((length as u32) << 16);
+        }
+
+        let sample_pos = (((phase >> 16) as u8).wrapping_add(offset)) as usize;
+        let sample_byte = self.iram[(sample_pos / 2) & 0x7F];
+        let sample = if (sample_pos & 1) != 0 {
+            sample_byte >> 4
+        } else {
+            sample_byte & 0x0F
+        };
+
+        self.channel_output[ch] = (sample as i16 - 8) * (volume as i16);
+        self.set_phase(ch, phase);
+
+        let num_channels = ((self.iram[0x7F] >> 4) & 0x07) as usize;
+        let min_ch = 7usize.saturating_sub(num_channels);
+        let mut sum = 0i32;
+        for i in min_ch..=7 {
+            sum += self.channel_output[i] as i32;
+        }
+        self.current_audio_sample = (sum / (num_channels as i32 + 1)) as f32;
     }
 }
 
@@ -43,6 +106,11 @@ impl Mapper for Mapper19 {
         self.irq_count = 0;
         self.irq_enable = false;
         self.irq_pending = false;
+        self.channel_output = [0; 8];
+        self.update_counter = 0;
+        self.current_channel = 7;
+        self.disable_sound = false;
+        self.current_audio_sample = 0.0;
     }
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
@@ -104,6 +172,7 @@ impl Mapper for Mapper19 {
                 0xE000 => {
                     self.prg[0] = data & 0x3F;
                     self.gorko = data >> 6;
+                    self.disable_sound = (data & 0x40) != 0;
                 }
                 0xE800 => {
                     self.prg[1] = data & 0x3F;
@@ -209,6 +278,22 @@ impl Mapper for Mapper19 {
                 self.irq_count = 0x7FFF;
             }
         }
+        if !self.disable_sound {
+            for _ in 0..cycles {
+                self.update_counter += 1;
+                if self.update_counter >= 15 {
+                    self.update_counter = 0;
+                    self.clock_audio_channel(self.current_channel);
+                    let num_channels = ((self.iram[0x7F] >> 4) & 0x07) as usize;
+                    let min_ch = 7usize.saturating_sub(num_channels);
+                    if self.current_channel <= min_ch {
+                        self.current_channel = 7;
+                    } else {
+                        self.current_channel -= 1;
+                    }
+                }
+            }
+        }
         self.irq_pending
     }
 
@@ -256,6 +341,7 @@ impl Mapper for Mapper19 {
             self.dopol = state[start];
             self.gorfus = state[start + 1];
             self.gorko = state[start + 2];
+            self.disable_sound = (self.gorko & 1) != 0;
             self.iram.copy_from_slice(&state[start + 3..start + 131]);
             self.irq_count = u16::from_le_bytes([state[start + 131], state[start + 132]]);
             self.irq_enable = state[start + 133] != 0;
@@ -263,5 +349,13 @@ impl Mapper for Mapper19 {
             start += 135;
         }
         start
+    }
+
+    fn audio_sample(&self) -> f32 {
+        self.current_audio_sample
+    }
+
+    fn expansion_audio_type(&self) -> crate::mapper::ExpansionAudioType {
+        crate::mapper::ExpansionAudioType::Namco163
     }
 }

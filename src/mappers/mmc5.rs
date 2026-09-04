@@ -1049,13 +1049,16 @@ impl Mapper for MapperMMC5 {
         } else {
             0.0
         };
-        self.current_audio_sample =
-            (sq0_val + sq1_val) * 0.03 + (pcm_val / 255.0) * 0.15;
+        self.current_audio_sample = -(sq0_val + sq1_val + pcm_val);
         false
     }
 
     fn audio_sample(&self) -> f32 {
         self.current_audio_sample
+    }
+
+    fn expansion_audio_type(&self) -> crate::mapper::ExpansionAudioType {
+        crate::mapper::ExpansionAudioType::Mmc5
     }
 
     fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8> {
