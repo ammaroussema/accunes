@@ -29,6 +29,19 @@ const INPUT_FAMILY_BASIC_KEYBOARD: u8 = 29;
 const INPUT_SUBOR_KEYBOARD: u8 = 32;
 const INPUT_SUBOR_KEYBOARD_MOUSE_1: u8 = 33;
 const INPUT_SUBOR_KEYBOARD_MOUSE_2: u8 = 34;
+const INPUT_DONGDA_PEC586_KEYBOARD: u8 = 36;
+const INPUT_BIT79_KEYBOARD: u8 = 37;
+const INPUT_KEDA_KEYBOARD: u8 = 53;
+const INPUT_KINGWON_KEYBOARD: u8 = 62;
+const INPUT_ZECHENG_KEYBOARD: u8 = 63;
+const INPUT_CITY_PATROLMAN: u8 = 64;
+const INPUT_POKKUN_MOGURAA: u8 = 65;
+const INPUT_SHARP_C1_CASSETTE: u8 = 66;
+const INPUT_GOLDEN_NUGGET_CASINO: u8 = 67;
+const INPUT_ABL_PINBALL: u8 = 68;
+const INPUT_TV_PUMP: u8 = 69;
+const INPUT_TRIFACE_MAHJONG: u8 = 70;
+const INPUT_MAHJONG_GEKITOU: u8 = 71;
 const INPUT_SNES_MOUSE: u8 = 41;
 const INPUT_SNES_CONTROLLERS: u8 = 43;
 
@@ -68,6 +81,33 @@ fn parse_db() -> HashMap<u32, DbEntry> {
 
 pub fn detect(prg_chr_crc32: u32) -> Option<DetectedInput> {
     static DB: std::sync::OnceLock<HashMap<u32, DbEntry>> = std::sync::OnceLock::new();
+    match prg_chr_crc32 {
+        0xD9F45BE9 | 0x1545BD13 => {
+            return Some(DetectedInput {
+                port1: ControllerType::Gamepad,
+                port2: ControllerType::Gamepad,
+                expansion: ExpansionType::QuizKing,
+                adapter: ExpansionAdapterType::None,
+            });
+        }
+        0x47232739 => {
+            return Some(DetectedInput {
+                port1: ControllerType::Gamepad,
+                port2: ControllerType::Gamepad,
+                expansion: ExpansionType::TopRider,
+                adapter: ExpansionAdapterType::None,
+            });
+        }
+        0x67B126B9 => {
+            return Some(DetectedInput {
+                port1: ControllerType::Gamepad,
+                port2: ControllerType::Gamepad,
+                expansion: ExpansionType::FamiNetSys,
+                adapter: ExpansionAdapterType::None,
+            });
+        }
+        _ => {}
+    }
     let db = DB.get_or_init(parse_db);
     let entry = db.get(&prg_chr_crc32)?;
     let is_famicom = entry.is_famicom;
@@ -219,6 +259,84 @@ pub fn detect(prg_chr_crc32: u32) -> Option<DetectedInput> {
             port1: ControllerType::Gamepad,
             port2: ControllerType::SuborMouse,
             expansion: ExpansionType::SuborKeyboard,
+            adapter: ExpansionAdapterType::None,
+        }),
+        INPUT_DONGDA_PEC586_KEYBOARD => Some(DetectedInput {
+            port1: ControllerType::Gamepad,
+            port2: ControllerType::Gamepad,
+            expansion: ExpansionType::Pec586Keyboard,
+            adapter: ExpansionAdapterType::None,
+        }),
+        INPUT_BIT79_KEYBOARD => Some(DetectedInput {
+            port1: ControllerType::Gamepad,
+            port2: ControllerType::Gamepad,
+            expansion: ExpansionType::Bit79Keyboard,
+            adapter: ExpansionAdapterType::None,
+        }),
+        INPUT_KEDA_KEYBOARD => Some(DetectedInput {
+            port1: ControllerType::Gamepad,
+            port2: ControllerType::Gamepad,
+            expansion: ExpansionType::KedaKeyboard,
+            adapter: ExpansionAdapterType::None,
+        }),
+        INPUT_KINGWON_KEYBOARD => Some(DetectedInput {
+            port1: ControllerType::Gamepad,
+            port2: ControllerType::Gamepad,
+            expansion: ExpansionType::KingwonKeyboard,
+            adapter: ExpansionAdapterType::None,
+        }),
+        INPUT_ZECHENG_KEYBOARD => Some(DetectedInput {
+            port1: ControllerType::Gamepad,
+            port2: ControllerType::Gamepad,
+            expansion: ExpansionType::ZeChengKeyboard,
+            adapter: ExpansionAdapterType::None,
+        }),
+        INPUT_CITY_PATROLMAN => Some(DetectedInput {
+            port1: ControllerType::Gamepad,
+            port2: ControllerType::Gamepad,
+            expansion: ExpansionType::CityPatrolman,
+            adapter: ExpansionAdapterType::None,
+        }),
+        INPUT_POKKUN_MOGURAA => Some(DetectedInput {
+            port1: ControllerType::Gamepad,
+            port2: ControllerType::Gamepad,
+            expansion: ExpansionType::Moguraa,
+            adapter: ExpansionAdapterType::None,
+        }),
+        INPUT_SHARP_C1_CASSETTE => Some(DetectedInput {
+            port1: ControllerType::Gamepad,
+            port2: ControllerType::Gamepad,
+            expansion: ExpansionType::SharpC1Cassette,
+            adapter: ExpansionAdapterType::None,
+        }),
+        INPUT_GOLDEN_NUGGET_CASINO => Some(DetectedInput {
+            port1: ControllerType::Gamepad,
+            port2: ControllerType::Gamepad,
+            expansion: ExpansionType::GoldenNuggetCasino,
+            adapter: ExpansionAdapterType::None,
+        }),
+        INPUT_ABL_PINBALL => Some(DetectedInput {
+            port1: ControllerType::Gamepad,
+            port2: ControllerType::Gamepad,
+            expansion: ExpansionType::ABLPinball,
+            adapter: ExpansionAdapterType::None,
+        }),
+        INPUT_TV_PUMP => Some(DetectedInput {
+            port1: ControllerType::Gamepad,
+            port2: ControllerType::Gamepad,
+            expansion: ExpansionType::TVPump,
+            adapter: ExpansionAdapterType::None,
+        }),
+        INPUT_TRIFACE_MAHJONG => Some(DetectedInput {
+            port1: ControllerType::Gamepad,
+            port2: ControllerType::Gamepad,
+            expansion: ExpansionType::TrifaceMahjong,
+            adapter: ExpansionAdapterType::None,
+        }),
+        INPUT_MAHJONG_GEKITOU => Some(DetectedInput {
+            port1: ControllerType::Gamepad,
+            port2: ControllerType::Gamepad,
+            expansion: ExpansionType::MahjongGekitou,
             adapter: ExpansionAdapterType::None,
         }),
         INPUT_SNES_MOUSE => Some(DetectedInput {

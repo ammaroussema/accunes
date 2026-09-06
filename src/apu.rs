@@ -216,12 +216,14 @@ impl Emulator {
                     if self.expansion_adapter_type == crate::config::ExpansionAdapterType::TwoPlayer {
                         self.controller_shift_register1 = self.expansion_adapter_ports[0].load(Ordering::Relaxed);
                         self.controller_shift_register2 = self.expansion_adapter_ports[1].load(Ordering::Relaxed);
-                    } else if self.expansion_adapter_type == crate::config::ExpansionAdapterType::FourPlayer {
+                    } else if self.expansion_adapter_type == crate::config::ExpansionAdapterType::FourPlayer || self.expansion_adapter_type == crate::config::ExpansionAdapterType::HoriFourPlayer {
                         for p in 0..4usize {
                             self.expansion_adapter_shift_register[p] = self.expansion_adapter_ports[p].load(Ordering::Relaxed);
                         }
                         self.fourscore_readbit[0] = 0;
                         self.fourscore_readbit[1] = 0;
+                        self.controller_shift_register1 = self.controller_port1.load(Ordering::Relaxed);
+                        self.controller_shift_register2 = self.controller_port2.load(Ordering::Relaxed);
                     } else {
                         self.controller_shift_register1 = self.controller_port1.load(Ordering::Relaxed);
                         self.controller_shift_register2 = self.controller_port2.load(Ordering::Relaxed);
@@ -724,9 +726,6 @@ impl Emulator {
     }
 
     pub fn flush_audio_frame(&mut self) {
-        // Render the band-limited APU mix into a temporary buffer first so we
-        // can produce the same number of dedicated-PCM samples from the mapper
-        // (e.g. the Study Box tape player) and keep the sources in sync.
         let mut apu_out: Vec<f32> = Vec::with_capacity(1024);
         if let Some(ref mut blip) = self.blip {
             if self.audio_frame_cycle > 0 {
@@ -759,7 +758,6 @@ impl Emulator {
             }
         }
 
-        // Dedicated PCM channel from the mapper (Study Box tape audio).
         let mut extra: Vec<f32> = Vec::with_capacity(apu_out.len());
         if let Some(cart) = self.cart.as_mut() {
             cart.mapper_chip

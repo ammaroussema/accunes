@@ -210,10 +210,12 @@ pub struct Emulator {
 
     pub oam2_address: u8,
     pub secondary_oam_full: bool,
+    pub oam2_reset_signal: u8,
     pub sprite_evaluation_tick: u8,
     pub oam_address_overflowed_during_sprite_evaluation: bool,
     pub ppu_oam_latch: u8,
     pub ppu_oam_buffer: u8,
+    pub ppu_oam_read_latch: u8,
     pub ppu_render_temp: u8,
     pub in_range_check: u16,
     pub nine_objects_on_this_scanline: bool,
@@ -469,6 +471,72 @@ pub struct Emulator {
     pub subor_keyboard_row: u8,
     pub subor_keyboard_column: u8,
     pub subor_keyboard_enabled: bool,
+    pub pec586_keyboard_state: Arc<Mutex<[u8; 104]>>,
+    pub pec586_kspos: u8,
+    pub pec586_ksindex: u8,
+    pub pec586_kstrobe: u8,
+    pub bit79_keyboard_state: Arc<Mutex<[u8; 104]>>,
+    pub bit79_keyboard_row: u8,
+    pub bit79_keyboard_column: u8,
+    pub bit79_keyboard_strobe: u8,
+    pub keda_keyboard_state: Arc<Mutex<[u8; 104]>>,
+    pub keda_keyboard_row: u8,
+    pub keda_keyboard_column: u8,
+    pub keda_keyboard_strobe: u8,
+    pub kingwon_keyboard_state: Arc<Mutex<[u8; 104]>>,
+    pub kingwon_keyboard_row: u8,
+    pub kingwon_keyboard_column: u8,
+    pub kingwon_keyboard_bits: u8,
+    pub zecheng_keyboard_bits1: u8,
+    pub zecheng_keyboard_bits2: u8,
+    pub zecheng_keyboard_strobe: bool,
+    pub zecheng_keyboard_buttons: Arc<Mutex<u8>>,
+    pub zecheng_keyboard_keys: Arc<Mutex<u8>>,
+    pub zecheng_keyboard_dx: Arc<Mutex<i32>>,
+    pub zecheng_keyboard_dy: Arc<Mutex<i32>>,
+    pub quiz_king_buttons: Arc<Mutex<[u8; 6]>>,
+    pub quiz_king_data_r: u8,
+    pub quiz_king_funky_mode: bool,
+    pub quiz_king_strobe: bool,
+    pub top_rider_buttons: Arc<Mutex<[u8; 8]>>,
+    pub top_rider_bs: u32,
+    pub top_rider_bss: u32,
+    pub top_rider_boop: u32,
+    pub fami_net_sys_buttons: Arc<Mutex<[u8; 24]>>,
+    pub fami_net_sys_data: u32,
+    pub fami_net_sys_readbit: u8,
+    pub fami_net_sys_prev_strobe: bool,
+    pub city_patrolman_input: Arc<Mutex<[u8; 4]>>,
+    pub city_patrolman_strobe: u8,
+    pub city_patrolman_time_out: u32,
+    pub city_patrolman_shift_reg: u32,
+    pub moguraa_buttons: Arc<Mutex<[u8; 12]>>,
+    pub moguraa_bits: u16,
+    pub moguraa_sel: u8,
+    pub sharpc1_tape_state: u8,
+    pub sharpc1_tape_data: Vec<u8>,
+    pub sharpc1_tape_bits: u32,
+    pub sharpc1_tape_position: u32,
+    pub sharpc1_tape_level: bool,
+    pub sharpc1_tape_file_format: u8,
+    pub sharpc1_tape_path: Option<std::path::PathBuf>,
+    pub golden_nugget_buttons: Arc<Mutex<[u8; 11]>>,
+    pub golden_nugget_strobe: u8,
+    pub golden_nugget_shift: u8,
+    pub abl_pinball_buttons: Arc<Mutex<[u8; 6]>>,
+    pub abl_pinball_wheel: Arc<Mutex<i32>>,
+    pub abl_pinball_count: i16,
+    pub abl_pinball_plunger: i16,
+    pub abl_pinball_plunger_reset_count: i32,
+    pub tv_pump_buttons: Arc<Mutex<[u8; 6]>>,
+    pub triface_mahjong_buttons: Arc<Mutex<[u8; 22]>>,
+    pub triface_mahjong_column: u8,
+    pub triface_mahjong_row: u8,
+    pub triface_mahjong_keys: [u8; 10],
+    pub mahjong_gekitou_buttons: Arc<Mutex<[u8; 22]>>,
+    pub mahjong_gekitou_bits: u8,
+    pub mahjong_gekitou_bit_ptr: u8,
+    pub mahjong_gekitou_strobe: u8,
     pub master_cycle_counter: u64,
     pub barcode_battler_stream: [u8; 200],
     pub barcode_battler_insert_cycle: u64,
@@ -664,10 +732,10 @@ impl Emulator {
             ppu_next_scanline_contains_sprite_zero: false,
             ppu_current_scanline_contains_sprite_zero: false,
             ppu_can_detect_sprite_zero_hit: false,
-            oam2_address: 0, secondary_oam_full: false,
+            oam2_address: 0, secondary_oam_full: false, oam2_reset_signal: 0,
             sprite_evaluation_tick: 0,
             oam_address_overflowed_during_sprite_evaluation: false,
-            ppu_oam_latch: 0, ppu_oam_buffer: 0, ppu_render_temp: 0,
+            ppu_oam_latch: 0, ppu_oam_buffer: 0, ppu_oam_read_latch: 0, ppu_render_temp: 0,
             in_range_check: 0, nine_objects_on_this_scanline: false,
             ppu_oam_corruption_rendering_disabled_out_of_vblank: false,
             ppu_oam_corruption_rendering_disabled_out_of_vblank_instant: false,
@@ -819,6 +887,23 @@ impl Emulator {
             punching_bag_state: Arc::new(Mutex::new([0; 8])), punching_bag_selected_sensors: 0,
             jissen_mahjong_state: Arc::new(Mutex::new([0; 21])), jissen_mahjong_row: 0, jissen_mahjong_state_buffer: 0, jissen_mahjong_strobe: false,
             subor_keyboard_state: Arc::new(Mutex::new([0; 104])), subor_keyboard_row: 0, subor_keyboard_column: 0, subor_keyboard_enabled: false,
+            pec586_keyboard_state: Arc::new(Mutex::new([0; 104])), pec586_kspos: 0, pec586_ksindex: 0, pec586_kstrobe: 0,
+            bit79_keyboard_state: Arc::new(Mutex::new([0; 104])), bit79_keyboard_row: 0, bit79_keyboard_column: 0, bit79_keyboard_strobe: 0,
+            keda_keyboard_state: Arc::new(Mutex::new([0; 104])), keda_keyboard_row: 0, keda_keyboard_column: 0, keda_keyboard_strobe: 0,
+            kingwon_keyboard_state: Arc::new(Mutex::new([0; 104])), kingwon_keyboard_row: 0, kingwon_keyboard_column: 0, kingwon_keyboard_bits: 0,
+            zecheng_keyboard_bits1: 0, zecheng_keyboard_bits2: 0, zecheng_keyboard_strobe: false,
+            zecheng_keyboard_buttons: Arc::new(Mutex::new(0)), zecheng_keyboard_keys: Arc::new(Mutex::new(0)), zecheng_keyboard_dx: Arc::new(Mutex::new(0)), zecheng_keyboard_dy: Arc::new(Mutex::new(0)),
+            quiz_king_buttons: Arc::new(Mutex::new([0; 6])), quiz_king_data_r: 0, quiz_king_funky_mode: false, quiz_king_strobe: false,
+            top_rider_buttons: Arc::new(Mutex::new([0; 8])), top_rider_bs: 0, top_rider_bss: 0, top_rider_boop: 0,
+            fami_net_sys_buttons: Arc::new(Mutex::new([0; 24])), fami_net_sys_data: 0, fami_net_sys_readbit: 0, fami_net_sys_prev_strobe: false,
+            city_patrolman_input: Arc::new(Mutex::new([0; 4])), city_patrolman_strobe: 0, city_patrolman_time_out: 0, city_patrolman_shift_reg: 0,
+            moguraa_buttons: Arc::new(Mutex::new([0; 12])), moguraa_bits: 0, moguraa_sel: 0,
+            sharpc1_tape_state: 0, sharpc1_tape_data: Vec::new(), sharpc1_tape_bits: 0, sharpc1_tape_position: 0, sharpc1_tape_level: false, sharpc1_tape_file_format: 1, sharpc1_tape_path: None,
+            golden_nugget_buttons: Arc::new(Mutex::new([0; 11])), golden_nugget_strobe: 0, golden_nugget_shift: 0,
+            abl_pinball_buttons: Arc::new(Mutex::new([0; 6])), abl_pinball_wheel: Arc::new(Mutex::new(0)), abl_pinball_count: -1, abl_pinball_plunger: 1, abl_pinball_plunger_reset_count: 0,
+            tv_pump_buttons: Arc::new(Mutex::new([0; 6])),
+            triface_mahjong_buttons: Arc::new(Mutex::new([0; 22])), triface_mahjong_column: 0, triface_mahjong_row: 0, triface_mahjong_keys: [0; 10],
+            mahjong_gekitou_buttons: Arc::new(Mutex::new([0; 22])), mahjong_gekitou_bits: 0, mahjong_gekitou_bit_ptr: 0, mahjong_gekitou_strobe: 0,
             master_cycle_counter: 0, barcode_battler_stream: [0; 200], barcode_battler_insert_cycle: 0, barcode_battler_active: false,
             famicom_mic: Arc::new(AtomicBool::new(false)),
             paddle_x: Arc::new(Mutex::new([0; 3])), paddle_button: Arc::new(Mutex::new([false; 3])), paddle_readbit: [0; 3],
@@ -1183,6 +1268,139 @@ impl Emulator {
                 }
             }
         }
+    }
+
+    pub fn expansion_tick(&mut self) {
+        if self.expansion_type.is_city_patrolman() {
+            self.city_patrolman_time_out = self.city_patrolman_time_out.wrapping_add(1);
+        }
+        if self.expansion_type.is_abl_pinball() {
+            self.abl_pinball_plunger_reset_count += 1;
+            if self.abl_pinball_plunger_reset_count >= 1789773 / 4 {
+                self.abl_pinball_plunger_reset_count = 0;
+                if self.abl_pinball_plunger > 0 {
+                    self.abl_pinball_plunger -= 1;
+                }
+            }
+        }
+        if self.expansion_type.is_sharp_c1_cassette() {
+            self.tape_cpu_cycle();
+        }
+    }
+
+    pub fn tape_play(&mut self, path: std::path::PathBuf, file_format: u8) {
+        self.tape_stop();
+        if let Ok(data) = std::fs::read(&path) {
+            self.sharpc1_tape_data = data;
+            self.sharpc1_tape_bits = (self.sharpc1_tape_data.len() as u32).wrapping_mul(8);
+            self.sharpc1_tape_position = 0;
+            self.sharpc1_tape_state = 1;
+            self.sharpc1_tape_file_format = file_format;
+            self.sharpc1_tape_path = Some(path);
+        }
+    }
+
+    pub fn tape_record(&mut self, path: std::path::PathBuf, file_format: u8) {
+        self.tape_stop();
+        self.sharpc1_tape_data.clear();
+        self.sharpc1_tape_state = 2;
+        self.sharpc1_tape_file_format = file_format;
+        self.sharpc1_tape_path = Some(path);
+    }
+
+    pub fn tape_stop(&mut self) {
+        if self.sharpc1_tape_state == 2 {
+            if let Some(path) = self.sharpc1_tape_path.clone() {
+                let mut out: Vec<u8> = Vec::new();
+                if self.sharpc1_tape_file_format == 2 {
+                    let mut count: u32 = 0;
+                    for &byte in self.sharpc1_tape_data.iter() {
+                        for bit in 0..8 {
+                            let level = if byte & (0x80 >> bit) != 0 { 0.50f32 } else { -0.50f32 };
+                            count += 176;
+                            if count >= 39375 {
+                                count -= 39375;
+                                let sample = ((level * 127.0) - 128.0) as i16 as u8;
+                                out.push(sample);
+                            }
+                        }
+                    }
+                    let mut wav = Vec::with_capacity(44 + out.len());
+                    wav.extend_from_slice(b"RIFF");
+                    wav.extend_from_slice(&((36 + out.len() as u32).to_le_bytes()));
+                    wav.extend_from_slice(b"WAVEfmt ");
+                    wav.extend_from_slice(&20u32.to_le_bytes());
+                    wav.extend_from_slice(&1u16.to_le_bytes());
+                    wav.extend_from_slice(&1u16.to_le_bytes());
+                    wav.extend_from_slice(&8000u32.to_le_bytes());
+                    wav.extend_from_slice(&8000u32.to_le_bytes());
+                    wav.extend_from_slice(&1u16.to_le_bytes());
+                    wav.extend_from_slice(&8u16.to_le_bytes());
+                    wav.extend_from_slice(b"data");
+                    wav.extend_from_slice(&(out.len() as u32).to_le_bytes());
+                    wav.extend_from_slice(&out);
+                    let _ = std::fs::write(&path, &wav);
+                } else {
+                    out = self.sharpc1_tape_data.clone();
+                    let _ = std::fs::write(&path, &out);
+                }
+            }
+        }
+        self.sharpc1_tape_data.clear();
+        self.sharpc1_tape_bits = 0;
+        self.sharpc1_tape_position = 0;
+        self.sharpc1_tape_level = false;
+        self.sharpc1_tape_state = 0;
+        self.sharpc1_tape_path = None;
+    }
+
+    pub fn tape_cpu_cycle(&mut self) {
+        match self.sharpc1_tape_state {
+            2 => {
+                if (self.sharpc1_tape_bits & 7) == 0 {
+                    self.sharpc1_tape_data.push(0);
+                }
+                let byte_idx = (self.sharpc1_tape_position >> 3) as usize;
+                let bit_mask = 0x80 >> (self.sharpc1_tape_position & 7);
+                if byte_idx < self.sharpc1_tape_data.len() {
+                    if self.sharpc1_tape_level {
+                        self.sharpc1_tape_data[byte_idx] |= bit_mask;
+                    } else {
+                        self.sharpc1_tape_data[byte_idx] &= !bit_mask;
+                    }
+                }
+                self.sharpc1_tape_position = self.sharpc1_tape_position.wrapping_add(1);
+                self.sharpc1_tape_bits = self.sharpc1_tape_bits.wrapping_add(1);
+            }
+            1 => {
+                if self.sharpc1_tape_position < self.sharpc1_tape_bits {
+                    let byte_idx = (self.sharpc1_tape_position >> 3) as usize;
+                    self.sharpc1_tape_level = if byte_idx < self.sharpc1_tape_data.len() {
+                        (self.sharpc1_tape_data[byte_idx] & (0x80 >> (self.sharpc1_tape_position & 7))) != 0
+                    } else {
+                        false
+                    };
+                } else {
+                    self.tape_stop();
+                }
+                self.sharpc1_tape_position = self.sharpc1_tape_position.wrapping_add(1);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn tape_output(&mut self, level: bool) {
+        if self.sharpc1_tape_state == 2 {
+            self.store_apu_registers(0x4011, if level { 1 } else { 0 });
+        }
+        self.sharpc1_tape_level = level;
+    }
+
+    pub fn tape_input(&mut self) -> bool {
+        if self.sharpc1_tape_state == 1 {
+            self.store_apu_registers(0x4011, if self.sharpc1_tape_level { 1 } else { 0 });
+        }
+        self.sharpc1_tape_level
     }
 
     pub fn set_audio_output(
@@ -1994,6 +2212,64 @@ impl Emulator {
         out.push(self.um6578_bg_palette);
         out.push(self.um6578_bg_palette_lo);
         out.extend_from_slice(&self.um6578_chr_ram);
+        out.extend_from_slice(&self.pec586_keyboard_state.lock().unwrap()[..]);
+        out.push(self.pec586_kspos);
+        out.push(self.pec586_ksindex);
+        out.push(self.pec586_kstrobe);
+        out.extend_from_slice(&self.bit79_keyboard_state.lock().unwrap()[..]);
+        out.push(self.bit79_keyboard_row);
+        out.push(self.bit79_keyboard_column);
+        out.push(self.bit79_keyboard_strobe);
+        out.extend_from_slice(&self.keda_keyboard_state.lock().unwrap()[..]);
+        out.push(self.keda_keyboard_row);
+        out.push(self.keda_keyboard_column);
+        out.push(self.keda_keyboard_strobe);
+        out.extend_from_slice(&self.kingwon_keyboard_state.lock().unwrap()[..]);
+        out.push(self.kingwon_keyboard_row);
+        out.push(self.kingwon_keyboard_column);
+        out.push(self.kingwon_keyboard_bits);
+        out.push(self.zecheng_keyboard_bits1);
+        out.push(self.zecheng_keyboard_bits2);
+        out.push(self.zecheng_keyboard_strobe as u8);
+        out.push(*self.zecheng_keyboard_buttons.lock().unwrap());
+        out.push(*self.zecheng_keyboard_keys.lock().unwrap());
+        out.extend_from_slice(&self.quiz_king_buttons.lock().unwrap()[..]);
+        out.push(self.quiz_king_data_r);
+        out.push(if self.quiz_king_funky_mode { 1 } else { 0 });
+        out.push(if self.quiz_king_strobe { 1 } else { 0 });
+        out.extend_from_slice(&self.top_rider_buttons.lock().unwrap()[..]);
+        out.extend_from_slice(&self.top_rider_bs.to_le_bytes());
+        out.extend_from_slice(&self.top_rider_bss.to_le_bytes());
+        out.extend_from_slice(&self.top_rider_boop.to_le_bytes());
+        out.extend_from_slice(&self.fami_net_sys_buttons.lock().unwrap()[..]);
+        out.extend_from_slice(&self.fami_net_sys_data.to_le_bytes());
+        out.push(self.fami_net_sys_readbit);
+        out.push(if self.fami_net_sys_prev_strobe { 1 } else { 0 });
+        out.extend_from_slice(&self.city_patrolman_input.lock().unwrap()[..]);
+        out.push(self.city_patrolman_strobe);
+        out.extend_from_slice(&self.city_patrolman_time_out.to_le_bytes());
+        out.extend_from_slice(&self.city_patrolman_shift_reg.to_le_bytes());
+        out.extend_from_slice(&self.moguraa_buttons.lock().unwrap()[..]);
+        out.extend_from_slice(&self.moguraa_bits.to_le_bytes());
+        out.push(self.moguraa_sel);
+        out.extend_from_slice(&self.golden_nugget_buttons.lock().unwrap()[..]);
+        out.push(self.golden_nugget_strobe);
+        out.push(self.golden_nugget_shift);
+        out.extend_from_slice(&self.abl_pinball_buttons.lock().unwrap()[..]);
+        out.extend_from_slice(&self.abl_pinball_count.to_le_bytes());
+        out.extend_from_slice(&self.abl_pinball_plunger.to_le_bytes());
+        out.extend_from_slice(&self.abl_pinball_plunger_reset_count.to_le_bytes());
+        out.extend_from_slice(&self.tv_pump_buttons.lock().unwrap()[..]);
+        out.extend_from_slice(&self.triface_mahjong_buttons.lock().unwrap()[..]);
+        out.push(self.triface_mahjong_column);
+        out.push(self.triface_mahjong_row);
+        out.extend_from_slice(&self.triface_mahjong_keys);
+        out.extend_from_slice(&self.mahjong_gekitou_buttons.lock().unwrap()[..]);
+        out.push(self.mahjong_gekitou_bits);
+        out.push(self.mahjong_gekitou_bit_ptr);
+        out.push(self.mahjong_gekitou_strobe);
+        out.push(self.ppu_oam_read_latch);
+        out.push(self.oam2_reset_signal);
         out
     }
 
@@ -2470,6 +2746,186 @@ impl Emulator {
                 if p < data.len() { self.um6578_chr_ram[i] = data[p]; p+=1; }
             }
         }
+        {
+            let mut pk_state = self.pec586_keyboard_state.lock().unwrap();
+            for slot in pk_state.iter_mut() {
+                if p >= data.len() { break; }
+                *slot = data[p]; p+=1;
+            }
+        }
+        if p < data.len() { self.pec586_kspos = data[p]; p+=1; }
+        if p < data.len() { self.pec586_ksindex = data[p]; p+=1; }
+        if p < data.len() { self.pec586_kstrobe = data[p]; p+=1; }
+        {
+            let mut b79_state = self.bit79_keyboard_state.lock().unwrap();
+            for slot in b79_state.iter_mut() {
+                if p >= data.len() { break; }
+                *slot = data[p]; p+=1;
+            }
+        }
+        if p < data.len() { self.bit79_keyboard_row = data[p]; p+=1; }
+        if p < data.len() { self.bit79_keyboard_column = data[p]; p+=1; }
+        if p < data.len() { self.bit79_keyboard_strobe = data[p]; p+=1; }
+        {
+            let mut kd_state = self.keda_keyboard_state.lock().unwrap();
+            for slot in kd_state.iter_mut() {
+                if p >= data.len() { break; }
+                *slot = data[p]; p+=1;
+            }
+        }
+        if p < data.len() { self.keda_keyboard_row = data[p]; p+=1; }
+        if p < data.len() { self.keda_keyboard_column = data[p]; p+=1; }
+        if p < data.len() { self.keda_keyboard_strobe = data[p]; p+=1; }
+        {
+            let mut kw_state = self.kingwon_keyboard_state.lock().unwrap();
+            for slot in kw_state.iter_mut() {
+                if p >= data.len() { break; }
+                *slot = data[p]; p+=1;
+            }
+        }
+        if p < data.len() { self.kingwon_keyboard_row = data[p]; p+=1; }
+        if p < data.len() { self.kingwon_keyboard_column = data[p]; p+=1; }
+        if p < data.len() { self.kingwon_keyboard_bits = data[p]; p+=1; }
+        if p < data.len() { self.zecheng_keyboard_bits1 = data[p]; p+=1; }
+        if p < data.len() { self.zecheng_keyboard_bits2 = data[p]; p+=1; }
+        if p < data.len() { self.zecheng_keyboard_strobe = data[p] != 0; p+=1; }
+        if p < data.len() {
+            *self.zecheng_keyboard_buttons.lock().unwrap() = data[p];
+            p+=1;
+        }
+        if p < data.len() {
+            *self.zecheng_keyboard_keys.lock().unwrap() = data[p];
+            p+=1;
+        }
+        {
+            let mut qk_buttons = self.quiz_king_buttons.lock().unwrap();
+            for slot in qk_buttons.iter_mut() {
+                if p >= data.len() { break; }
+                *slot = data[p]; p+=1;
+            }
+        }
+        if p < data.len() { self.quiz_king_data_r = data[p]; p+=1; }
+        if p < data.len() { self.quiz_king_funky_mode = data[p] != 0; p+=1; }
+        if p < data.len() { self.quiz_king_strobe = data[p] != 0; p+=1; }
+        {
+            let mut tr_buttons = self.top_rider_buttons.lock().unwrap();
+            for slot in tr_buttons.iter_mut() {
+                if p >= data.len() { break; }
+                *slot = data[p]; p+=1;
+            }
+        }
+        let mut read_u32 = || -> Result<u32, String> {
+            if p + 3 < data.len() {
+                let v = u32::from_le_bytes([data[p], data[p+1], data[p+2], data[p+3]]);
+                p += 4;
+                Ok(v)
+            } else {
+                Ok(0)
+            }
+        };
+        self.top_rider_bs = read_u32()?;
+        self.top_rider_bss = read_u32()?;
+        self.top_rider_boop = read_u32()?;
+        {
+            let mut fns_buttons = self.fami_net_sys_buttons.lock().unwrap();
+            for slot in fns_buttons.iter_mut() {
+                if p >= data.len() { break; }
+                *slot = data[p]; p+=1;
+            }
+        }
+        let mut fns_data_bytes = [0u8; 4];
+        for b in fns_data_bytes.iter_mut() {
+            if p < data.len() { *b = data[p]; p+=1; }
+        }
+        self.fami_net_sys_data = u32::from_le_bytes(fns_data_bytes);
+        if p < data.len() { self.fami_net_sys_readbit = data[p]; p+=1; }
+        if p < data.len() { self.fami_net_sys_prev_strobe = data[p] != 0; }
+        {
+            let mut cp_input = self.city_patrolman_input.lock().unwrap();
+            for slot in cp_input.iter_mut() {
+                if p >= data.len() { break; }
+                *slot = data[p]; p+=1;
+            }
+        }
+        if p < data.len() { self.city_patrolman_strobe = data[p]; p+=1; }
+        if p + 3 < data.len() {
+            self.city_patrolman_time_out = u32::from_le_bytes([data[p], data[p+1], data[p+2], data[p+3]]);
+            p += 4;
+            self.city_patrolman_shift_reg = u32::from_le_bytes([data[p], data[p+1], data[p+2], data[p+3]]);
+            p += 4;
+        }
+        {
+            let mut mog_buttons = self.moguraa_buttons.lock().unwrap();
+            for slot in mog_buttons.iter_mut() {
+                if p >= data.len() { break; }
+                *slot = data[p]; p+=1;
+            }
+        }
+        if p + 1 < data.len() {
+            self.moguraa_bits = u16::from_le_bytes([data[p], data[p+1]]);
+            p += 2;
+        }
+        if p < data.len() { self.moguraa_sel = data[p]; p+=1; }
+        {
+            let mut gnc_buttons = self.golden_nugget_buttons.lock().unwrap();
+            for slot in gnc_buttons.iter_mut() {
+                if p >= data.len() { break; }
+                *slot = data[p]; p+=1;
+            }
+        }
+        if p < data.len() { self.golden_nugget_strobe = data[p]; p+=1; }
+        if p < data.len() { self.golden_nugget_shift = data[p]; p+=1; }
+        {
+            let mut abl_buttons = self.abl_pinball_buttons.lock().unwrap();
+            for slot in abl_buttons.iter_mut() {
+                if p >= data.len() { break; }
+                *slot = data[p]; p+=1;
+            }
+        }
+        if p + 1 < data.len() {
+            self.abl_pinball_count = i16::from_le_bytes([data[p], data[p+1]]);
+            p += 2;
+        }
+        if p + 1 < data.len() {
+            self.abl_pinball_plunger = i16::from_le_bytes([data[p], data[p+1]]);
+            p += 2;
+        }
+        if p + 3 < data.len() {
+            self.abl_pinball_plunger_reset_count = i32::from_le_bytes([data[p], data[p+1], data[p+2], data[p+3]]);
+            p += 4;
+        }
+        {
+            let mut tv_buttons = self.tv_pump_buttons.lock().unwrap();
+            for slot in tv_buttons.iter_mut() {
+                if p >= data.len() { break; }
+                *slot = data[p]; p+=1;
+            }
+        }
+        {
+            let mut tr_buttons = self.triface_mahjong_buttons.lock().unwrap();
+            for slot in tr_buttons.iter_mut() {
+                if p >= data.len() { break; }
+                *slot = data[p]; p+=1;
+            }
+        }
+        if p < data.len() { self.triface_mahjong_column = data[p]; p+=1; }
+        if p < data.len() { self.triface_mahjong_row = data[p]; p+=1; }
+        for slot in self.triface_mahjong_keys.iter_mut() {
+            if p >= data.len() { break; }
+            *slot = data[p]; p+=1;
+        }
+        {
+            let mut mg_buttons = self.mahjong_gekitou_buttons.lock().unwrap();
+            for slot in mg_buttons.iter_mut() {
+                if p >= data.len() { break; }
+                *slot = data[p]; p+=1;
+            }
+        }
+        if p < data.len() { self.mahjong_gekitou_bits = data[p]; p+=1; }
+        if p < data.len() { self.mahjong_gekitou_bit_ptr = data[p]; p+=1; }
+        if p < data.len() { self.mahjong_gekitou_strobe = data[p]; }
+        if p < data.len() { self.ppu_oam_read_latch = data[p]; }
+        if p < data.len() { self.oam2_reset_signal = data[p]; }
         Ok(())
     }
 }

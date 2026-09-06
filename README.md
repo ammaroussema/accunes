@@ -12,7 +12,7 @@ a cycle-accurate NES/Famicom emulator for windows, written in rust and focused o
 - **saving/loading** save states, **per game slots** system + **quick save/quick load** systems!
 - **battery backed ram** saving for games that need it!
 - **nes gamepads, famicom gamepads, famicom microphone, zapper, paddle, power pads, snes gamepad, snes mouse, subor mouse, virtual boy gamepad and four score** controller types supported!
-- **famicom zapper, paddle, family trainer, 2/4-player adapters, oeka kid tablet, konami hyper shot, family basic keyboard, party tap and pachinko controller** expansion port types supported!
+- **famicom zapper, paddle, family trainer, famicom 2/4-player adapters, hori 4-player adapter, quiz king buzzers, top rider, famicom network controller, city patrolman lightgun, pokkun moguraa mat, sharp c1 cassette interface, majesco golden nugget casino, abl pinball, tv pump, triface mahjong, mahjong gekitou densetsu controller, oeka kid tablet, konami hyper shot, family basic keyboard, pec586 keyboard, bit-79 keyboard, keda keyboard, kingwon keyboard, ze cheng keyboard, party tap and pachinko controller** expansion port types supported!
 - supports **windows x64, x32 and ARM** devices!
 
 

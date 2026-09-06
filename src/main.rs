@@ -113,6 +113,9 @@ enum NesMenuItem {
     InsertEjectDisk,
     SwapDisk,
     InputBarcode,
+    TapePlay,
+    TapeRecord,
+    TapeStop,
     Reset,
     PowerCycle,
 }
@@ -895,7 +898,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.6.5";
+const APP_VERSION: &str = "1.6.6";
 
 fn strip_version_prefix(s: &str) -> &str {
     s.trim_start_matches(|c: char| c.is_ascii_alphabetic())
@@ -1125,6 +1128,54 @@ fn draw_image_rgba(buffer: &mut [u32], x: usize, y: usize, width: usize, rgba_da
 
 fn point_in_rect(px: usize, py: usize, x: usize, y: usize, w: usize, h: usize) -> bool {
     px >= x && px < x + w && py >= y && py < y + h
+}
+
+fn expansion_device_button_count(t: config::ExpansionType) -> usize {
+    if t.is_city_patrolman() {
+        config::CITY_PATROLMAN_BUTTON_COUNT
+    } else if t.is_moguraa() {
+        config::MOGURAA_BUTTON_COUNT
+    } else if t.is_golden_nugget_casino() {
+        config::GOLDEN_NUGGET_CASINO_BUTTON_COUNT
+    } else if t.is_abl_pinball() {
+        config::ABL_PINBALL_BUTTON_COUNT
+    } else if t.is_tv_pump() {
+        config::TV_PUMP_BUTTON_COUNT
+    } else if t.is_triface_mahjong() || t.is_mahjong_gekitou() {
+        config::MAHJONG_2X22_BUTTON_COUNT
+    } else {
+        0
+    }
+}
+
+fn expansion_device_grid_cols(t: config::ExpansionType) -> usize {
+    if t.is_city_patrolman() {
+        2
+    } else if t.is_moguraa() || t.is_golden_nugget_casino() || t.is_triface_mahjong() || t.is_mahjong_gekitou() {
+        4
+    } else if t.is_abl_pinball() || t.is_tv_pump() {
+        3
+    } else {
+        1
+    }
+}
+
+fn expansion_device_label(t: config::ExpansionType, i: usize) -> &'static str {
+    if t.is_city_patrolman() {
+        config::CITY_PATROLMAN_LABELS[i]
+    } else if t.is_moguraa() {
+        config::MOGURAA_LABELS[i]
+    } else if t.is_golden_nugget_casino() {
+        config::GOLDEN_NUGGET_CASINO_LABELS[i]
+    } else if t.is_abl_pinball() {
+        config::ABL_PINBALL_LABELS[i]
+    } else if t.is_tv_pump() {
+        config::TV_PUMP_LABELS[i]
+    } else if t.is_triface_mahjong() || t.is_mahjong_gekitou() {
+        config::MAHJONG_2X22_LABELS[i]
+    } else {
+        ""
+    }
 }
 
 fn barcode_sel_bounds(anchor: Option<usize>, caret: usize) -> (usize, usize) {
@@ -1414,7 +1465,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.6.5")
+        .with_title("AccuNES 1.6.6")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -1446,6 +1497,25 @@ fn main() {
     let punching_bag_state = Arc::new(Mutex::new([0u8; 8]));
     let jissen_mahjong_state = Arc::new(Mutex::new([0u8; 21]));
     let subor_keyboard_state = Arc::new(Mutex::new([0u8; 104]));
+    let pec586_keyboard_state = Arc::new(Mutex::new([0u8; 104]));
+    let bit79_keyboard_state = Arc::new(Mutex::new([0u8; 104]));
+    let keda_keyboard_state = Arc::new(Mutex::new([0u8; 104]));
+    let kingwon_keyboard_state = Arc::new(Mutex::new([0u8; 104]));
+    let zecheng_keyboard_buttons = Arc::new(Mutex::new(0u8));
+    let zecheng_keyboard_keys = Arc::new(Mutex::new(0u8));
+    let zecheng_keyboard_dx = Arc::new(Mutex::new(0i32));
+    let zecheng_keyboard_dy = Arc::new(Mutex::new(0i32));
+    let quiz_king_state = Arc::new(Mutex::new([0u8; 6]));
+    let top_rider_state = Arc::new(Mutex::new([0u8; 8]));
+    let fami_net_sys_state = Arc::new(Mutex::new([0u8; 24]));
+    let city_patrolman_state = Arc::new(Mutex::new([0u8; 4]));
+    let moguraa_state = Arc::new(Mutex::new([0u8; 12]));
+    let golden_nugget_casino_state = Arc::new(Mutex::new([0u8; 11]));
+    let abl_pinball_state = Arc::new(Mutex::new([0u8; 6]));
+    let abl_pinball_wheel_state = Arc::new(Mutex::new(0i32));
+    let tv_pump_state = Arc::new(Mutex::new([0u8; 6]));
+    let triface_mahjong_state = Arc::new(Mutex::new([0u8; 22]));
+    let mahjong_gekitou_state = Arc::new(Mutex::new([0u8; 22]));
     let famicom_mic = Arc::new(AtomicBool::new(false));
     let zapper_bogo = Arc::new(AtomicU8::new(0));
     let paddle_x = Arc::new(Mutex::new([0u8; 3]));
@@ -1482,6 +1552,25 @@ fn main() {
         e.punching_bag_state = punching_bag_state.clone();
         e.jissen_mahjong_state = jissen_mahjong_state.clone();
         e.subor_keyboard_state = subor_keyboard_state.clone();
+        e.pec586_keyboard_state = pec586_keyboard_state.clone();
+        e.bit79_keyboard_state = bit79_keyboard_state.clone();
+        e.keda_keyboard_state = keda_keyboard_state.clone();
+        e.kingwon_keyboard_state = kingwon_keyboard_state.clone();
+        e.zecheng_keyboard_buttons = zecheng_keyboard_buttons.clone();
+        e.zecheng_keyboard_keys = zecheng_keyboard_keys.clone();
+        e.zecheng_keyboard_dx = zecheng_keyboard_dx.clone();
+        e.zecheng_keyboard_dy = zecheng_keyboard_dy.clone();
+        e.quiz_king_buttons = quiz_king_state.clone();
+        e.top_rider_buttons = top_rider_state.clone();
+        e.fami_net_sys_buttons = fami_net_sys_state.clone();
+        e.city_patrolman_input = city_patrolman_state.clone();
+        e.moguraa_buttons = moguraa_state.clone();
+        e.golden_nugget_buttons = golden_nugget_casino_state.clone();
+        e.abl_pinball_buttons = abl_pinball_state.clone();
+        e.abl_pinball_wheel = abl_pinball_wheel_state.clone();
+        e.tv_pump_buttons = tv_pump_state.clone();
+        e.triface_mahjong_buttons = triface_mahjong_state.clone();
+        e.mahjong_gekitou_buttons = mahjong_gekitou_state.clone();
         e.famicom_mic = famicom_mic.clone();
         e.zapper_bogo = zapper_bogo.clone();
         e.paddle_x = paddle_x.clone();
@@ -1590,6 +1679,21 @@ fn main() {
     let punching_bag_bindings = Rc::new(RefCell::new(config::load_exciting_boxing_bindings("punchingbag")));
     let jissen_mahjong_bindings = Rc::new(RefCell::new(config::load_jissen_mahjong_bindings("jissenmahjong")));
     let subor_keyboard_bindings = Rc::new(RefCell::new(config::load_subor_keyboard_bindings("suborkeyboard")));
+    let pec586_keyboard_bindings = Rc::new(RefCell::new(config::load_subor_keyboard_bindings("pec586keyboard")));
+    let bit79_keyboard_bindings = Rc::new(RefCell::new(config::load_subor_keyboard_bindings("bit79keyboard")));
+    let keda_keyboard_bindings = Rc::new(RefCell::new(config::load_subor_keyboard_bindings("kedakeyboard")));
+    let kingwon_keyboard_bindings = Rc::new(RefCell::new(config::load_subor_keyboard_bindings("kingwonkeyboard")));
+    let zecheng_keyboard_bindings = Rc::new(RefCell::new(config::load_zecheng_keyboard_bindings("zecheng")));
+    let quiz_king_bindings = Rc::new(RefCell::new(config::load_quiz_king_bindings("quizking")));
+    let top_rider_bindings = Rc::new(RefCell::new(config::load_top_rider_bindings("toprider")));
+    let fami_net_sys_bindings = Rc::new(RefCell::new(config::load_fami_net_sys_bindings("faminetsys")));
+    let city_patrolman_bindings = Rc::new(RefCell::new(config::load_city_patrolman_bindings("citypatrolman")));
+    let moguraa_bindings = Rc::new(RefCell::new(config::load_moguraa_bindings("moguraa")));
+    let golden_nugget_casino_bindings = Rc::new(RefCell::new(config::load_golden_nugget_casino_bindings("goldennuggetcasino")));
+    let abl_pinball_bindings = Rc::new(RefCell::new(config::load_abl_pinball_bindings("ablpinball")));
+    let tv_pump_bindings = Rc::new(RefCell::new(config::load_tv_pump_bindings("tvpump")));
+    let triface_mahjong_bindings = Rc::new(RefCell::new(config::load_triface_mahjong_bindings("trifacemahjong")));
+    let mahjong_gekitou_bindings = Rc::new(RefCell::new(config::load_mahjong_gekitou_bindings("mahjonggekitou")));
     let famicom_mic_binding = Rc::new(RefCell::new(config::load_famicom_mic()));
 
     let paddle1_button_binding = Rc::new(RefCell::new(config::load_paddle_button("controller1")));
@@ -1763,6 +1867,25 @@ fn main() {
     let punching_bag_state_clone = punching_bag_state.clone();
     let jissen_mahjong_state_clone = jissen_mahjong_state.clone();
     let subor_keyboard_state_clone = subor_keyboard_state.clone();
+    let pec586_keyboard_state_clone = pec586_keyboard_state.clone();
+    let bit79_keyboard_state_clone = bit79_keyboard_state.clone();
+    let keda_keyboard_state_clone = keda_keyboard_state.clone();
+    let kingwon_keyboard_state_clone = kingwon_keyboard_state.clone();
+    let zecheng_keyboard_buttons_clone = zecheng_keyboard_buttons.clone();
+    let zecheng_keyboard_keys_clone = zecheng_keyboard_keys.clone();
+    let zecheng_keyboard_dx_clone = zecheng_keyboard_dx.clone();
+    let zecheng_keyboard_dy_clone = zecheng_keyboard_dy.clone();
+    let quiz_king_state_clone = quiz_king_state.clone();
+    let top_rider_state_clone = top_rider_state.clone();
+    let fami_net_sys_state_clone = fami_net_sys_state.clone();
+    let city_patrolman_state_clone = city_patrolman_state.clone();
+    let moguraa_state_clone = moguraa_state.clone();
+    let golden_nugget_casino_state_clone = golden_nugget_casino_state.clone();
+    let abl_pinball_state_clone = abl_pinball_state.clone();
+    let abl_pinball_wheel_state_clone = abl_pinball_wheel_state.clone();
+    let tv_pump_state_clone = tv_pump_state.clone();
+    let triface_mahjong_state_clone = triface_mahjong_state.clone();
+    let mahjong_gekitou_state_clone = mahjong_gekitou_state.clone();
     let famicom_mic_clone = famicom_mic.clone();
     let zapper_bogo_clone = zapper_bogo.clone();
     let paddle_x_clone = paddle_x.clone();
@@ -1789,6 +1912,21 @@ fn main() {
     let punching_bag_bindings_clone = punching_bag_bindings.clone();
     let jissen_mahjong_bindings_clone = jissen_mahjong_bindings.clone();
     let subor_keyboard_bindings_clone = subor_keyboard_bindings.clone();
+    let pec586_keyboard_bindings_clone = pec586_keyboard_bindings.clone();
+    let bit79_keyboard_bindings_clone = bit79_keyboard_bindings.clone();
+    let keda_keyboard_bindings_clone = keda_keyboard_bindings.clone();
+    let kingwon_keyboard_bindings_clone = kingwon_keyboard_bindings.clone();
+    let zecheng_keyboard_bindings_clone = zecheng_keyboard_bindings.clone();
+    let quiz_king_bindings_clone = quiz_king_bindings.clone();
+    let top_rider_bindings_clone = top_rider_bindings.clone();
+    let fami_net_sys_bindings_clone = fami_net_sys_bindings.clone();
+    let city_patrolman_bindings_clone = city_patrolman_bindings.clone();
+    let moguraa_bindings_clone = moguraa_bindings.clone();
+    let golden_nugget_casino_bindings_clone = golden_nugget_casino_bindings.clone();
+    let abl_pinball_bindings_clone = abl_pinball_bindings.clone();
+    let tv_pump_bindings_clone = tv_pump_bindings.clone();
+    let triface_mahjong_bindings_clone = triface_mahjong_bindings.clone();
+    let mahjong_gekitou_bindings_clone = mahjong_gekitou_bindings.clone();
     let famicom_mic_binding_clone = famicom_mic_binding.clone();
     let paddle1_button_binding_clone = paddle1_button_binding.clone();
     let paddle2_button_binding_clone = paddle2_button_binding.clone();
@@ -2358,6 +2496,90 @@ fn main() {
                     }
                 }
             }
+            if expansion_type_clone.borrow().is_pec586_keyboard() {
+                let pk = pec586_keyboard_bindings_clone.borrow();
+                let mut pk_lock = pec586_keyboard_state_clone.lock().unwrap();
+                for (i, s) in pk.iter().enumerate() {
+                    if s == &btn_name {
+                        pk_lock[i] = if pressed { 1 } else { 0 };
+                    }
+                }
+            }
+            if expansion_type_clone.borrow().is_bit79_keyboard() {
+                let bk = bit79_keyboard_bindings_clone.borrow();
+                let mut bk_lock = bit79_keyboard_state_clone.lock().unwrap();
+                for (i, s) in bk.iter().enumerate() {
+                    if s == &btn_name {
+                        bk_lock[i] = if pressed { 1 } else { 0 };
+                    }
+                }
+            }
+            if expansion_type_clone.borrow().is_keda_keyboard() {
+                let kk = keda_keyboard_bindings_clone.borrow();
+                let mut kk_lock = keda_keyboard_state_clone.lock().unwrap();
+                for (i, s) in kk.iter().enumerate() {
+                    if s == &btn_name {
+                        kk_lock[i] = if pressed { 1 } else { 0 };
+                    }
+                }
+            }
+            if expansion_type_clone.borrow().is_kingwon_keyboard() {
+                let wk = kingwon_keyboard_bindings_clone.borrow();
+                let mut wk_lock = kingwon_keyboard_state_clone.lock().unwrap();
+                for (i, s) in wk.iter().enumerate() {
+                    if s == &btn_name {
+                        wk_lock[i] = if pressed { 1 } else { 0 };
+                    }
+                }
+            }
+            if expansion_type_clone.borrow().is_zecheng_keyboard() {
+                let zk = zecheng_keyboard_bindings_clone.borrow();
+                let mut zk_buttons = zecheng_keyboard_buttons_clone.lock().unwrap();
+                let mut zk_keys = zecheng_keyboard_keys_clone.lock().unwrap();
+                for (i, s) in zk.iter().enumerate() {
+                    if s == &btn_name {
+                        match i {
+                            0 => {
+                                if pressed { *zk_keys |= 0x01; } else { *zk_keys &= !0x01; }
+                            }
+                            1 => {
+                                if pressed { *zk_keys |= 0x02; } else { *zk_keys &= !0x02; }
+                            }
+                            _ => {
+                                let bit = 1 << (i - 2);
+                                if pressed { *zk_buttons |= bit; } else { *zk_buttons &= !bit; }
+                            }
+                        }
+                    }
+                }
+            }
+            if expansion_type_clone.borrow().is_quiz_king() {
+                let qk = quiz_king_bindings_clone.borrow();
+                let mut qk_lock = quiz_king_state_clone.lock().unwrap();
+                for (i, s) in qk.iter().enumerate() {
+                    if s == &btn_name {
+                        qk_lock[i] = if pressed { 1 } else { 0 };
+                    }
+                }
+            }
+            if expansion_type_clone.borrow().is_top_rider() {
+                let tr = top_rider_bindings_clone.borrow();
+                let mut tr_lock = top_rider_state_clone.lock().unwrap();
+                for (i, s) in tr.iter().enumerate() {
+                    if s == &btn_name {
+                        tr_lock[i] = if pressed { 1 } else { 0 };
+                    }
+                }
+            }
+            if expansion_type_clone.borrow().is_fami_net_sys() {
+                let fns = fami_net_sys_bindings_clone.borrow();
+                let mut fns_lock = fami_net_sys_state_clone.lock().unwrap();
+                for (i, s) in fns.iter().enumerate() {
+                    if s == &btn_name {
+                        fns_lock[i] = if pressed { 1 } else { 0 };
+                    }
+                }
+            }
             // paddle buttons
             {
                 let pb = paddle1_button_binding_clone.borrow();
@@ -2681,6 +2903,51 @@ fn main() {
                             } else if expansion_type_clone.borrow().is_subor_keyboard() {
                                 subor_keyboard_bindings_clone.borrow_mut()[btn] = key_str.clone();
                                 config::save_subor_keyboard_binding("suborkeyboard", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_pec586_keyboard() {
+                                pec586_keyboard_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_subor_keyboard_binding("pec586keyboard", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_bit79_keyboard() {
+                                bit79_keyboard_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_subor_keyboard_binding("bit79keyboard", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_keda_keyboard() {
+                                keda_keyboard_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_subor_keyboard_binding("kedakeyboard", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_kingwon_keyboard() {
+                                kingwon_keyboard_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_subor_keyboard_binding("kingwonkeyboard", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_zecheng_keyboard() {
+                                zecheng_keyboard_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_zecheng_keyboard_binding("zecheng", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_quiz_king() {
+                                quiz_king_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_quiz_king_binding("quizking", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_top_rider() {
+                                top_rider_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_top_rider_binding("toprider", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_fami_net_sys() {
+                                fami_net_sys_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_fami_net_sys_binding("faminetsys", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_city_patrolman() {
+                                city_patrolman_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_city_patrolman_binding("citypatrolman", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_moguraa() {
+                                moguraa_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_moguraa_binding("moguraa", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_golden_nugget_casino() {
+                                golden_nugget_casino_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_golden_nugget_casino_binding("goldennuggetcasino", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_abl_pinball() {
+                                abl_pinball_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_abl_pinball_binding("ablpinball", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_tv_pump() {
+                                tv_pump_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_tv_pump_binding("tvpump", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_triface_mahjong() {
+                                triface_mahjong_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_triface_mahjong_binding("trifacemahjong", btn, &key_str);
+                            } else if expansion_type_clone.borrow().is_mahjong_gekitou() {
+                                mahjong_gekitou_bindings_clone.borrow_mut()[btn] = key_str.clone();
+                                config::save_mahjong_gekitou_binding("mahjonggekitou", btn, &key_str);
                             }
                         } else if *expansion_adapter_type_clone.borrow() != config::ExpansionAdapterType::None
                             && ms_mut.show_expansion_settings {
@@ -2982,6 +3249,168 @@ fn main() {
                     for (i, s) in sk.iter().enumerate() {
                         if s == &key_str {
                             sk_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // PEC586 keyboard
+                if expansion_type_clone.borrow().is_pec586_keyboard() {
+                    let pk = pec586_keyboard_bindings_clone.borrow();
+                    let mut pk_lock = pec586_keyboard_state_clone.lock().unwrap();
+                    for (i, s) in pk.iter().enumerate() {
+                        if s == &key_str {
+                            pk_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // bit-79 keyboard
+                if expansion_type_clone.borrow().is_bit79_keyboard() {
+                    let bk = bit79_keyboard_bindings_clone.borrow();
+                    let mut bk_lock = bit79_keyboard_state_clone.lock().unwrap();
+                    for (i, s) in bk.iter().enumerate() {
+                        if s == &key_str {
+                            bk_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // keda keyboard
+                if expansion_type_clone.borrow().is_keda_keyboard() {
+                    let kk = keda_keyboard_bindings_clone.borrow();
+                    let mut kk_lock = keda_keyboard_state_clone.lock().unwrap();
+                    for (i, s) in kk.iter().enumerate() {
+                        if s == &key_str {
+                            kk_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // kingwon keyboard
+                if expansion_type_clone.borrow().is_kingwon_keyboard() {
+                    let wk = kingwon_keyboard_bindings_clone.borrow();
+                    let mut wk_lock = kingwon_keyboard_state_clone.lock().unwrap();
+                    for (i, s) in wk.iter().enumerate() {
+                        if s == &key_str {
+                            wk_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // ze cheng keyboard/mouse
+                if expansion_type_clone.borrow().is_zecheng_keyboard() {
+                    let zk = zecheng_keyboard_bindings_clone.borrow();
+                    let mut zk_buttons = zecheng_keyboard_buttons_clone.lock().unwrap();
+                    let mut zk_keys = zecheng_keyboard_keys_clone.lock().unwrap();
+                    for (i, s) in zk.iter().enumerate() {
+                        if s == &key_str {
+                            match i {
+                                0 => {
+                                    if pressed { *zk_keys |= 0x01; } else { *zk_keys &= !0x01; }
+                                }
+                                1 => {
+                                    if pressed { *zk_keys |= 0x02; } else { *zk_keys &= !0x02; }
+                                }
+                                _ => {
+                                    let bit = 1 << (i - 2);
+                                    if pressed { *zk_buttons |= bit; } else { *zk_buttons &= !bit; }
+                                }
+                            }
+                        }
+                    }
+                }
+                // quiz king buzzers
+                if expansion_type_clone.borrow().is_quiz_king() {
+                    let qk = quiz_king_bindings_clone.borrow();
+                    let mut qk_lock = quiz_king_state_clone.lock().unwrap();
+                    for (i, s) in qk.iter().enumerate() {
+                        if s == &key_str {
+                            qk_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // top rider
+                if expansion_type_clone.borrow().is_top_rider() {
+                    let tr = top_rider_bindings_clone.borrow();
+                    let mut tr_lock = top_rider_state_clone.lock().unwrap();
+                    for (i, s) in tr.iter().enumerate() {
+                        if s == &key_str {
+                            tr_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // famicom network controller
+                if expansion_type_clone.borrow().is_fami_net_sys() {
+                    let fns = fami_net_sys_bindings_clone.borrow();
+                    let mut fns_lock = fami_net_sys_state_clone.lock().unwrap();
+                    for (i, s) in fns.iter().enumerate() {
+                        if s == &key_str {
+                            fns_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // city patrolman light gun
+                if expansion_type_clone.borrow().is_city_patrolman() {
+                    let cp = city_patrolman_bindings_clone.borrow();
+                    let mut cp_lock = city_patrolman_state_clone.lock().unwrap();
+                    for (i, s) in cp.iter().enumerate() {
+                        if s == &key_str {
+                            cp_lock[i + 2] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // pokkun moguraa buttons
+                if expansion_type_clone.borrow().is_moguraa() {
+                    let mg = moguraa_bindings_clone.borrow();
+                    let mut mg_lock = moguraa_state_clone.lock().unwrap();
+                    for (i, s) in mg.iter().enumerate() {
+                        if s == &key_str {
+                            mg_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // golden nugget casino buttons
+                if expansion_type_clone.borrow().is_golden_nugget_casino() {
+                    let gnc = golden_nugget_casino_bindings_clone.borrow();
+                    let mut gnc_lock = golden_nugget_casino_state_clone.lock().unwrap();
+                    for (i, s) in gnc.iter().enumerate() {
+                        if s == &key_str {
+                            gnc_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // abl pinball buttons
+                if expansion_type_clone.borrow().is_abl_pinball() {
+                    let abl = abl_pinball_bindings_clone.borrow();
+                    let mut abl_lock = abl_pinball_state_clone.lock().unwrap();
+                    for (i, s) in abl.iter().enumerate() {
+                        if s == &key_str {
+                            abl_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // tv pump buttons
+                if expansion_type_clone.borrow().is_tv_pump() {
+                    let tv = tv_pump_bindings_clone.borrow();
+                    let mut tv_lock = tv_pump_state_clone.lock().unwrap();
+                    for (i, s) in tv.iter().enumerate() {
+                        if s == &key_str {
+                            tv_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // triface mahjong buttons
+                if expansion_type_clone.borrow().is_triface_mahjong() {
+                    let tf = triface_mahjong_bindings_clone.borrow();
+                    let mut tf_lock = triface_mahjong_state_clone.lock().unwrap();
+                    for (i, s) in tf.iter().enumerate() {
+                        if s == &key_str {
+                            tf_lock[i] = if pressed { 1 } else { 0 };
+                        }
+                    }
+                }
+                // mahjong gekitou buttons
+                if expansion_type_clone.borrow().is_mahjong_gekitou() {
+                    let mgk = mahjong_gekitou_bindings_clone.borrow();
+                    let mut mgk_lock = mahjong_gekitou_state_clone.lock().unwrap();
+                    for (i, s) in mgk.iter().enumerate() {
+                        if s == &key_str {
+                            mgk_lock[i] = if pressed { 1 } else { 0 };
                         }
                     }
                 }
@@ -3778,7 +4207,24 @@ fn main() {
                             let is_exciting_boxing = expansion_type_clone.borrow().is_exciting_boxing();
                             let is_jissen_mahjong = expansion_type_clone.borrow().is_jissen_mahjong();
                             let is_subor_keyboard = expansion_type_clone.borrow().is_subor_keyboard();
+                            let is_pec586_keyboard = expansion_type_clone.borrow().is_pec586_keyboard();
+                            let is_bit79_keyboard = expansion_type_clone.borrow().is_bit79_keyboard();
+                            let is_keda_keyboard = expansion_type_clone.borrow().is_keda_keyboard();
+                            let is_kingwon_keyboard = expansion_type_clone.borrow().is_kingwon_keyboard();
+                            let is_zecheng_keyboard = expansion_type_clone.borrow().is_zecheng_keyboard();
+                            let is_quiz_king = expansion_type_clone.borrow().is_quiz_king();
+                            let is_top_rider = expansion_type_clone.borrow().is_top_rider();
+                            let is_fami_net_sys = expansion_type_clone.borrow().is_fami_net_sys();
                             let is_bandai_hyper_shot = expansion_type_clone.borrow().is_bandai_hyper_shot();
+                            let is_city_patrolman = expansion_type_clone.borrow().is_city_patrolman();
+                            let is_moguraa = expansion_type_clone.borrow().is_moguraa();
+                            let is_golden_nugget_casino = expansion_type_clone.borrow().is_golden_nugget_casino();
+                            let is_abl_pinball = expansion_type_clone.borrow().is_abl_pinball();
+                            let is_tv_pump = expansion_type_clone.borrow().is_tv_pump();
+                            let is_triface_mahjong = expansion_type_clone.borrow().is_triface_mahjong();
+                            let is_mahjong_gekitou = expansion_type_clone.borrow().is_mahjong_gekitou();
+                            let is_new_exp_device = is_city_patrolman || is_moguraa || is_golden_nugget_casino
+                                || is_abl_pinball || is_tv_pump || is_triface_mahjong || is_mahjong_gekitou;
                             let sh = if is_family_trainer {
                                 let mbtn_h = (30.0 * sc).round() as usize;
                                 let mrow_gap = (6.0 * sc).round() as usize;
@@ -3824,6 +4270,54 @@ fn main() {
                                 let mrow_gap = (4.0 * sc).round() as usize;
                                 let act_btn_h = (24.0 * sc).round() as usize;
                                 (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
+                            } else if is_pec586_keyboard {
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                let act_btn_h = (24.0 * sc).round() as usize;
+                                (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
+                            } else if is_bit79_keyboard {
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                let act_btn_h = (24.0 * sc).round() as usize;
+                                (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 10 * mbtn_h + 9 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
+                            } else if is_keda_keyboard {
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                let act_btn_h = (24.0 * sc).round() as usize;
+                                (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 11 * mbtn_h + 10 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
+                            } else if is_kingwon_keyboard {
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                let act_btn_h = (24.0 * sc).round() as usize;
+                                (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
+                            } else if is_zecheng_keyboard {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let act_btn_h = (24.0 * sc).round() as usize;
+                                (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
+                            } else if is_quiz_king {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let act_btn_h = (24.0 * sc).round() as usize;
+                                (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
+                            } else if is_top_rider {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let act_btn_h = (24.0 * sc).round() as usize;
+                                (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
+                            } else if is_fami_net_sys {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let act_btn_h = (24.0 * sc).round() as usize;
+                                (title_h + (10.0 * sc).round() as usize + btn_h / 2 + 3 * mbtn_h + 2 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
+                            } else if is_new_exp_device {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let act_btn_h = (24.0 * sc).round() as usize;
+                                let exp_total = expansion_device_button_count(*expansion_type_clone.borrow());
+                                let exp_cols = expansion_device_grid_cols(*expansion_type_clone.borrow());
+                                let exp_rows = (exp_total + exp_cols - 1) / exp_cols;
+                                (title_h + (10.0 * sc).round() as usize + btn_h / 2 + exp_rows * mbtn_h + (exp_rows.saturating_sub(1)) * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h + (20.0 * sc).round() as usize) as usize
                             } else {
                                 (150.0 * sc).round() as usize
                             };
@@ -3982,6 +4476,170 @@ fn main() {
                                         }
                                     }
                                 }
+                            } else if is_pec586_keyboard {
+                                let btn_gap = (4.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                'outer3: for r in 0..13usize {
+                                    for c in 0..8usize {
+                                        let i = r * 8 + c;
+                                        if i >= config::SUBOR_KEYBOARD_BUTTON_COUNT { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            ms.hovered_expansion_button = Some(i);
+                                            break 'outer3;
+                                        }
+                                    }
+                                }
+                            } else if is_bit79_keyboard {
+                                let btn_gap = (4.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                'outer3: for r in 0..10usize {
+                                    for c in 0..8usize {
+                                        let i = r * 8 + c;
+                                        if i >= config::SUBOR_KEYBOARD_BUTTON_COUNT { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            ms.hovered_expansion_button = Some(i);
+                                            break 'outer3;
+                                        }
+                                    }
+                                }
+                            } else if is_keda_keyboard {
+                                let btn_gap = (4.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                'outer3: for r in 0..11usize {
+                                    for c in 0..8usize {
+                                        let i = r * 8 + c;
+                                        if i >= config::SUBOR_KEYBOARD_BUTTON_COUNT { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            ms.hovered_expansion_button = Some(i);
+                                            break 'outer3;
+                                        }
+                                    }
+                                }
+                            } else if is_kingwon_keyboard {
+                                let btn_gap = (4.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                'outer3: for r in 0..13usize {
+                                    for c in 0..8usize {
+                                        let i = r * 8 + c;
+                                        if i >= config::SUBOR_KEYBOARD_BUTTON_COUNT { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            ms.hovered_expansion_button = Some(i);
+                                            break 'outer3;
+                                        }
+                                    }
+                                }
+                            } else if is_zecheng_keyboard {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(3 * btn_gap)) / 2;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                'outer3: for r in 0..2usize {
+                                    for c in 0..2usize {
+                                        let i = r * 2 + c;
+                                        if i >= config::ZECHENG_KEYBOARD_BUTTON_COUNT { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            ms.hovered_expansion_button = Some(i);
+                                            break 'outer3;
+                                        }
+                                    }
+                                }
+                            } else if is_quiz_king {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(4 * btn_gap)) / 3;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                'outer3: for r in 0..2usize {
+                                    for c in 0..3usize {
+                                        let i = r * 3 + c;
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            ms.hovered_expansion_button = Some(i);
+                                            break 'outer3;
+                                        }
+                                    }
+                                }
+                            } else if is_top_rider {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(5 * btn_gap)) / 4;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                'outer3: for r in 0..2usize {
+                                    for c in 0..4usize {
+                                        let i = r * 4 + c;
+                                        if i >= config::TOP_RIDER_BUTTON_COUNT { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            ms.hovered_expansion_button = Some(i);
+                                            break 'outer3;
+                                        }
+                                    }
+                                }
+                            } else if is_fami_net_sys {
+                                let btn_gap = (4.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                'outer3: for r in 0..3usize {
+                                    for c in 0..8usize {
+                                        let i = r * 8 + c;
+                                        if i >= config::FAMI_NET_SYS_BUTTON_COUNT { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            ms.hovered_expansion_button = Some(i);
+                                            break 'outer3;
+                                        }
+                                    }
+                                }
+                            } else if is_new_exp_device {
+                                let exp_total = expansion_device_button_count(*expansion_type_clone.borrow());
+                                let exp_cols = expansion_device_grid_cols(*expansion_type_clone.borrow());
+                                let exp_rows = (exp_total + exp_cols - 1) / exp_cols;
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub((exp_cols + 1) * btn_gap)) / exp_cols;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                'outer3: for r in 0..exp_rows {
+                                    for c in 0..exp_cols {
+                                        let i = r * exp_cols + c;
+                                        if i >= exp_total { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            ms.hovered_expansion_button = Some(i);
+                                            break 'outer3;
+                                        }
+                                    }
+                                }
                             } else {
                                 let bind_total = 2 * btn_w + gap_x;
                                 let bind_bx = sx + (sw.saturating_sub(bind_total)) / 2;
@@ -4075,6 +4733,25 @@ fn main() {
                         pxv[2] = !px;
                     }
                 }
+                // city patrolman light-gun style cursor 
+                if expansion_type_clone.borrow().is_city_patrolman() {
+                    let mut cp = city_patrolman_state_clone.lock().unwrap();
+                    if sd_w > 0 && mx >= sd_x && mx < sd_x + sd_w && my >= sd_y && my < sd_y + sd_h {
+                        let rel_x = mx - sd_x;
+                        let rel_y = my - sd_y;
+                        let nes_x = (rel_x * 256) / sd_w;
+                        let nes_y = (rel_y * 240) / sd_h;
+                        cp[0] = nes_x.min(255) as u8;
+                        if nes_y >= 8 {
+                            cp[1] = (nes_y - 8) as u8;
+                        } else {
+                            cp[1] = 0xFF;
+                        }
+                    } else {
+                        cp[0] = 0xFF;
+                        cp[1] = 0xFF;
+                    }
+                }
                 // snes mouse delta tracking (track even outside NES screen)
                 let lx = *last_mouse_x_clone.borrow();
                 let ly = *last_mouse_y_clone.borrow();
@@ -4110,12 +4787,19 @@ fn main() {
                             hdx[1] += dx as f32;
                             hdy[1] += dy as f32;
                         }
+                        // ze cheng keyboard: raw mouse deltas
+                        {
+                            let mut zdx = zecheng_keyboard_dx_clone.lock().unwrap();
+                            let mut zdy = zecheng_keyboard_dy_clone.lock().unwrap();
+                            *zdx = zdx.saturating_add(dx as i32).clamp(-127, 127);
+                            *zdy = zdy.saturating_add(dy as i32).clamp(-127, 127);
+                        }
                     }
                 }
                 *last_mouse_x_clone.borrow_mut() = position.x;
                 *last_mouse_y_clone.borrow_mut() = position.y;
             }
-            WinitEvent::WindowEvent {
+WinitEvent::WindowEvent {
                 event: WindowEvent::CursorLeft { .. },
                 ..
             } => {
@@ -4132,6 +4816,19 @@ fn main() {
                 ms.hovered_load_slot = None;
                 ms.hovered_ctrl_button = None;
                 ms.dragging_audio_slider = None;
+            }
+            WinitEvent::WindowEvent {
+                event: WindowEvent::MouseWheel { delta, .. },
+                ..
+            } => {
+                if expansion_type_clone.borrow().is_abl_pinball() {
+                    let amount = match delta {
+                        winit::event::MouseScrollDelta::LineDelta(_, y) => (y * 40.0) as i32,
+                        winit::event::MouseScrollDelta::PixelDelta(p) => p.y as i32,
+                    };
+                    let mut wheel = abl_pinball_wheel_state_clone.lock().unwrap();
+                    *wheel += amount;
+                }
             }
             WinitEvent::WindowEvent {
                 event: WindowEvent::MouseInput { state, button, .. },
@@ -4190,6 +4887,51 @@ fn main() {
                                 } else if expansion_type_clone.borrow().is_subor_keyboard() {
                                     subor_keyboard_bindings_clone.borrow_mut()[b] = btn_str.clone();
                                     config::save_subor_keyboard_binding("suborkeyboard", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_pec586_keyboard() {
+                                    pec586_keyboard_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_subor_keyboard_binding("pec586keyboard", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_bit79_keyboard() {
+                                    bit79_keyboard_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_subor_keyboard_binding("bit79keyboard", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_keda_keyboard() {
+                                    keda_keyboard_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_subor_keyboard_binding("kedakeyboard", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_kingwon_keyboard() {
+                                    kingwon_keyboard_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_subor_keyboard_binding("kingwonkeyboard", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_zecheng_keyboard() {
+                                    zecheng_keyboard_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_zecheng_keyboard_binding("zecheng", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_quiz_king() {
+                                    quiz_king_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_quiz_king_binding("quizking", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_top_rider() {
+                                    top_rider_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_top_rider_binding("toprider", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_fami_net_sys() {
+                                    fami_net_sys_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_fami_net_sys_binding("faminetsys", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_city_patrolman() {
+                                    city_patrolman_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_city_patrolman_binding("citypatrolman", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_moguraa() {
+                                    moguraa_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_moguraa_binding("moguraa", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_golden_nugget_casino() {
+                                    golden_nugget_casino_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_golden_nugget_casino_binding("goldennuggetcasino", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_abl_pinball() {
+                                    abl_pinball_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_abl_pinball_binding("ablpinball", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_tv_pump() {
+                                    tv_pump_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_tv_pump_binding("tvpump", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_triface_mahjong() {
+                                    triface_mahjong_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_triface_mahjong_binding("trifacemahjong", b, &btn_str);
+                                } else if expansion_type_clone.borrow().is_mahjong_gekitou() {
+                                    mahjong_gekitou_bindings_clone.borrow_mut()[b] = btn_str.clone();
+                                    config::save_mahjong_gekitou_binding("mahjonggekitou", b, &btn_str);
                                 }
                             } else if *expansion_adapter_type_clone.borrow() != config::ExpansionAdapterType::None
                                 && ms_mut.show_expansion_settings {
@@ -4477,6 +5219,98 @@ fn main() {
                         for (i, s) in sk.iter().enumerate() {
                             if s == &btn_str {
                                 sk_lock[i] = if pressed { 1 } else { 0 };
+                            }
+                        }
+                    }
+                    // PEC586 keyboard buttons
+                    if expansion_type_clone.borrow().is_pec586_keyboard() {
+                        let pk = pec586_keyboard_bindings_clone.borrow();
+                        let mut pk_lock = pec586_keyboard_state_clone.lock().unwrap();
+                        for (i, s) in pk.iter().enumerate() {
+                            if s == &btn_str {
+                                pk_lock[i] = if pressed { 1 } else { 0 };
+                            }
+                        }
+                    }
+                    // bit-79 keyboard buttons
+                    if expansion_type_clone.borrow().is_bit79_keyboard() {
+                        let bk = bit79_keyboard_bindings_clone.borrow();
+                        let mut bk_lock = bit79_keyboard_state_clone.lock().unwrap();
+                        for (i, s) in bk.iter().enumerate() {
+                            if s == &btn_str {
+                                bk_lock[i] = if pressed { 1 } else { 0 };
+                            }
+                        }
+                    }
+                    // keda keyboard buttons
+                    if expansion_type_clone.borrow().is_keda_keyboard() {
+                        let kk = keda_keyboard_bindings_clone.borrow();
+                        let mut kk_lock = keda_keyboard_state_clone.lock().unwrap();
+                        for (i, s) in kk.iter().enumerate() {
+                            if s == &btn_str {
+                                kk_lock[i] = if pressed { 1 } else { 0 };
+                            }
+                        }
+                    }
+                    // kingwon keyboard buttons
+                    if expansion_type_clone.borrow().is_kingwon_keyboard() {
+                        let wk = kingwon_keyboard_bindings_clone.borrow();
+                        let mut wk_lock = kingwon_keyboard_state_clone.lock().unwrap();
+                        for (i, s) in wk.iter().enumerate() {
+                            if s == &btn_str {
+                                wk_lock[i] = if pressed { 1 } else { 0 };
+                            }
+                        }
+                    }
+                    // ze cheng keyboard/mouse buttons
+                    if expansion_type_clone.borrow().is_zecheng_keyboard() {
+                        let zk = zecheng_keyboard_bindings_clone.borrow();
+                        let mut zk_buttons = zecheng_keyboard_buttons_clone.lock().unwrap();
+                        let mut zk_keys = zecheng_keyboard_keys_clone.lock().unwrap();
+                        for (i, s) in zk.iter().enumerate() {
+                            if s == &btn_str {
+                                match i {
+                                    0 => {
+                                        if pressed { *zk_keys |= 0x01; } else { *zk_keys &= !0x01; }
+                                    }
+                                    1 => {
+                                        if pressed { *zk_keys |= 0x02; } else { *zk_keys &= !0x02; }
+                                    }
+                                    _ => {
+                                        let bit = 1 << (i - 2);
+                                        if pressed { *zk_buttons |= bit; } else { *zk_buttons &= !bit; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // quiz king buzzer buttons
+                    if expansion_type_clone.borrow().is_quiz_king() {
+                        let qk = quiz_king_bindings_clone.borrow();
+                        let mut qk_lock = quiz_king_state_clone.lock().unwrap();
+                        for (i, s) in qk.iter().enumerate() {
+                            if s == &btn_str {
+                                qk_lock[i] = if pressed { 1 } else { 0 };
+                            }
+                        }
+                    }
+                    // top rider buttons
+                    if expansion_type_clone.borrow().is_top_rider() {
+                        let tr = top_rider_bindings_clone.borrow();
+                        let mut tr_lock = top_rider_state_clone.lock().unwrap();
+                        for (i, s) in tr.iter().enumerate() {
+                            if s == &btn_str {
+                                tr_lock[i] = if pressed { 1 } else { 0 };
+                            }
+                        }
+                    }
+                    // famicom network controller buttons
+                    if expansion_type_clone.borrow().is_fami_net_sys() {
+                        let fns = fami_net_sys_bindings_clone.borrow();
+                        let mut fns_lock = fami_net_sys_state_clone.lock().unwrap();
+                        for (i, s) in fns.iter().enumerate() {
+                            if s == &btn_str {
+                                fns_lock[i] = if pressed { 1 } else { 0 };
                             }
                         }
                     }
@@ -5323,6 +6157,54 @@ fn main() {
                             let mrow_gap = (4.0 * sc).round() as usize;
                             let act_btn_h2 = (24.0 * sc).round() as usize;
                             tmp_g0 + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
+                        } else if expansion_type_clone.borrow().is_pec586_keyboard() {
+                            let mbtn_h = (20.0 * sc).round() as usize;
+                            let mrow_gap = (4.0 * sc).round() as usize;
+                            let act_btn_h2 = (24.0 * sc).round() as usize;
+                            tmp_g0 + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
+                        } else if expansion_type_clone.borrow().is_bit79_keyboard() {
+                            let mbtn_h = (20.0 * sc).round() as usize;
+                            let mrow_gap = (4.0 * sc).round() as usize;
+                            let act_btn_h2 = (24.0 * sc).round() as usize;
+                            tmp_g0 + btn_h / 2 + 10 * mbtn_h + 9 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
+                        } else if expansion_type_clone.borrow().is_keda_keyboard() {
+                            let mbtn_h = (20.0 * sc).round() as usize;
+                            let mrow_gap = (4.0 * sc).round() as usize;
+                            let act_btn_h2 = (24.0 * sc).round() as usize;
+                            tmp_g0 + btn_h / 2 + 11 * mbtn_h + 10 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
+                        } else if expansion_type_clone.borrow().is_kingwon_keyboard() {
+                            let mbtn_h = (20.0 * sc).round() as usize;
+                            let mrow_gap = (4.0 * sc).round() as usize;
+                            let act_btn_h2 = (24.0 * sc).round() as usize;
+                            tmp_g0 + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
+                        } else if expansion_type_clone.borrow().is_zecheng_keyboard() {
+                            let mbtn_h = (30.0 * sc).round() as usize;
+                            let mrow_gap = (6.0 * sc).round() as usize;
+                            let act_btn_h2 = (24.0 * sc).round() as usize;
+                            tmp_g0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
+                        } else if expansion_type_clone.borrow().is_quiz_king() {
+                            let mbtn_h = (30.0 * sc).round() as usize;
+                            let mrow_gap = (6.0 * sc).round() as usize;
+                            let act_btn_h2 = (24.0 * sc).round() as usize;
+                            tmp_g0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
+                        } else if expansion_type_clone.borrow().is_top_rider() {
+                            let mbtn_h = (30.0 * sc).round() as usize;
+                            let mrow_gap = (6.0 * sc).round() as usize;
+                            let act_btn_h2 = (24.0 * sc).round() as usize;
+                            tmp_g0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
+                        } else if expansion_type_clone.borrow().is_fami_net_sys() {
+                            let mbtn_h = (30.0 * sc).round() as usize;
+                            let mrow_gap = (6.0 * sc).round() as usize;
+                            let act_btn_h2 = (24.0 * sc).round() as usize;
+                            tmp_g0 + btn_h / 2 + 3 * mbtn_h + 2 * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
+                        } else if expansion_device_button_count(*expansion_type_clone.borrow()) > 0 {
+                            let mbtn_h = (30.0 * sc).round() as usize;
+                            let mrow_gap = (6.0 * sc).round() as usize;
+                            let act_btn_h2 = (24.0 * sc).round() as usize;
+                            let exp_total = expansion_device_button_count(*expansion_type_clone.borrow());
+                            let exp_cols = expansion_device_grid_cols(*expansion_type_clone.borrow());
+                            let exp_rows = (exp_total + exp_cols - 1) / exp_cols;
+                            tmp_g0 + btn_h / 2 + exp_rows * mbtn_h + (exp_rows.saturating_sub(1)) * mrow_gap + btn_h + (10.0 * sc).round() as usize + act_btn_h2 + (20.0 * sc).round() as usize
                         } else {
                             (150.0 * sc).round() as usize
                         };
@@ -5402,8 +6284,25 @@ fn main() {
                             let is_pachinko = expansion_type_clone.borrow().is_pachinko();
                             let is_exciting_boxing = expansion_type_clone.borrow().is_exciting_boxing();
                             let is_jissen_mahjong = expansion_type_clone.borrow().is_jissen_mahjong();
-                            let is_subor_keyboard = expansion_type_clone.borrow().is_subor_keyboard();
-                            let is_bandai_hyper_shot = expansion_type_clone.borrow().is_bandai_hyper_shot();
+let is_subor_keyboard = expansion_type_clone.borrow().is_subor_keyboard();
+                             let is_pec586_keyboard = expansion_type_clone.borrow().is_pec586_keyboard();
+                             let is_bit79_keyboard = expansion_type_clone.borrow().is_bit79_keyboard();
+                             let is_keda_keyboard = expansion_type_clone.borrow().is_keda_keyboard();
+                             let is_kingwon_keyboard = expansion_type_clone.borrow().is_kingwon_keyboard();
+                             let is_zecheng_keyboard = expansion_type_clone.borrow().is_zecheng_keyboard();
+                             let is_quiz_king = expansion_type_clone.borrow().is_quiz_king();
+                             let is_top_rider = expansion_type_clone.borrow().is_top_rider();
+                             let is_fami_net_sys = expansion_type_clone.borrow().is_fami_net_sys();
+                             let is_bandai_hyper_shot = expansion_type_clone.borrow().is_bandai_hyper_shot();
+                            let is_city_patrolman = expansion_type_clone.borrow().is_city_patrolman();
+                            let is_moguraa = expansion_type_clone.borrow().is_moguraa();
+                            let is_golden_nugget_casino = expansion_type_clone.borrow().is_golden_nugget_casino();
+                            let is_abl_pinball = expansion_type_clone.borrow().is_abl_pinball();
+                            let is_tv_pump = expansion_type_clone.borrow().is_tv_pump();
+                            let is_triface_mahjong = expansion_type_clone.borrow().is_triface_mahjong();
+                            let is_mahjong_gekitou = expansion_type_clone.borrow().is_mahjong_gekitou();
+                            let is_new_exp_device = is_city_patrolman || is_moguraa || is_golden_nugget_casino
+                                || is_abl_pinball || is_tv_pump || is_triface_mahjong || is_mahjong_gekitou;
                             let mut clicked_grid_btn: Option<usize> = None;
                             let bind_total = 2 * btn_w + gap_x;
                             let bind_bx = sx + (sw.saturating_sub(bind_total)) / 2;
@@ -5586,6 +6485,197 @@ fn main() {
                                     }
                                 }
                                 found
+                            } else if is_pec586_keyboard {
+                                let btn_gap = (4.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                let mut found = false;
+                                'outer: for r in 0..13usize {
+                                    for c in 0..8usize {
+                                        let i = r * 8 + c;
+                                        if i >= config::SUBOR_KEYBOARD_BUTTON_COUNT { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            clicked_grid_btn = Some(i);
+                                            found = true;
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+                                found
+                            } else if is_bit79_keyboard {
+                                let btn_gap = (4.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                let mut found = false;
+                                'outer: for r in 0..10usize {
+                                    for c in 0..8usize {
+                                        let i = r * 8 + c;
+                                        if i >= config::SUBOR_KEYBOARD_BUTTON_COUNT { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            clicked_grid_btn = Some(i);
+                                            found = true;
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+                                found
+                            } else if is_keda_keyboard {
+                                let btn_gap = (4.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                let mut found = false;
+                                'outer: for r in 0..11usize {
+                                    for c in 0..8usize {
+                                        let i = r * 8 + c;
+                                        if i >= config::SUBOR_KEYBOARD_BUTTON_COUNT { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            clicked_grid_btn = Some(i);
+                                            found = true;
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+                                found
+                            } else if is_kingwon_keyboard {
+                                let btn_gap = (4.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                let mut found = false;
+                                'outer: for r in 0..13usize {
+                                    for c in 0..8usize {
+                                        let i = r * 8 + c;
+                                        if i >= config::SUBOR_KEYBOARD_BUTTON_COUNT { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            clicked_grid_btn = Some(i);
+                                            found = true;
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+                                found
+                            } else if is_zecheng_keyboard {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(3 * btn_gap)) / 2;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                let mut found = false;
+                                'outer: for r in 0..2usize {
+                                    for c in 0..2usize {
+                                        let i = r * 2 + c;
+                                        if i >= config::ZECHENG_KEYBOARD_BUTTON_COUNT { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            clicked_grid_btn = Some(i);
+                                            found = true;
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+                                found
+                            } else if is_quiz_king {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(4 * btn_gap)) / 3;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                let mut found = false;
+                                'outer: for r in 0..2usize {
+                                    for c in 0..3usize {
+                                        let i = r * 3 + c;
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            clicked_grid_btn = Some(i);
+                                            found = true;
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+                                found
+                            } else if is_top_rider {
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(5 * btn_gap)) / 4;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                let mut found = false;
+                                'outer: for r in 0..2usize {
+                                    for c in 0..4usize {
+                                        let i = r * 4 + c;
+                                        if i >= config::TOP_RIDER_BUTTON_COUNT { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            clicked_grid_btn = Some(i);
+                                            found = true;
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+                                found
+                            } else if is_fami_net_sys {
+                                let btn_gap = (4.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                let mut found = false;
+                                'outer: for r in 0..3usize {
+                                    for c in 0..8usize {
+                                        let i = r * 8 + c;
+                                        if i >= config::FAMI_NET_SYS_BUTTON_COUNT { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            clicked_grid_btn = Some(i);
+                                            found = true;
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+                                found
+                            } else if is_new_exp_device {
+                                let exp_total = expansion_device_button_count(*expansion_type_clone.borrow());
+                                let exp_cols = expansion_device_grid_cols(*expansion_type_clone.borrow());
+                                let exp_rows = (exp_total + exp_cols - 1) / exp_cols;
+                                let btn_gap = (6.0 * sc).round() as usize;
+                                let mcol_w = (sw.saturating_sub((exp_cols + 1) * btn_gap)) / exp_cols;
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let m_y0 = grid_y0 + (btn_h / 2);
+                                let mut found = false;
+                                'outer: for r in 0..exp_rows {
+                                    for c in 0..exp_cols {
+                                        let i = r * exp_cols + c;
+                                        if i >= exp_total { continue; }
+                                        let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                        let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                        if point_in_rect(mx, my, bx, by, mcol_w, mbtn_h) {
+                                            clicked_grid_btn = Some(i);
+                                            found = true;
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+                                found
                             } else {
                                 point_in_rect(mx, my, bind_bx, grid_y0, bind_total, btn_h)
                             };
@@ -5629,6 +6719,45 @@ fn main() {
                                 let mbtn_h = (20.0 * sc).round() as usize;
                                 let mrow_gap = (4.0 * sc).round() as usize;
                                 grid_y0 + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + (10.0 * sc).round() as usize
+                            } else if is_pec586_keyboard {
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                grid_y0 + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + (10.0 * sc).round() as usize
+                            } else if is_bit79_keyboard {
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                grid_y0 + btn_h / 2 + 10 * mbtn_h + 9 * mrow_gap + (10.0 * sc).round() as usize
+                            } else if is_keda_keyboard {
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                grid_y0 + btn_h / 2 + 11 * mbtn_h + 10 * mrow_gap + (10.0 * sc).round() as usize
+                            } else if is_kingwon_keyboard {
+                                let mbtn_h = (20.0 * sc).round() as usize;
+                                let mrow_gap = (4.0 * sc).round() as usize;
+                                grid_y0 + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + (10.0 * sc).round() as usize
+                            } else if is_zecheng_keyboard {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                grid_y0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + (10.0 * sc).round() as usize
+                            } else if is_quiz_king {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                grid_y0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + (10.0 * sc).round() as usize
+                            } else if is_top_rider {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                grid_y0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + (10.0 * sc).round() as usize
+                            } else if is_fami_net_sys {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                grid_y0 + btn_h / 2 + 3 * mbtn_h + 2 * mrow_gap + (10.0 * sc).round() as usize
+                            } else if is_new_exp_device {
+                                let mbtn_h = (30.0 * sc).round() as usize;
+                                let mrow_gap = (6.0 * sc).round() as usize;
+                                let exp_total = expansion_device_button_count(*expansion_type_clone.borrow());
+                                let exp_cols = expansion_device_grid_cols(*expansion_type_clone.borrow());
+                                let exp_rows = (exp_total + exp_cols - 1) / exp_cols;
+                                grid_y0 + btn_h / 2 + exp_rows * mbtn_h + (exp_rows.saturating_sub(1)) * mrow_gap + (10.0 * sc).round() as usize
                             } else {
                                 grid_y0 + btn_h + (10.0 * sc).round() as usize
                             };
@@ -5638,7 +6767,7 @@ fn main() {
                                 drop(ms);
                                 let mut ms_mut = menu_state_clone.borrow_mut();
                                 ms_mut.rebind_controller = Some(0);
-                                ms_mut.rebind_button = if is_family_trainer || is_hyper_shot || is_family_basic || is_party_tap || is_pachinko || is_exciting_boxing || is_jissen_mahjong || is_subor_keyboard || is_bandai_hyper_shot { Some(clicked_grid_btn.unwrap_or(0)) } else { Some(0) };
+                                ms_mut.rebind_button = if is_family_trainer || is_hyper_shot || is_family_basic || is_party_tap || is_pachinko || is_exciting_boxing || is_jissen_mahjong || is_pec586_keyboard || is_bit79_keyboard || is_keda_keyboard || is_kingwon_keyboard || is_zecheng_keyboard || is_quiz_king || is_top_rider || is_fami_net_sys || is_subor_keyboard || is_bandai_hyper_shot || is_new_exp_device { Some(clicked_grid_btn.unwrap_or(0)) } else { Some(0) };
                             } else if clicked_clear {
                                 drop(ms);
                                 if expansion_type_clone.borrow().is_family_trainer() {
@@ -5668,6 +6797,51 @@ fn main() {
                                 } else if expansion_type_clone.borrow().is_subor_keyboard() {
                                     config::clear_subor_keyboard_bindings("suborkeyboard");
                                     *subor_keyboard_bindings_clone.borrow_mut() = config::load_subor_keyboard_bindings("suborkeyboard");
+                                } else if expansion_type_clone.borrow().is_pec586_keyboard() {
+                                    config::clear_subor_keyboard_bindings("pec586keyboard");
+                                    *pec586_keyboard_bindings_clone.borrow_mut() = config::load_subor_keyboard_bindings("pec586keyboard");
+                                } else if expansion_type_clone.borrow().is_bit79_keyboard() {
+                                    config::clear_subor_keyboard_bindings("bit79keyboard");
+                                    *bit79_keyboard_bindings_clone.borrow_mut() = config::load_subor_keyboard_bindings("bit79keyboard");
+                                } else if expansion_type_clone.borrow().is_keda_keyboard() {
+                                    config::clear_subor_keyboard_bindings("kedakeyboard");
+                                    *keda_keyboard_bindings_clone.borrow_mut() = config::load_subor_keyboard_bindings("kedakeyboard");
+                                } else if expansion_type_clone.borrow().is_kingwon_keyboard() {
+                                    config::clear_subor_keyboard_bindings("kingwonkeyboard");
+                                    *kingwon_keyboard_bindings_clone.borrow_mut() = config::load_subor_keyboard_bindings("kingwonkeyboard");
+                                } else if expansion_type_clone.borrow().is_zecheng_keyboard() {
+                                    config::clear_zecheng_keyboard_bindings("zecheng");
+                                    *zecheng_keyboard_bindings_clone.borrow_mut() = config::load_zecheng_keyboard_bindings("zecheng");
+                                } else if expansion_type_clone.borrow().is_quiz_king() {
+                                    config::clear_quiz_king_bindings("quizking");
+                                    *quiz_king_bindings_clone.borrow_mut() = config::load_quiz_king_bindings("quizking");
+                                } else if expansion_type_clone.borrow().is_top_rider() {
+                                    config::clear_top_rider_bindings("toprider");
+                                    *top_rider_bindings_clone.borrow_mut() = config::load_top_rider_bindings("toprider");
+                                } else if expansion_type_clone.borrow().is_fami_net_sys() {
+                                    config::clear_fami_net_sys_bindings("faminetsys");
+                                    *fami_net_sys_bindings_clone.borrow_mut() = config::load_fami_net_sys_bindings("faminetsys");
+                                } else if expansion_type_clone.borrow().is_city_patrolman() {
+                                    config::clear_city_patrolman_bindings("citypatrolman");
+                                    *city_patrolman_bindings_clone.borrow_mut() = config::load_city_patrolman_bindings("citypatrolman");
+                                } else if expansion_type_clone.borrow().is_moguraa() {
+                                    config::clear_moguraa_bindings("moguraa");
+                                    *moguraa_bindings_clone.borrow_mut() = config::load_moguraa_bindings("moguraa");
+                                } else if expansion_type_clone.borrow().is_golden_nugget_casino() {
+                                    config::clear_golden_nugget_casino_bindings("goldennuggetcasino");
+                                    *golden_nugget_casino_bindings_clone.borrow_mut() = config::load_golden_nugget_casino_bindings("goldennuggetcasino");
+                                } else if expansion_type_clone.borrow().is_abl_pinball() {
+                                    config::clear_abl_pinball_bindings("ablpinball");
+                                    *abl_pinball_bindings_clone.borrow_mut() = config::load_abl_pinball_bindings("ablpinball");
+                                } else if expansion_type_clone.borrow().is_tv_pump() {
+                                    config::clear_tv_pump_bindings("tvpump");
+                                    *tv_pump_bindings_clone.borrow_mut() = config::load_tv_pump_bindings("tvpump");
+                                } else if expansion_type_clone.borrow().is_triface_mahjong() {
+                                    config::clear_triface_mahjong_bindings("trifacemahjong");
+                                    *triface_mahjong_bindings_clone.borrow_mut() = config::load_triface_mahjong_bindings("trifacemahjong");
+                                } else if expansion_type_clone.borrow().is_mahjong_gekitou() {
+                                    config::clear_mahjong_gekitou_bindings("mahjonggekitou");
+                                    *mahjong_gekitou_bindings_clone.borrow_mut() = config::load_mahjong_gekitou_bindings("mahjonggekitou");
                                 } else if *expansion_type_clone.borrow() == config::ExpansionType::FamicomZapper {
                                     config::save_expansion_zapper_trigger("");
                                     *expansion_zapper_trigger_binding_clone.borrow_mut() = String::new();
@@ -5707,6 +6881,51 @@ fn main() {
                                 } else if expansion_type_clone.borrow().is_subor_keyboard() {
                                     config::reset_subor_keyboard_bindings("suborkeyboard");
                                     *subor_keyboard_bindings_clone.borrow_mut() = config::load_subor_keyboard_bindings("suborkeyboard");
+                                } else if expansion_type_clone.borrow().is_pec586_keyboard() {
+                                    config::reset_subor_keyboard_bindings("pec586keyboard");
+                                    *pec586_keyboard_bindings_clone.borrow_mut() = config::load_subor_keyboard_bindings("pec586keyboard");
+                                } else if expansion_type_clone.borrow().is_bit79_keyboard() {
+                                    config::reset_subor_keyboard_bindings("bit79keyboard");
+                                    *bit79_keyboard_bindings_clone.borrow_mut() = config::load_subor_keyboard_bindings("bit79keyboard");
+                                } else if expansion_type_clone.borrow().is_keda_keyboard() {
+                                    config::reset_subor_keyboard_bindings("kedakeyboard");
+                                    *keda_keyboard_bindings_clone.borrow_mut() = config::load_subor_keyboard_bindings("kedakeyboard");
+                                } else if expansion_type_clone.borrow().is_kingwon_keyboard() {
+                                    config::reset_subor_keyboard_bindings("kingwonkeyboard");
+                                    *kingwon_keyboard_bindings_clone.borrow_mut() = config::load_subor_keyboard_bindings("kingwonkeyboard");
+                                } else if expansion_type_clone.borrow().is_zecheng_keyboard() {
+                                    config::reset_zecheng_keyboard_bindings("zecheng");
+                                    *zecheng_keyboard_bindings_clone.borrow_mut() = config::load_zecheng_keyboard_bindings("zecheng");
+                                } else if expansion_type_clone.borrow().is_quiz_king() {
+                                    config::reset_quiz_king_bindings("quizking");
+                                    *quiz_king_bindings_clone.borrow_mut() = config::load_quiz_king_bindings("quizking");
+                                } else if expansion_type_clone.borrow().is_top_rider() {
+                                    config::reset_top_rider_bindings("toprider");
+                                    *top_rider_bindings_clone.borrow_mut() = config::load_top_rider_bindings("toprider");
+                                } else if expansion_type_clone.borrow().is_fami_net_sys() {
+                                    config::reset_fami_net_sys_bindings("faminetsys");
+                                    *fami_net_sys_bindings_clone.borrow_mut() = config::load_fami_net_sys_bindings("faminetsys");
+                                } else if expansion_type_clone.borrow().is_city_patrolman() {
+                                    config::reset_city_patrolman_bindings("citypatrolman");
+                                    *city_patrolman_bindings_clone.borrow_mut() = config::load_city_patrolman_bindings("citypatrolman");
+                                } else if expansion_type_clone.borrow().is_moguraa() {
+                                    config::reset_moguraa_bindings("moguraa");
+                                    *moguraa_bindings_clone.borrow_mut() = config::load_moguraa_bindings("moguraa");
+                                } else if expansion_type_clone.borrow().is_golden_nugget_casino() {
+                                    config::reset_golden_nugget_casino_bindings("goldennuggetcasino");
+                                    *golden_nugget_casino_bindings_clone.borrow_mut() = config::load_golden_nugget_casino_bindings("goldennuggetcasino");
+                                } else if expansion_type_clone.borrow().is_abl_pinball() {
+                                    config::reset_abl_pinball_bindings("ablpinball");
+                                    *abl_pinball_bindings_clone.borrow_mut() = config::load_abl_pinball_bindings("ablpinball");
+                                } else if expansion_type_clone.borrow().is_tv_pump() {
+                                    config::reset_tv_pump_bindings("tvpump");
+                                    *tv_pump_bindings_clone.borrow_mut() = config::load_tv_pump_bindings("tvpump");
+                                } else if expansion_type_clone.borrow().is_triface_mahjong() {
+                                    config::reset_triface_mahjong_bindings("trifacemahjong");
+                                    *triface_mahjong_bindings_clone.borrow_mut() = config::load_triface_mahjong_bindings("trifacemahjong");
+                                } else if expansion_type_clone.borrow().is_mahjong_gekitou() {
+                                    config::reset_mahjong_gekitou_bindings("mahjonggekitou");
+                                    *mahjong_gekitou_bindings_clone.borrow_mut() = config::load_mahjong_gekitou_bindings("mahjonggekitou");
                                 } else if *expansion_type_clone.borrow() == config::ExpansionType::FamicomZapper {
                                     config::save_expansion_zapper_trigger("MouseLeft");
                                     *expansion_zapper_trigger_binding_clone.borrow_mut() = "MouseLeft".to_string();
@@ -6058,7 +7277,7 @@ fn main() {
                         let sc = ms.scale;
                     let input_w = (480.0 * sc).round() as usize;
                     let input_h_4p = (365.0 * sc).round() as usize;
-                    let input_h = if *expansion_adapter_type_clone.borrow() == config::ExpansionAdapterType::FourPlayer { input_h_4p } else { (335.0 * sc).round() as usize };
+                    let input_h = if *expansion_adapter_type_clone.borrow() == config::ExpansionAdapterType::FourPlayer || *expansion_adapter_type_clone.borrow() == config::ExpansionAdapterType::HoriFourPlayer { input_h_4p } else { (335.0 * sc).round() as usize };
                         let input_x = (width.saturating_sub(input_w)) / 2;
                         let input_y = (height.saturating_sub(input_h)) / 2;
                         let title_h = (30.0 * sc).round() as usize;
@@ -6139,6 +7358,7 @@ fn main() {
                                     match at {
                                         config::ExpansionAdapterType::TwoPlayer => config::ExpansionPortType::TwoPlayerAdapter,
                                         config::ExpansionAdapterType::FourPlayer => config::ExpansionPortType::FourPlayerAdapter,
+                                        config::ExpansionAdapterType::HoriFourPlayer => config::ExpansionPortType::HoriFourPlayerAdapter,
                                          config::ExpansionAdapterType::None => match dt {
                                              config::ExpansionType::ArkanoidPaddle => config::ExpansionPortType::ArkanoidPaddle,
                                              config::ExpansionType::FamicomZapper => config::ExpansionPortType::FamicomZapper,
@@ -6151,17 +7371,33 @@ fn main() {
                                              config::ExpansionType::PachinkoController => config::ExpansionPortType::PachinkoController,
                                              config::ExpansionType::ExcitingBoxing => config::ExpansionPortType::ExcitingBoxing,
                                              config::ExpansionType::JissenMahjong => config::ExpansionPortType::JissenMahjong,
+                                             config::ExpansionType::QuizKing => config::ExpansionPortType::QuizKing,
                                              config::ExpansionType::SuborKeyboard => config::ExpansionPortType::SuborKeyboard,
-                                             config::ExpansionType::BarcodeBattler => config::ExpansionPortType::BarcodeBattler,
+config::ExpansionType::Pec586Keyboard => config::ExpansionPortType::Pec586Keyboard,
+                                              config::ExpansionType::Bit79Keyboard => config::ExpansionPortType::Bit79Keyboard,
+                                              config::ExpansionType::KedaKeyboard => config::ExpansionPortType::KedaKeyboard,
+                                              config::ExpansionType::KingwonKeyboard => config::ExpansionPortType::KingwonKeyboard,
+                                              config::ExpansionType::ZeChengKeyboard => config::ExpansionPortType::ZeChengKeyboard,
+                                              config::ExpansionType::BarcodeBattler => config::ExpansionPortType::BarcodeBattler,
                                              config::ExpansionType::HoriTrack => config::ExpansionPortType::HoriTrack,
                                              config::ExpansionType::BandaiHyperShot => config::ExpansionPortType::BandaiHyperShot,
                                              config::ExpansionType::TurboFile => config::ExpansionPortType::TurboFile,
                                              config::ExpansionType::BattleBox => config::ExpansionPortType::BattleBox,
-                                             config::ExpansionType::None => config::ExpansionPortType::None,
-                                         },
-                                    }
-                                };
-                                let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter;
+config::ExpansionType::TopRider => config::ExpansionPortType::TopRider,
+                                              config::ExpansionType::FamiNetSys => config::ExpansionPortType::FamiNetSys,
+                                              config::ExpansionType::CityPatrolman => config::ExpansionPortType::CityPatrolman,
+                                              config::ExpansionType::Moguraa => config::ExpansionPortType::Moguraa,
+                                              config::ExpansionType::SharpC1Cassette => config::ExpansionPortType::SharpC1Cassette,
+                                              config::ExpansionType::GoldenNuggetCasino => config::ExpansionPortType::GoldenNuggetCasino,
+                                              config::ExpansionType::ABLPinball => config::ExpansionPortType::ABLPinball,
+                                              config::ExpansionType::TVPump => config::ExpansionPortType::TVPump,
+                                              config::ExpansionType::TrifaceMahjong => config::ExpansionPortType::TrifaceMahjong,
+                                              config::ExpansionType::MahjongGekitou => config::ExpansionPortType::MahjongGekitou,
+                                              config::ExpansionType::None => config::ExpansionPortType::None,
+                                          },
+                                     }
+                                 };
+let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp_port_type == config::ExpansionPortType::HoriFourPlayerAdapter;
                                 let exp_type_y = if is_4p {
                                     let cfg34_y = exp_cfg_y + configure_h + (4.0 * sc).round() as usize;
                                     cfg34_y + configure_h + (8.0 * sc).round() as usize
@@ -6180,7 +7416,7 @@ fn main() {
                                     menu_state_clone.borrow_mut().adapter_pair = Some(1);
                                     menu_state_clone.borrow_mut().show_expansion_settings = true;
                                 } else if !is_4p && point_in_rect(mx, my, exp_cfg_x, exp_cfg_y, box_w, configure_h) {
-                                    if exp_port_type != config::ExpansionPortType::None && exp_port_type != config::ExpansionPortType::BarcodeBattler && exp_port_type != config::ExpansionPortType::TurboFile && exp_port_type != config::ExpansionPortType::BattleBox {
+                                    if exp_port_type != config::ExpansionPortType::None && exp_port_type != config::ExpansionPortType::BarcodeBattler && exp_port_type != config::ExpansionPortType::TurboFile && exp_port_type != config::ExpansionPortType::BattleBox && exp_port_type != config::ExpansionPortType::SharpC1Cassette {
                                         drop(ms);
                                         menu_state_clone.borrow_mut().show_expansion_settings = true;
                                     }
@@ -6530,9 +7766,9 @@ fn main() {
                                 } else {
                                     "Insert Disk"
                                 };
-                                let nes_items = [pause_text, "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", disk_label, "Swap Disk", "Input Barcode", "Reset", "Power Cycle"];
+                                let nes_items = [pause_text, "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", disk_label, "Swap Disk", "Input Barcode", "Play Tape", "Record Tape", "Stop Tape", "Reset", "Power Cycle"];
                                 let nes_positions = calculate_item_positions(&nes_items, dropdown_x, dropdown_y, dropdown_w, sc);
-                                let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::InputBarcode, NesMenuItem::Reset, NesMenuItem::PowerCycle];
+                                let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::InputBarcode, NesMenuItem::TapePlay, NesMenuItem::TapeRecord, NesMenuItem::TapeStop, NesMenuItem::Reset, NesMenuItem::PowerCycle];
                                 
                                 for (i, (x, y, w, h)) in nes_positions.iter().enumerate() {
                                     if point_in_rect(mx, my, *x, *y, *w, *h) {
@@ -6597,6 +7833,35 @@ fn main() {
                                                     ms_mut.barcode_dragging = false;
                                                     ms_mut.show_barcode_input = true;
                                                     paused_clone.store(true, Ordering::Relaxed);
+                                                }
+                                            }
+                                            NesMenuItem::TapePlay => {
+                                                if *rom_loaded_clone.borrow() {
+                                                    if let Some(path) = rfd::FileDialog::new()
+                                                        .add_filter("Sharp C1 Tape", &["tap", "wav"])
+                                                        .add_filter("TAP", &["tap"])
+                                                        .add_filter("WAV", &["wav"])
+                                                        .pick_file() {
+                                                        let is_wav = path.to_string_lossy().to_lowercase().ends_with(".wav");
+                                                        emu_clone.lock().unwrap().tape_play(path, if is_wav { 2 } else { 1 });
+                                                    }
+                                                }
+                                            }
+                                            NesMenuItem::TapeRecord => {
+                                                if *rom_loaded_clone.borrow() {
+                                                    if let Some(path) = rfd::FileDialog::new()
+                                                        .add_filter("Sharp C1 Tape", &["tap", "wav"])
+                                                        .add_filter("WAV", &["wav"])
+                                                        .add_filter("TAP", &["tap"])
+                                                        .save_file() {
+                                                        let is_wav = path.to_string_lossy().to_lowercase().ends_with(".wav");
+                                                        emu_clone.lock().unwrap().tape_record(path, if is_wav { 2 } else { 1 });
+                                                    }
+                                                }
+                                            }
+                                            NesMenuItem::TapeStop => {
+                                                if *rom_loaded_clone.borrow() {
+                                                    emu_clone.lock().unwrap().tape_stop();
                                                 }
                                             }
                                             NesMenuItem::Reset => {
@@ -7084,9 +8349,9 @@ fn main() {
                             } else {
                                 "Insert Disk"
                             };
-                            let nes_items = [pause_text, "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", disk_label, "Swap Disk", "Input Barcode", "Reset", "Power Cycle"];
+                            let nes_items = [pause_text, "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", disk_label, "Swap Disk", "Input Barcode", "Play Tape", "Record Tape", "Stop Tape", "Reset", "Power Cycle"];
                             let nes_positions = calculate_item_positions(&nes_items, dropdown_x, dropdown_y, dropdown_w, sc);
-                            let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::InputBarcode, NesMenuItem::Reset, NesMenuItem::PowerCycle];
+                            let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::InputBarcode, NesMenuItem::TapePlay, NesMenuItem::TapeRecord, NesMenuItem::TapeStop, NesMenuItem::Reset, NesMenuItem::PowerCycle];
                             
                             ms_mut.hovered_nes_item = None;
                             for (i, (x, y, w, h)) in nes_positions.iter().enumerate() {
@@ -7203,9 +8468,9 @@ fn main() {
                         } else if lower.ends_with(".fds") || lower.ends_with(".qd") || lower.ends_with(".studybox") || lower.ends_with(".study") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.6.5: {}", filename)
+                        format!("AccuNES 1.6.6: {}", filename)
                     } else {
-                        "AccuNES 1.6.5".to_string()
+                        "AccuNES 1.6.6".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -7487,6 +8752,9 @@ fn main() {
     (disk_label, NesMenuItem::InsertEjectDisk),
     ("Swap Disk", NesMenuItem::SwapDisk),
     ("Input Barcode", NesMenuItem::InputBarcode),
+    ("Play Tape", NesMenuItem::TapePlay),
+    ("Record Tape", NesMenuItem::TapeRecord),
+    ("Stop Tape", NesMenuItem::TapeStop),
     ("Reset", NesMenuItem::Reset),
     ("Power Cycle", NesMenuItem::PowerCycle),
 ];
@@ -7517,6 +8785,10 @@ fn main() {
                                     }
                                     NesMenuItem::InputBarcode => {
                                         *rom_loaded_clone.borrow()
+                                    }
+                                    NesMenuItem::TapePlay | NesMenuItem::TapeRecord | NesMenuItem::TapeStop => {
+                                        *rom_loaded_clone.borrow()
+                                            && *expansion_type_clone.borrow() == config::ExpansionType::SharpC1Cassette
                                     }
                                     _ => *rom_loaded_clone.borrow(),
                                 };
@@ -7629,7 +8901,7 @@ fn main() {
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.6.5",
+                        "Version: 1.6.6",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
@@ -8139,6 +9411,7 @@ fn main() {
                             let ept = match at {
                                 config::ExpansionAdapterType::TwoPlayer => config::ExpansionPortType::TwoPlayerAdapter,
                                 config::ExpansionAdapterType::FourPlayer => config::ExpansionPortType::FourPlayerAdapter,
+                                config::ExpansionAdapterType::HoriFourPlayer => config::ExpansionPortType::HoriFourPlayerAdapter,
                                 config::ExpansionAdapterType::None => match dt {
                                     config::ExpansionType::ArkanoidPaddle => config::ExpansionPortType::ArkanoidPaddle,
                                     config::ExpansionType::FamicomZapper => config::ExpansionPortType::FamicomZapper,
@@ -8151,16 +9424,32 @@ fn main() {
                                     config::ExpansionType::PachinkoController => config::ExpansionPortType::PachinkoController,
                                              config::ExpansionType::ExcitingBoxing => config::ExpansionPortType::ExcitingBoxing,
                                              config::ExpansionType::JissenMahjong => config::ExpansionPortType::JissenMahjong,
+                                             config::ExpansionType::QuizKing => config::ExpansionPortType::QuizKing,
                                              config::ExpansionType::SuborKeyboard => config::ExpansionPortType::SuborKeyboard,
-                                             config::ExpansionType::BarcodeBattler => config::ExpansionPortType::BarcodeBattler,
+config::ExpansionType::Pec586Keyboard => config::ExpansionPortType::Pec586Keyboard,
+                                              config::ExpansionType::Bit79Keyboard => config::ExpansionPortType::Bit79Keyboard,
+                                              config::ExpansionType::KedaKeyboard => config::ExpansionPortType::KedaKeyboard,
+                                              config::ExpansionType::KingwonKeyboard => config::ExpansionPortType::KingwonKeyboard,
+                                              config::ExpansionType::ZeChengKeyboard => config::ExpansionPortType::ZeChengKeyboard,
+                                              config::ExpansionType::BarcodeBattler => config::ExpansionPortType::BarcodeBattler,
                                              config::ExpansionType::HoriTrack => config::ExpansionPortType::HoriTrack,
                                              config::ExpansionType::BandaiHyperShot => config::ExpansionPortType::BandaiHyperShot,
                                              config::ExpansionType::TurboFile => config::ExpansionPortType::TurboFile,
                                              config::ExpansionType::BattleBox => config::ExpansionPortType::BattleBox,
-                                             config::ExpansionType::None => config::ExpansionPortType::None,
+                                             config::ExpansionType::TopRider => config::ExpansionPortType::TopRider,
+                                             config::ExpansionType::FamiNetSys => config::ExpansionPortType::FamiNetSys,
+                                             config::ExpansionType::CityPatrolman => config::ExpansionPortType::CityPatrolman,
+                                             config::ExpansionType::Moguraa => config::ExpansionPortType::Moguraa,
+                                             config::ExpansionType::SharpC1Cassette => config::ExpansionPortType::SharpC1Cassette,
+                                             config::ExpansionType::GoldenNuggetCasino => config::ExpansionPortType::GoldenNuggetCasino,
+                                             config::ExpansionType::ABLPinball => config::ExpansionPortType::ABLPinball,
+                                             config::ExpansionType::TVPump => config::ExpansionPortType::TVPump,
+                                             config::ExpansionType::TrifaceMahjong => config::ExpansionPortType::TrifaceMahjong,
+                                             config::ExpansionType::MahjongGekitou => config::ExpansionPortType::MahjongGekitou,
+                                              config::ExpansionType::None => config::ExpansionPortType::None,
                                  },
                              };
-                             if ept == config::ExpansionPortType::FourPlayerAdapter { input_h_4p } else { input_h_base }
+                             if ept == config::ExpansionPortType::FourPlayerAdapter || ept == config::ExpansionPortType::HoriFourPlayerAdapter { input_h_4p } else { input_h_base }
                         };
                     let input_x = (width.saturating_sub(input_w)) / 2;
                     let input_y = (height.saturating_sub(input_h)) / 2;
@@ -8252,6 +9541,7 @@ fn main() {
                         match at {
                             config::ExpansionAdapterType::TwoPlayer => config::ExpansionPortType::TwoPlayerAdapter,
                             config::ExpansionAdapterType::FourPlayer => config::ExpansionPortType::FourPlayerAdapter,
+                            config::ExpansionAdapterType::HoriFourPlayer => config::ExpansionPortType::HoriFourPlayerAdapter,
                             config::ExpansionAdapterType::None => match dt {
                                 config::ExpansionType::ArkanoidPaddle => config::ExpansionPortType::ArkanoidPaddle,
                                 config::ExpansionType::FamicomZapper => config::ExpansionPortType::FamicomZapper,
@@ -8264,18 +9554,34 @@ fn main() {
                                 config::ExpansionType::PachinkoController => config::ExpansionPortType::PachinkoController,
                                              config::ExpansionType::ExcitingBoxing => config::ExpansionPortType::ExcitingBoxing,
                                              config::ExpansionType::JissenMahjong => config::ExpansionPortType::JissenMahjong,
+                                             config::ExpansionType::QuizKing => config::ExpansionPortType::QuizKing,
                                              config::ExpansionType::SuborKeyboard => config::ExpansionPortType::SuborKeyboard,
-                                             config::ExpansionType::BarcodeBattler => config::ExpansionPortType::BarcodeBattler,
+config::ExpansionType::Pec586Keyboard => config::ExpansionPortType::Pec586Keyboard,
+                                              config::ExpansionType::Bit79Keyboard => config::ExpansionPortType::Bit79Keyboard,
+                                              config::ExpansionType::KedaKeyboard => config::ExpansionPortType::KedaKeyboard,
+                                              config::ExpansionType::KingwonKeyboard => config::ExpansionPortType::KingwonKeyboard,
+                                              config::ExpansionType::ZeChengKeyboard => config::ExpansionPortType::ZeChengKeyboard,
+                                              config::ExpansionType::BarcodeBattler => config::ExpansionPortType::BarcodeBattler,
                                              config::ExpansionType::HoriTrack => config::ExpansionPortType::HoriTrack,
                                              config::ExpansionType::BandaiHyperShot => config::ExpansionPortType::BandaiHyperShot,
                                              config::ExpansionType::TurboFile => config::ExpansionPortType::TurboFile,
                                              config::ExpansionType::BattleBox => config::ExpansionPortType::BattleBox,
-                                 config::ExpansionType::None => config::ExpansionPortType::None,
+config::ExpansionType::TopRider => config::ExpansionPortType::TopRider,
+                                             config::ExpansionType::FamiNetSys => config::ExpansionPortType::FamiNetSys,
+                                             config::ExpansionType::CityPatrolman => config::ExpansionPortType::CityPatrolman,
+                                             config::ExpansionType::Moguraa => config::ExpansionPortType::Moguraa,
+                                             config::ExpansionType::SharpC1Cassette => config::ExpansionPortType::SharpC1Cassette,
+                                             config::ExpansionType::GoldenNuggetCasino => config::ExpansionPortType::GoldenNuggetCasino,
+                                             config::ExpansionType::ABLPinball => config::ExpansionPortType::ABLPinball,
+                                             config::ExpansionType::TVPump => config::ExpansionPortType::TVPump,
+                                             config::ExpansionType::TrifaceMahjong => config::ExpansionPortType::TrifaceMahjong,
+                                             config::ExpansionType::MahjongGekitou => config::ExpansionPortType::MahjongGekitou,
+                                             config::ExpansionType::None => config::ExpansionPortType::None,
                             },
                         }
                     };
-                    let exp_type_enabled = exp_port_type != config::ExpansionPortType::None && exp_port_type != config::ExpansionPortType::BarcodeBattler && exp_port_type != config::ExpansionPortType::TurboFile && exp_port_type != config::ExpansionPortType::BattleBox;
-                    let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter;
+                    let exp_type_enabled = exp_port_type != config::ExpansionPortType::None && exp_port_type != config::ExpansionPortType::BarcodeBattler && exp_port_type != config::ExpansionPortType::TurboFile && exp_port_type != config::ExpansionPortType::BattleBox && exp_port_type != config::ExpansionPortType::SharpC1Cassette;
+                    let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp_port_type == config::ExpansionPortType::HoriFourPlayerAdapter;
                     let cfg_vw2 = cfg_label.len() as f32 * 8.0 * scale;
                     let exp_type_y = if is_4p {
                         let cfg12_label = "Configure 1/2";
@@ -8970,6 +10276,54 @@ fn main() {
                         let mrow_gap = (4.0 * scale).round() as usize;
                         let act_btn_h = (24.0 * scale).round() as usize;
                         (tmp_g0 + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
+                    } else if expansion_type_clone.borrow().is_pec586_keyboard() {
+                        let mbtn_h = (20.0 * scale).round() as usize;
+                        let mrow_gap = (4.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        (tmp_g0 + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
+                    } else if expansion_type_clone.borrow().is_bit79_keyboard() {
+                        let mbtn_h = (20.0 * scale).round() as usize;
+                        let mrow_gap = (4.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        (tmp_g0 + btn_h / 2 + 10 * mbtn_h + 9 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
+                    } else if expansion_type_clone.borrow().is_keda_keyboard() {
+                        let mbtn_h = (20.0 * scale).round() as usize;
+                        let mrow_gap = (4.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        (tmp_g0 + btn_h / 2 + 11 * mbtn_h + 10 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
+                    } else if expansion_type_clone.borrow().is_kingwon_keyboard() {
+                        let mbtn_h = (20.0 * scale).round() as usize;
+                        let mrow_gap = (4.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        (tmp_g0 + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
+                    } else if expansion_type_clone.borrow().is_zecheng_keyboard() {
+                        let mbtn_h = (30.0 * scale).round() as usize;
+                        let mrow_gap = (6.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        (tmp_g0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
+                    } else if expansion_type_clone.borrow().is_quiz_king() {
+                        let mbtn_h = (30.0 * scale).round() as usize;
+                        let mrow_gap = (6.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        (tmp_g0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
+                    } else if expansion_type_clone.borrow().is_top_rider() {
+                        let mbtn_h = (30.0 * scale).round() as usize;
+                        let mrow_gap = (6.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        (tmp_g0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
+                    } else if expansion_type_clone.borrow().is_fami_net_sys() {
+                        let mbtn_h = (30.0 * scale).round() as usize;
+                        let mrow_gap = (6.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        (tmp_g0 + btn_h / 2 + 3 * mbtn_h + 2 * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
+                    } else if expansion_device_button_count(*expansion_type_clone.borrow()) > 0 {
+                        let mbtn_h = (30.0 * scale).round() as usize;
+                        let mrow_gap = (6.0 * scale).round() as usize;
+                        let act_btn_h = (24.0 * scale).round() as usize;
+                        let exp_total = expansion_device_button_count(*expansion_type_clone.borrow());
+                        let exp_cols = expansion_device_grid_cols(*expansion_type_clone.borrow());
+                        let exp_rows = (exp_total + exp_cols - 1) / exp_cols;
+                        (tmp_g0 + btn_h / 2 + exp_rows * mbtn_h + (exp_rows.saturating_sub(1)) * mrow_gap + btn_h + (10.0 * scale).round() as usize + act_btn_h + (20.0 * scale).round() as usize) as usize
                     } else {
                         (150.0 * scale).round() as usize
                     };
@@ -9053,7 +10407,24 @@ fn main() {
                         let is_exciting_boxing = expansion_type_clone.borrow().is_exciting_boxing();
                         let is_jissen_mahjong = expansion_type_clone.borrow().is_jissen_mahjong();
                         let is_subor_keyboard = expansion_type_clone.borrow().is_subor_keyboard();
-                        let is_bandai_hyper_shot = expansion_type_clone.borrow().is_bandai_hyper_shot();
+                         let is_pec586_keyboard = expansion_type_clone.borrow().is_pec586_keyboard();
+                         let is_bit79_keyboard = expansion_type_clone.borrow().is_bit79_keyboard();
+                         let is_keda_keyboard = expansion_type_clone.borrow().is_keda_keyboard();
+                         let is_kingwon_keyboard = expansion_type_clone.borrow().is_kingwon_keyboard();
+                         let is_zecheng_keyboard = expansion_type_clone.borrow().is_zecheng_keyboard();
+                         let is_quiz_king = expansion_type_clone.borrow().is_quiz_king();
+                         let is_top_rider = expansion_type_clone.borrow().is_top_rider();
+                         let is_fami_net_sys = expansion_type_clone.borrow().is_fami_net_sys();
+                         let is_bandai_hyper_shot = expansion_type_clone.borrow().is_bandai_hyper_shot();
+                         let is_city_patrolman = expansion_type_clone.borrow().is_city_patrolman();
+                         let is_moguraa = expansion_type_clone.borrow().is_moguraa();
+                         let is_golden_nugget_casino = expansion_type_clone.borrow().is_golden_nugget_casino();
+                         let is_abl_pinball = expansion_type_clone.borrow().is_abl_pinball();
+                         let is_tv_pump = expansion_type_clone.borrow().is_tv_pump();
+                         let is_triface_mahjong = expansion_type_clone.borrow().is_triface_mahjong();
+                         let is_mahjong_gekitou = expansion_type_clone.borrow().is_mahjong_gekitou();
+                         let is_new_exp_device = is_city_patrolman || is_moguraa || is_golden_nugget_casino
+                             || is_abl_pinball || is_tv_pump || is_triface_mahjong || is_mahjong_gekitou;
                         if is_family_trainer {
                             let ft = family_trainer_bindings_clone.borrow();
                             let btn_gap = (6.0 * scale).round() as usize;
@@ -9299,6 +10670,275 @@ fn main() {
                                     draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (10.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
                                 }
                             }
+                        } else if is_pec586_keyboard {
+                            let pk = pec586_keyboard_bindings_clone.borrow();
+                            let btn_gap = (4.0 * scale).round() as usize;
+                            let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                            let mbtn_h = (20.0 * scale).round() as usize;
+                            let mrow_gap = (4.0 * scale).round() as usize;
+                            let m_y0 = grid_y0 + ((btn_h as f32 / 2.0).round() as usize);
+                            for r in 0..13usize {
+                                for c in 0..8usize {
+                                    let i = r * 8 + c;
+                                    if i >= config::SUBOR_KEYBOARD_BUTTON_COUNT { continue; }
+                                    let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                    let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                    let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(i);
+                                    let txt = if is_rebinding { "?".to_string() } else { pk[i].clone() };
+                                    let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                    let is_hovered = ms.hovered_expansion_button == Some(i);
+                                    let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                    draw_rect(&mut buffer, bx, by, mcol_w, mbtn_h, width, border);
+                                    draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
+                                    let lbl = config::SUBOR_KEYBOARD_LABELS[i];
+                                    let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (1.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                    let key_txt = truncate_text(&txt, mcol_w, scale);
+                                    let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (10.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
+                                }
+                            }
+                        } else if is_bit79_keyboard {
+                            let bk = bit79_keyboard_bindings_clone.borrow();
+                            let btn_gap = (4.0 * scale).round() as usize;
+                            let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                            let mbtn_h = (20.0 * scale).round() as usize;
+                            let mrow_gap = (4.0 * scale).round() as usize;
+                            let m_y0 = grid_y0 + ((btn_h as f32 / 2.0).round() as usize);
+                            for r in 0..10usize {
+                                for c in 0..8usize {
+                                    let i = r * 8 + c;
+                                    if i >= config::SUBOR_KEYBOARD_BUTTON_COUNT { continue; }
+                                    let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                    let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                    let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(i);
+                                    let txt = if is_rebinding { "?".to_string() } else { bk[i].clone() };
+                                    let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                    let is_hovered = ms.hovered_expansion_button == Some(i);
+                                    let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                    draw_rect(&mut buffer, bx, by, mcol_w, mbtn_h, width, border);
+                                    draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
+                                    let lbl = config::SUBOR_KEYBOARD_LABELS[i];
+                                    let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (1.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                    let key_txt = truncate_text(&txt, mcol_w, scale);
+                                    let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (10.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
+                                }
+                            }
+                        } else if is_keda_keyboard {
+                            let kk = keda_keyboard_bindings_clone.borrow();
+                            let btn_gap = (4.0 * scale).round() as usize;
+                            let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                            let mbtn_h = (20.0 * scale).round() as usize;
+                            let mrow_gap = (4.0 * scale).round() as usize;
+                            let m_y0 = grid_y0 + ((btn_h as f32 / 2.0).round() as usize);
+                            for r in 0..11usize {
+                                for c in 0..8usize {
+                                    let i = r * 8 + c;
+                                    if i >= config::SUBOR_KEYBOARD_BUTTON_COUNT { continue; }
+                                    let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                    let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                    let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(i);
+                                    let txt = if is_rebinding { "?".to_string() } else { kk[i].clone() };
+                                    let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                    let is_hovered = ms.hovered_expansion_button == Some(i);
+                                    let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                    draw_rect(&mut buffer, bx, by, mcol_w, mbtn_h, width, border);
+                                    draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
+                                    let lbl = config::SUBOR_KEYBOARD_LABELS[i];
+                                    let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (1.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                    let key_txt = truncate_text(&txt, mcol_w, scale);
+                                    let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (10.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
+                                }
+                            }
+                        } else if is_kingwon_keyboard {
+                            let kw = kingwon_keyboard_bindings_clone.borrow();
+                            let btn_gap = (4.0 * scale).round() as usize;
+                            let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                            let mbtn_h = (20.0 * scale).round() as usize;
+                            let mrow_gap = (4.0 * scale).round() as usize;
+                            let m_y0 = grid_y0 + ((btn_h as f32 / 2.0).round() as usize);
+                            for r in 0..13usize {
+                                for c in 0..8usize {
+                                    let i = r * 8 + c;
+                                    if i >= config::SUBOR_KEYBOARD_BUTTON_COUNT { continue; }
+                                    let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                    let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                    let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(i);
+                                    let txt = if is_rebinding { "?".to_string() } else { kw[i].clone() };
+                                    let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                    let is_hovered = ms.hovered_expansion_button == Some(i);
+                                    let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                    draw_rect(&mut buffer, bx, by, mcol_w, mbtn_h, width, border);
+                                    draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
+                                    let lbl = config::SUBOR_KEYBOARD_LABELS[i];
+                                    let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (1.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                    let key_txt = truncate_text(&txt, mcol_w, scale);
+                                    let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (10.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
+                                }
+                            }
+                        } else if is_zecheng_keyboard {
+                            let zk = zecheng_keyboard_bindings_clone.borrow();
+                            let btn_gap = (6.0 * scale).round() as usize;
+                            let mcol_w = (sw.saturating_sub(3 * btn_gap)) / 2;
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            let m_y0 = grid_y0 + ((btn_h as f32 / 2.0).round() as usize);
+                            for r in 0..2usize {
+                                for c in 0..2usize {
+                                    let i = r * 2 + c;
+                                    if i >= config::ZECHENG_KEYBOARD_BUTTON_COUNT { continue; }
+                                    let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                    let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                    let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(i);
+                                    let txt = if is_rebinding { "?".to_string() } else { zk[i].clone() };
+                                    let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                    let is_hovered = ms.hovered_expansion_button == Some(i);
+                                    let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                    draw_rect(&mut buffer, bx, by, mcol_w, mbtn_h, width, border);
+                                    draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
+                                    let lbl = config::ZECHENG_KEYBOARD_LABELS[i];
+                                    let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                    let key_txt = truncate_text(&txt, mcol_w, scale);
+                                    let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
+                                }
+                            }
+                        } else if is_quiz_king {
+                            let qk = quiz_king_bindings_clone.borrow();
+                            let btn_gap = (6.0 * scale).round() as usize;
+                            let mcol_w = (sw.saturating_sub(4 * btn_gap)) / 3;
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            let m_y0 = grid_y0 + ((btn_h as f32 / 2.0).round() as usize);
+                            for r in 0..2usize {
+                                for c in 0..3usize {
+                                    let i = r * 3 + c;
+                                    let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                    let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                    let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(i);
+                                    let txt = if is_rebinding { "?".to_string() } else { qk[i].clone() };
+                                    let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                    let is_hovered = ms.hovered_expansion_button == Some(i);
+                                    let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                    draw_rect(&mut buffer, bx, by, mcol_w, mbtn_h, width, border);
+                                    draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
+                                    let lbl = config::QUIZ_KING_LABELS[i];
+                                    let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                    let key_txt = truncate_text(&txt, mcol_w, scale);
+                                    let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
+                                }
+                            }
+                        } else if is_top_rider {
+                            let tr = top_rider_bindings_clone.borrow();
+                            let btn_gap = (6.0 * scale).round() as usize;
+                            let mcol_w = (sw.saturating_sub(5 * btn_gap)) / 4;
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            let m_y0 = grid_y0 + ((btn_h as f32 / 2.0).round() as usize);
+                            for r in 0..2usize {
+                                for c in 0..4usize {
+                                    let i = r * 4 + c;
+                                    if i >= config::TOP_RIDER_BUTTON_COUNT { continue; }
+                                    let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                    let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                    let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(i);
+                                    let txt = if is_rebinding { "?".to_string() } else { tr[i].clone() };
+                                    let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                    let is_hovered = ms.hovered_expansion_button == Some(i);
+                                    let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                    draw_rect(&mut buffer, bx, by, mcol_w, mbtn_h, width, border);
+                                    draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
+                                    let lbl = config::TOP_RIDER_LABELS[i];
+                                    let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                    let key_txt = truncate_text(&txt, mcol_w, scale);
+                                    let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
+                                }
+                            }
+                        } else if is_fami_net_sys {
+                            let fns = fami_net_sys_bindings_clone.borrow();
+                            let btn_gap = (4.0 * scale).round() as usize;
+                            let mcol_w = (sw.saturating_sub(9 * btn_gap)) / 8;
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            let m_y0 = grid_y0 + ((btn_h as f32 / 2.0).round() as usize);
+                            for r in 0..3usize {
+                                for c in 0..8usize {
+                                    let i = r * 8 + c;
+                                    if i >= config::FAMI_NET_SYS_BUTTON_COUNT { continue; }
+                                    let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                    let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                    let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(i);
+                                    let txt = if is_rebinding { "?".to_string() } else { fns[i].clone() };
+                                    let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                    let is_hovered = ms.hovered_expansion_button == Some(i);
+                                    let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                    draw_rect(&mut buffer, bx, by, mcol_w, mbtn_h, width, border);
+                                    draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
+                                    let lbl = config::FAMI_NET_SYS_LABELS[i];
+                                    let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                    let key_txt = truncate_text(&txt, mcol_w, scale);
+                                    let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
+                                }
+                            }
+                        } else if is_new_exp_device {
+                            let exp_type = *expansion_type_clone.borrow();
+                            let exp_total = expansion_device_button_count(exp_type);
+                            let exp_cols = expansion_device_grid_cols(exp_type);
+                            let exp_rows = (exp_total + exp_cols - 1) / exp_cols;
+                            let btn_gap = (6.0 * scale).round() as usize;
+                            let mcol_w = (sw.saturating_sub((exp_cols + 1) * btn_gap)) / exp_cols;
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            let m_y0 = grid_y0 + ((btn_h as f32 / 2.0).round() as usize);
+                            let bindings: Vec<String> = if is_city_patrolman {
+                                city_patrolman_bindings_clone.borrow().to_vec()
+                            } else if is_moguraa {
+                                moguraa_bindings_clone.borrow().to_vec()
+                            } else if is_golden_nugget_casino {
+                                golden_nugget_casino_bindings_clone.borrow().to_vec()
+                            } else if is_abl_pinball {
+                                abl_pinball_bindings_clone.borrow().to_vec()
+                            } else if is_tv_pump {
+                                tv_pump_bindings_clone.borrow().to_vec()
+                            } else if is_triface_mahjong {
+                                triface_mahjong_bindings_clone.borrow().to_vec()
+                            } else {
+                                mahjong_gekitou_bindings_clone.borrow().to_vec()
+                            };
+                            for r in 0..exp_rows {
+                                for c in 0..exp_cols {
+                                    let i = r * exp_cols + c;
+                                    if i >= exp_total { continue; }
+                                    let bx = sx + btn_gap + c * (mcol_w + btn_gap);
+                                    let by = m_y0 + r * (mbtn_h + mrow_gap);
+                                    let is_rebinding = ms.rebind_controller == Some(0) && ms.rebind_button == Some(i);
+                                    let txt = if is_rebinding { "?".to_string() } else { bindings[i].clone() };
+                                    let border = if is_rebinding { colors.rebind_border } else { colors.box_border };
+                                    let is_hovered = ms.hovered_expansion_button == Some(i);
+                                    let bg = if is_rebinding { colors.rebind_bg } else if is_hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                                    draw_rect(&mut buffer, bx, by, mcol_w, mbtn_h, width, border);
+                                    draw_rect(&mut buffer, bx + 1, by + 1, mcol_w - 2, mbtn_h - 2, width, bg);
+                                    let lbl = expansion_device_label(exp_type, i);
+                                    let lbl_vw = lbl.len() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - lbl_vw) / 2.0).round() as usize, by + (2.0 * scale).round() as usize, width, lbl, colors.btn_sub_label, scale);
+                                    let key_txt = truncate_text(&txt, mcol_w, scale);
+                                    let key_vw = key_txt.chars().count() as f32 * 8.0 * scale;
+                                    draw_text(&mut buffer, bx + ((mcol_w as f32 - key_vw) / 2.0).round() as usize, by + (14.0 * scale).round() as usize, width, &key_txt, menu_text, scale);
+                                }
+                            }
                         } else {
                         let bind_total = 2 * btn_w + gap_x;
                         let bind_bx = sx + (sw.saturating_sub(bind_total)) / 2;
@@ -9335,6 +10975,14 @@ fn main() {
                         let is_eb_act = expansion_type_clone.borrow().is_exciting_boxing();
                         let is_jm_act = expansion_type_clone.borrow().is_jissen_mahjong();
                         let is_sk_act = expansion_type_clone.borrow().is_subor_keyboard();
+                        let is_pk_act = expansion_type_clone.borrow().is_pec586_keyboard();
+                        let is_b7_act = expansion_type_clone.borrow().is_bit79_keyboard();
+                        let is_kd_act = expansion_type_clone.borrow().is_keda_keyboard();
+                        let is_kw_act = expansion_type_clone.borrow().is_kingwon_keyboard();
+                        let is_zc_act = expansion_type_clone.borrow().is_zecheng_keyboard();
+                        let is_qk_act = expansion_type_clone.borrow().is_quiz_king();
+                        let is_tr_act = expansion_type_clone.borrow().is_top_rider();
+                        let is_fns_act = expansion_type_clone.borrow().is_fami_net_sys();
                         let is_bh_act = expansion_type_clone.borrow().is_bandai_hyper_shot();
                         let act_y = if is_ft_act {
                             let mbtn_h = (30.0 * scale).round() as usize;
@@ -9371,6 +11019,45 @@ fn main() {
                             let mbtn_h = (20.0 * scale).round() as usize;
                             let mrow_gap = (4.0 * scale).round() as usize;
                             grid_y0 + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + (10.0 * scale).round() as usize
+                        } else if is_pk_act {
+                            let mbtn_h = (20.0 * scale).round() as usize;
+                            let mrow_gap = (4.0 * scale).round() as usize;
+                            grid_y0 + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + (10.0 * scale).round() as usize
+                        } else if is_b7_act {
+                            let mbtn_h = (20.0 * scale).round() as usize;
+                            let mrow_gap = (4.0 * scale).round() as usize;
+                            grid_y0 + btn_h / 2 + 10 * mbtn_h + 9 * mrow_gap + (10.0 * scale).round() as usize
+                        } else if is_kd_act {
+                            let mbtn_h = (20.0 * scale).round() as usize;
+                            let mrow_gap = (4.0 * scale).round() as usize;
+                            grid_y0 + btn_h / 2 + 11 * mbtn_h + 10 * mrow_gap + (10.0 * scale).round() as usize
+                        } else if is_kw_act {
+                            let mbtn_h = (20.0 * scale).round() as usize;
+                            let mrow_gap = (4.0 * scale).round() as usize;
+                            grid_y0 + btn_h / 2 + 13 * mbtn_h + 12 * mrow_gap + (10.0 * scale).round() as usize
+                        } else if is_zc_act {
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            grid_y0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + (10.0 * scale).round() as usize
+                        } else if is_qk_act {
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            grid_y0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + (10.0 * scale).round() as usize
+                        } else if is_tr_act {
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            grid_y0 + btn_h / 2 + 2 * mbtn_h + 1 * mrow_gap + (10.0 * scale).round() as usize
+                        } else if is_fns_act {
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            grid_y0 + btn_h / 2 + 3 * mbtn_h + 2 * mrow_gap + (10.0 * scale).round() as usize
+                        } else if is_new_exp_device {
+                            let mbtn_h = (30.0 * scale).round() as usize;
+                            let mrow_gap = (6.0 * scale).round() as usize;
+                            let exp_total = expansion_device_button_count(*expansion_type_clone.borrow());
+                            let exp_cols = expansion_device_grid_cols(*expansion_type_clone.borrow());
+                            let exp_rows = (exp_total + exp_cols - 1) / exp_cols;
+                            grid_y0 + btn_h / 2 + exp_rows * mbtn_h + (exp_rows.saturating_sub(1)) * mrow_gap + (10.0 * scale).round() as usize
                         } else {
                             grid_y0 + btn_h + (10.0 * scale).round() as usize
                         };

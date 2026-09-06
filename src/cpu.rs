@@ -10,6 +10,7 @@ static CPU_TRACE: AtomicU32 = AtomicU32::new(0);
 
 impl Emulator {
     pub fn cpu_tick(&mut self) {
+        self.expansion_tick();
         // dma handling logic
         if (self.do_dmc_dma && (self.apu_status_dmc || self.apu_implicit_abort_dmc_4015) && self.cpu_read)
             || (self.do_oam_dma && self.cpu_read)
