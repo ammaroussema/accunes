@@ -6,6 +6,7 @@ use crate::emulator::{Emulator, Vt369SpriteEntry, Vt369SpriteHiEntry};
 impl Emulator {
     /// ppu cycle
     pub fn emulate_ppu(&mut self) {
+        self.ppu_dot_count = self.ppu_dot_count.wrapping_add(1);
         self.copy_v = false;
         if self.ppu_update_2006_delay > 0 {
             self.ppu_update_2006_delay -= 1;
@@ -2011,6 +2012,69 @@ impl Emulator {
         self.dot_color_rgb = NES_PALETTE[pal_val as usize];
     }
 
+    fn vs_palette_rgb(&self, pal_idx: usize) -> u32 {
+        match self.vs_ppu_variant {
+            0 => VS_RP2C04_0001_PALETTE[pal_idx],
+            1 => VS_RP2C04_0002_PALETTE[pal_idx],
+            2 => VS_RP2C04_0003_PALETTE[pal_idx],
+            4 => NES_PALETTE[pal_idx],
+            _ => VS_RP2C04_0004_PALETTE[pal_idx],
+        }
+    }
+
+    fn palette_rgb(&self, pal_idx: usize) -> u32 {
+        match self.palette_mode {
+            crate::config::PaletteMode::Ntsc => {
+                if let Some(ref custom) = self.custom_ntsc_palette { custom[pal_idx] } else { NES_PALETTE[pal_idx] }
+            }
+            crate::config::PaletteMode::Pal => {
+                if let Some(ref custom) = self.custom_pal_palette { custom[pal_idx] } else { PAL_PALETTE[pal_idx] }
+            }
+            crate::config::PaletteMode::Vs => {
+                if let Some(ref custom) = self.custom_vs_palette { custom[pal_idx] } else { self.vs_palette_rgb(pal_idx) }
+            }
+            crate::config::PaletteMode::Auto => {
+                if self.is_vs_system_cart {
+                    if let Some(ref custom) = self.custom_vs_palette { custom[pal_idx] } else { self.vs_palette_rgb(pal_idx) }
+                } else if self.is_pal() {
+                    if let Some(ref custom) = self.custom_pal_palette { custom[pal_idx] } else { PAL_PALETTE[pal_idx] }
+                } else {
+                    if let Some(ref custom) = self.custom_ntsc_palette { custom[pal_idx] } else { NES_PALETTE[pal_idx] }
+                }
+            }
+        }
+    }
+
+    pub fn get_palette_base_colors(&self, kind: &str) -> [u32; 64] {
+        let full: &[u32; 512] = match kind {
+            "ntsc" => {
+                if let Some(ref custom) = self.custom_ntsc_palette { custom } else { &NES_PALETTE }
+            }
+            "pal" => {
+                if let Some(ref custom) = self.custom_pal_palette { custom } else { &PAL_PALETTE }
+            }
+            "vs" => {
+                if let Some(ref custom) = self.custom_vs_palette {
+                    custom
+                } else {
+                    match self.vs_ppu_variant {
+                        0 => &VS_RP2C04_0001_PALETTE,
+                        1 => &VS_RP2C04_0002_PALETTE,
+                        2 => &VS_RP2C04_0003_PALETTE,
+                        4 => &NES_PALETTE,
+                        _ => &VS_RP2C04_0004_PALETTE,
+                    }
+                }
+            }
+            _ => &NES_PALETTE,
+        };
+        let mut colors = [0u32; 64];
+        for i in 0..64 {
+            colors[i] = full[i];
+        }
+        colors
+    }
+
     fn draw_to_screen(&mut self) {
         if self.ppu_dot > 3 && self.ppu_dot <= 259 && self.ppu_scanline < 241 {
             let mut chosen_color = self.prev_prev_prev_dot_color as usize;
@@ -2034,22 +2098,17 @@ impl Emulator {
                 let x = (self.ppu_dot as usize) - 4 - odd_offset;
                 let y = self.ppu_scanline as usize;
                 if x < 256 && y < 240 {
+                    // raw palette index + standard emphasis encoding for the NTSC filters
+                    self.ppu_out[y * 256 + x] = (chosen_color as u16 & 0x3F)
+                        | (if emphasis & 0x40 != 0 { 0x40 } else { 0 })
+                        | (if emphasis & 0x20 != 0 { 0x80 } else { 0 })
+                        | (if emphasis & 0x100 != 0 { 0x100 } else { 0 });
                     let is_vt03_custom = self.vt03_4bpp_bg_cart || self.vt03_4bpp_sp_cart || (self.cart.as_ref().map_or(0, |c| c.mapper_chip.vt03_reg2000_10()) & 0x80) != 0;
                     if self.is_vt369_ppu_cart || is_vt03_custom || self.is_um6578_cart || self.is_vt369_enhanced_ppu_cart {
                         self.screen[y * 256 + x] = self.prev_prev_prev_dot_color_rgb;
                     } else {
                         let pal_idx = (chosen_color | emphasis) % NES_PALETTE.len();
-                        self.screen[y * 256 + x] = if self.is_vs_system_cart {
-                            match self.vs_ppu_variant {
-                                0 => VS_RP2C04_0001_PALETTE[pal_idx],
-                                1 => VS_RP2C04_0002_PALETTE[pal_idx],
-                                2 => VS_RP2C04_0003_PALETTE[pal_idx],
-                                4 => NES_PALETTE[pal_idx],
-                                _ => VS_RP2C04_0004_PALETTE[pal_idx],
-                            }
-                        } else {
-                            NES_PALETTE[pal_idx]
-                        };
+                        self.screen[y * 256 + x] = self.palette_rgb(pal_idx);
                     }
                 }
             }
@@ -2934,7 +2993,79 @@ const VS_RP2C04_0004_PALETTE: [u32; 512] = vs_palette_from_rgb333(&[
 
 
 
-const NES_PALETTE: [u32; 512] = [
+pub fn generate_palette_from_rgb64(data: &[(u8, u8, u8); 64]) -> [u32; 512] {
+    let mut pal = [0u32; 512];
+    for i in 0..512 {
+        let (r, g, b) = data[i & 0x3F];
+        let emph = i >> 6;
+        let er = if emph == 0 || (emph & 1) != 0 { r } else { ((r as u32) * 230 / 255) as u8 };
+        let eg = if emph == 0 || (emph & 2) != 0 { g } else { ((g as u32) * 230 / 255) as u8 };
+        let eb = if emph == 0 || (emph & 4) != 0 { b } else { ((b as u32) * 230 / 255) as u8 };
+        pal[i] = 0xFF000000 | ((er as u32) << 16) | ((eg as u32) << 8) | (eb as u32);
+    }
+    pal
+}
+
+pub fn load_palette_file(pal_path: &str) -> Result<[u32; 512], String> {
+    let data = std::fs::read(pal_path).map_err(|e| format!("Failed to read palette file: {}", e))?;
+    match data.len() {
+        192 => {
+            let mut rgb = [(0u8, 0u8, 0u8); 64];
+            for i in 0..64 {
+                rgb[i] = (data[i * 3], data[i * 3 + 1], data[i * 3 + 2]);
+            }
+            Ok(generate_palette_from_rgb64(&rgb))
+        }
+        256 => {
+            let mut rgb = [(0u8, 0u8, 0u8); 64];
+            for i in 0..64 {
+                rgb[i] = (data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
+            }
+            Ok(generate_palette_from_rgb64(&rgb))
+        }
+        1536 => {
+            let mut pal = [0u32; 512];
+            for i in 0..512 {
+                let r = data[i * 3];
+                let g = data[i * 3 + 1];
+                let b = data[i * 3 + 2];
+                pal[i] = 0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+            }
+            Ok(pal)
+        }
+        _ => Err(format!("Unsupported palette file size: {} bytes (expected 192, 256, or 1536)", data.len())),
+    }
+}
+
+const fn pal_palette_from_rgb888(data: &[(u8, u8, u8); 64]) -> [u32; 512] {
+    let mut pal = [0u32; 512];
+    let mut i = 0;
+    while i < 512 {
+        let (r, g, b) = data[i & 0x3F];
+        let emph = i >> 6;
+        let er = if emph == 0 || (emph & 1) != 0 { r } else { ((r as u32) * 230 / 255) as u8 };
+        let eg = if emph == 0 || (emph & 2) != 0 { g } else { ((g as u32) * 230 / 255) as u8 };
+        let eb = if emph == 0 || (emph & 4) != 0 { b } else { ((b as u32) * 230 / 255) as u8 };
+        pal[i] = 0xFF000000 | ((er as u32) << 16) | ((eg as u32) << 8) | (eb as u32);
+        i += 1;
+    }
+    pal
+}
+
+const PAL_PALETTE: [u32; 512] = pal_palette_from_rgb888(&[
+    (0x80, 0x80, 0x80), (0x00, 0x2A, 0xAC), (0x18, 0x13, 0xB7), (0x40, 0x00, 0xB0), (0x66, 0x00, 0x96), (0x74, 0x00, 0x5E), (0x78, 0x06, 0x1E), (0x64, 0x1E, 0x00),
+    (0x44, 0x36, 0x00), (0x20, 0x49, 0x00), (0x06, 0x52, 0x00), (0x00, 0x4F, 0x10), (0x00, 0x46, 0x3A), (0x00, 0x00, 0x00), (0x00, 0x00, 0x00), (0x00, 0x00, 0x00),
+    (0xA8, 0xA8, 0xA8), (0x1E, 0x62, 0xE2), (0x40, 0x47, 0xF4), (0x6C, 0x2A, 0xEE), (0x90, 0x12, 0xD0), (0x9E, 0x0E, 0x90), (0xA0, 0x18, 0x3E), (0x8E, 0x32, 0x00),
+    (0x6C, 0x50, 0x00), (0x42, 0x68, 0x00), (0x22, 0x78, 0x00), (0x16, 0x74, 0x24), (0x14, 0x68, 0x66), (0x20, 0x20, 0x20), (0x00, 0x00, 0x00), (0x00, 0x00, 0x00),
+    (0xFF, 0xFE, 0xFC), (0x5A, 0x9C, 0xFF), (0x82, 0x7E, 0xFF), (0xA4, 0x5E, 0xFE), (0xC2, 0x46, 0xE6), (0xD0, 0x46, 0xAA), (0xD2, 0x50, 0x64), (0xC2, 0x6C, 0x24),
+    (0xA0, 0x8A, 0x00), (0x7A, 0xA2, 0x00), (0x58, 0xB2, 0x00), (0x4A, 0xAE, 0x3E), (0x48, 0xA2, 0x82), (0x5A, 0x5A, 0x5A), (0x00, 0x00, 0x00), (0x00, 0x00, 0x00),
+    (0xFF, 0xFE, 0xFC), (0xB8, 0xCE, 0xFF), (0xC8, 0xBE, 0xFF), (0xD6, 0xAC, 0xFF), (0xE2, 0x9E, 0xF2), (0xEA, 0x9E, 0xD2), (0xEA, 0xA4, 0xA2), (0xE4, 0xB4, 0x7C),
+    (0xD6, 0xC4, 0x5A), (0xC0, 0xD0, 0x44), (0xAA, 0xDA, 0x3E), (0xA0, 0xD6, 0x74), (0x9E, 0xCC, 0xA6), (0xA8, 0xA8, 0xA8), (0x00, 0x00, 0x00), (0x00, 0x00, 0x00),
+]);
+
+
+
+pub const NES_PALETTE: [u32; 512] = [
     0xFF666666, 0xFF002A88, 0xFF1412A7, 0xFF3B00A4, 0xFF5C007E, 0xFF6E0040, 0xFF6C0600, 0xFF561D00,
     0xFF333500, 0xFF0B4800, 0xFF005200, 0xFF004F08, 0xFF00404D, 0xFF000000, 0xFF000000, 0xFF000000,
     0xFFADADAD, 0xFF155FD9, 0xFF4240FF, 0xFF7527FE, 0xFFA01ACC, 0xFFB71E7B, 0xFFB53120, 0xFF994E00,

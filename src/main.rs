@@ -18,6 +18,12 @@ mod ppu;
 mod apu;
 mod bus;
 mod config;
+mod filters_scale;
+mod filters_sai;
+mod filters_hqx;
+mod filters_xbrz;
+mod filters_ntsc_blargg;
+mod filters_ntsc_bisqwit;
 mod nesdb;
 mod ps2_device_port;
 mod region;
@@ -40,6 +46,9 @@ use winit::window::{WindowBuilder, Icon};
 use softbuffer::{Context, Surface};
 use font8x8::UnicodeFonts;
 use gilrs::Gilrs;
+
+static NTSC_BLARGG: OnceLock<filters_ntsc_blargg::NtscBlargg> = OnceLock::new();
+static NTSC_BISQWIT: OnceLock<filters_ntsc_bisqwit::NtscBisqwit> = OnceLock::new();
 
 #[cfg(windows)]
 #[link(name = "winmm")]
@@ -586,6 +595,7 @@ struct MenuState {
     show_general_settings: bool,
     show_audio_settings: bool,
     show_video_settings: bool,
+    show_palette_settings: bool,
     show_input_settings: bool,
     show_controller1_settings: bool,
     show_controller2_settings: bool,
@@ -632,6 +642,8 @@ struct MenuState {
     dropdown_scroll: usize,
     dropdown_list_y: usize,
     dropdown_vis: usize,
+    palette_colors: [[u32; 64]; 3],
+    palette_names: [String; 3],
 }
 
 impl MenuState {
@@ -650,6 +662,7 @@ impl MenuState {
             show_general_settings: false,
             show_audio_settings: false,
             show_video_settings: false,
+            show_palette_settings: false,
             show_input_settings: false,
             show_controller1_settings: false,
             show_controller2_settings: false,
@@ -696,6 +709,8 @@ impl MenuState {
             dropdown_scroll: 0,
             dropdown_list_y: 0,
             dropdown_vis: 0,
+            palette_colors: [[0u32; 64]; 3],
+            palette_names: [String::from("Default"), String::from("Default"), String::from("Default")],
         }
     }
 }
@@ -908,7 +923,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.6.7";
+const APP_VERSION: &str = "1.6.8";
 
 fn strip_version_prefix(s: &str) -> &str {
     s.trim_start_matches(|c: char| c.is_ascii_alphabetic())
@@ -1730,7 +1745,37 @@ fn make_audio_callback(buffer: Arc<Mutex<AudioRingBuffer>>, channels: usize, pha
     }
 }
 
+fn sort_palette_by_luminance(colors: &mut [u32; 64]) {
+    colors.sort_by_key(|&c| {
+        let r = ((c >> 16) & 0xFF) as u32;
+        let g = ((c >> 8) & 0xFF) as u32;
+        let b = (c & 0xFF) as u32;
+        r * 299 + g * 587 + b * 114
+    });
+}
+
+fn refresh_palette_display(emu_clone: &Arc<Mutex<Emulator>>, ms: &mut MenuState) {
+    if let Ok(e) = emu_clone.lock() {
+        ms.palette_colors[0] = e.get_palette_base_colors("ntsc");
+        ms.palette_colors[1] = e.get_palette_base_colors("pal");
+        ms.palette_colors[2] = e.get_palette_base_colors("vs");
+    }
+    sort_palette_by_luminance(&mut ms.palette_colors[2]);
+    for (i, kind) in ["ntsc", "pal", "vs"].iter().enumerate() {
+        ms.palette_names[i] = match config::load_custom_palette_path(kind) {
+            Some(p) => std::path::Path::new(&p)
+                .file_name()
+                .map(|f| f.to_string_lossy().to_string())
+                .unwrap_or_else(|| String::from("Default")),
+            None => String::from("Default"),
+        };
+    }
+}
+
 fn main() {
+    let _ = NTSC_BLARGG.set(filters_ntsc_blargg::NtscBlargg::new(&ppu::NES_PALETTE));
+    let _ = NTSC_BISQWIT.set(filters_ntsc_bisqwit::NtscBisqwit::new());
+
     let window_width = NES_WIDTH * SCALE;
     let window_height = NES_HEIGHT * SCALE;
 
@@ -1742,7 +1787,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.6.7")
+        .with_title("AccuNES 1.6.8")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -1941,6 +1986,9 @@ fn main() {
     let fullscreen_on_game_load = Rc::new(RefCell::new(config::load_fullscreen_on_game_load()));
     let hide_mouse_cursor = Rc::new(RefCell::new(config::load_hide_mouse_cursor()));
     let crop_overscan = Rc::new(RefCell::new(config::load_crop_overscan()));
+    let aspect_ratio = Rc::new(RefCell::new(config::load_aspect_ratio()));
+    let palette_mode = Rc::new(RefCell::new(config::load_palette_mode()));
+    let video_filter = Rc::new(RefCell::new(config::load_video_filter()));
     window.set_cursor_visible(!config::load_hide_mouse_cursor());
     if config::load_fullscreen() {
         window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
@@ -2310,16 +2358,27 @@ fn main() {
     let fullscreen_on_game_load_clone = fullscreen_on_game_load.clone();
     let hide_mouse_cursor_clone = hide_mouse_cursor.clone();
     let crop_overscan_clone = crop_overscan.clone();
+    let aspect_ratio_clone = aspect_ratio.clone();
+    let palette_mode_clone = palette_mode.clone();
+    let video_filter_clone = video_filter.clone();
 
     let screen_buffer = Arc::new(Mutex::new(vec![0u32; (NES_WIDTH * NES_HEIGHT) as usize]));
+    let ppu_out_buffer = Arc::new(Mutex::new(vec![0u16; (NES_WIDTH * NES_HEIGHT) as usize]));
+    let video_phase_flag = Arc::new(AtomicU32::new(0));
     let (cmd_tx, cmd_rx) = mpsc::channel::<EmuCommand>();
     let exit_flag = Arc::new(AtomicBool::new(false));
     let rom_loaded_flag = Arc::new(AtomicBool::new(false));
     let disk_inserted_flag = Arc::new(AtomicBool::new(false));
+    let resolved_region_flag = Arc::new(AtomicU8::new(0));
 
     let screen_buffer_clone = screen_buffer.clone();
+    let ppu_out_clone = ppu_out_buffer.clone();
+    let ppu_out_video = ppu_out_buffer.clone();
+    let video_phase_thread = video_phase_flag.clone();
+    let video_phase_render = video_phase_flag.clone();
     let rom_loaded_flag_clone = rom_loaded_flag.clone();
     let disk_inserted_clone = disk_inserted_flag.clone();
+    let resolved_region_ui = resolved_region_flag.clone();
 
     let emu_thread = emu.clone();
     let screen_out = screen_buffer.clone();
@@ -2329,6 +2388,7 @@ fn main() {
     let rom_loaded_for_thread = rom_loaded_flag.clone();
     let paused_thread = paused.clone();
     let disk_inserted_flag_thread = disk_inserted_flag.clone();
+    let resolved_region_thread = resolved_region_flag.clone();
 
     let emu_frame_count_ui = emu_frame_count.clone();
 
@@ -2405,10 +2465,16 @@ fn main() {
 
                 e.core_frame_advance();
                 disk_inserted_flag_thread.store(e.disk_inserted(), Ordering::Relaxed);
+                let is_pal = e.is_pal();
+                let is_dendy = e.is_dendy();
+                resolved_region_thread.store(if is_pal { 2 } else if is_dendy { 3 } else { 1 }, Ordering::Relaxed);
                 emu_frame_count_thread.fetch_add(1, Ordering::Relaxed);
 
                 let mut screen = screen_out.lock().unwrap();
                 screen.copy_from_slice(&e.screen);
+                let mut ppu_raw = ppu_out_clone.lock().unwrap();
+                ppu_raw.copy_from_slice(&e.ppu_out);
+                video_phase_thread.store(e.video_phase, Ordering::Relaxed);
             }
             fps_count_local += 1;
             let elapsed_fps = fps_time_local.elapsed();
@@ -2444,6 +2510,8 @@ fn main() {
     let mut save_chord_time: Option<Instant> = None;
     let mut load_chord_time: Option<Instant> = None;
     let mut coin_chord_time: Option<Instant> = None;
+    let mut applied_aspect: Option<config::AspectRatio> = None;
+    let mut applied_aspect_pal: Option<bool> = None;
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(4));
@@ -3923,6 +3991,7 @@ fn main() {
                         || ms.show_general_settings
                         || ms.show_audio_settings
                         || ms.show_video_settings
+                        || ms.show_palette_settings
                         || ms.show_input_settings
                         || ms.show_controller1_settings
                         || ms.show_controller2_settings
@@ -5463,7 +5532,7 @@ WinitEvent::WindowEvent {
                 let is_modal_open = {
                     let ms = menu_state_clone.borrow();
                     ms.show_dip_switches || ms.show_general_settings || ms.show_audio_settings
-                        || ms.show_video_settings || ms.show_input_settings
+                        || ms.show_video_settings || ms.show_palette_settings || ms.show_input_settings
                         || ms.show_controller1_settings || ms.show_controller2_settings
                         || ms.show_expansion_settings || ms.show_hotkeys_settings
                         || ms.show_about || ms.show_error || ms.show_confirm_exit_dialog
@@ -7650,7 +7719,7 @@ let is_subor_keyboard = expansion_type_clone.borrow().is_subor_keyboard();
                         let title_h = (30.0 * sc).round() as usize;
                         let row_h = (22.0 * sc).round() as usize;
                         let border_thickness = (2.0 * sc).round() as usize;
-                        let video_items = 4;
+let video_items = 7;
                         let vh = title_h + gap + video_items * (row_h + gap) - gap + border_thickness * 2;
                         let vx = (width.saturating_sub(vw)) / 2;
                         let vy = (height.saturating_sub(vh)) / 2;
@@ -7663,7 +7732,7 @@ let is_subor_keyboard = expansion_type_clone.borrow().is_subor_keyboard();
                             menu_state_clone.borrow_mut().show_video_settings = false;
                             paused_clone.store(false, Ordering::Relaxed);
                         } else {
-                            let box_w = (80.0 * sc).round() as usize;
+                            let box_w = (120.0 * sc).round() as usize;
                             let mut row_y = vy + title_h + gap;
                             let box_x = vx + vw - (15.0 * sc).round() as usize - box_w;
 
@@ -7695,6 +7764,107 @@ let is_subor_keyboard = expansion_type_clone.borrow().is_subor_keyboard();
                                 let new_val = !*crop_overscan_clone.borrow();
                                 *crop_overscan_clone.borrow_mut() = new_val;
                                 config::save_crop_overscan(new_val);
+                            }
+                            row_y += row_h + gap;
+                            if point_in_rect(mx, my, box_x, row_y, box_w, row_h) {
+                                let mut mode = aspect_ratio_clone.borrow_mut();
+                                *mode = mode.next();
+                                config::save_aspect_ratio(*mode);
+                            }
+                            row_y += row_h + gap;
+                            if point_in_rect(mx, my, box_x, row_y, box_w, row_h) {
+                                let mut mode = palette_mode_clone.borrow_mut();
+                                *mode = mode.next();
+                                config::save_palette_mode(*mode);
+                                let new_mode = *mode;
+                                drop(mode);
+                                if let Ok(mut e) = emu_clone.lock() {
+                                    e.palette_mode = new_mode;
+                                }
+                            }
+                            row_y += row_h + gap;
+                            if point_in_rect(mx, my, box_x, row_y, box_w, row_h) {
+                                let mut filter = video_filter_clone.borrow_mut();
+                                *filter = filter.next();
+                                config::save_video_filter(*filter);
+                            }
+                        }
+                    } else if ms.show_palette_settings {
+                        let sc = ms.scale;
+                        let vw = (320.0 * sc).round() as usize;
+                        let title_h = (30.0 * sc).round() as usize;
+                        let gap = (8.0 * sc).round() as usize;
+                        let cell = (14.0 * sc).round() as usize;
+                        let cell_gap = (1.0 * sc).round() as usize;
+                        let _grid_w = 16 * cell + 15 * cell_gap;
+                        let grid_h = 4 * cell + 3 * cell_gap;
+                        let label_h = (18.0 * sc).round() as usize;
+                        let lbl_gap = (4.0 * sc).round() as usize;
+                        let grid_gap = (4.0 * sc).round() as usize;
+                        let btn_h = (20.0 * sc).round() as usize;
+                        let btn_gap = (6.0 * sc).round() as usize;
+                        let use_w = (120.0 * sc).round() as usize;
+                        let load_w = (130.0 * sc).round() as usize;
+                        let section_h = label_h + lbl_gap + grid_h + grid_gap + btn_h;
+                        let sect_gap = (8.0 * sc).round() as usize;
+                        let pad_x = (10.0 * sc).round() as usize;
+                        let vh = title_h + gap + 3 * section_h + 2 * sect_gap + pad_x;
+                        let vx = (width.saturating_sub(vw)) / 2;
+                        let vy = (height.saturating_sub(vh)) / 2;
+                        let close_w = (20.0 * sc).round() as usize;
+                        let close_h = (20.0 * sc).round() as usize;
+                        let close_x = vx + vw - close_w - pad_x;
+                        let close_y = vy + (5.0 * sc).round() as usize;
+                        drop(ms);
+                        if point_in_rect(mx, my, close_x, close_y, close_w, close_h) {
+                            menu_state_clone.borrow_mut().show_palette_settings = false;
+                            paused_clone.store(false, Ordering::Relaxed);
+                        } else {
+                            let kinds = ["ntsc", "pal", "vs"];
+                            for (i, kind) in kinds.iter().enumerate() {
+                                let sect_y = vy + title_h + gap + i * (section_h + sect_gap);
+                                let use_x = vx + pad_x;
+                                let load_x = use_x + use_w + btn_gap;
+                                let btn_y = sect_y + label_h + lbl_gap + grid_h + grid_gap;
+                                if point_in_rect(mx, my, use_x, btn_y, use_w, btn_h) {
+                                    if let Ok(mut e) = emu_clone.lock() {
+                                        match i {
+                                            0 => e.custom_ntsc_palette = None,
+                                            1 => e.custom_pal_palette = None,
+                                            _ => e.custom_vs_palette = None,
+                                        }
+                                    }
+                                    config::clear_custom_palette(kind);
+                                    let mut ms_mut = menu_state_clone.borrow_mut();
+                                    refresh_palette_display(&emu_clone, &mut *ms_mut);
+                                    break;
+                                } else if point_in_rect(mx, my, load_x, btn_y, load_w, btn_h) {
+                                    if let Some(path) = rfd::FileDialog::new()
+                                        .add_filter("NES Palettes", &["pal"])
+                                        .pick_file() {
+                                        let path_str = path.to_string_lossy().to_string();
+                                        match crate::ppu::load_palette_file(&path_str) {
+                                            Ok(pal) => {
+                                                if let Ok(mut e) = emu_clone.lock() {
+                                                    match i {
+                                                        0 => e.custom_ntsc_palette = Some(pal),
+                                                        1 => e.custom_pal_palette = Some(pal),
+                                                        _ => e.custom_vs_palette = Some(pal),
+                                                    }
+                                                }
+                                                config::save_custom_palette(kind, &path_str);
+                                                let mut ms_mut = menu_state_clone.borrow_mut();
+                                                refresh_palette_display(&emu_clone, &mut *ms_mut);
+                                            }
+                                            Err(err) => {
+                                                let mut ms_mut = menu_state_clone.borrow_mut();
+                                                ms_mut.show_error = true;
+                                                ms_mut.error_message = err;
+                                            }
+                                        }
+                                    }
+                                    break;
+                                }
                             }
                         }
                     } else if ms.show_hotkeys_settings {
@@ -8580,7 +8750,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                 let submenu_w = (150.0 * sc).round() as usize;
                                 let submenu_item_h = (16.0 * sc).round() as usize;
 
-                                let options_items = ["General", "Input", "Audio", "Video", "Region", "Set FDS BIOS", "Set Study Box BIOS"];
+                                let options_items = ["General", "Input", "Audio", "Video", "Palette", "Region", "Set FDS BIOS", "Set Study Box BIOS"];
                                 let options_positions = calculate_item_positions(&options_items, dropdown_x, dropdown_y, dropdown_w, sc);
 
                                 if ms_mut.show_region_submenu {
@@ -8618,7 +8788,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                         }
                                     }
                                     if !clicked {
-                                        if let Some((x, y, w, h)) = options_positions.get(4) {
+                                        if let Some((x, y, w, h)) = options_positions.get(5) {
                                             if point_in_rect(mx, my, *x, *y, *w, *h) {
                                                 ms_mut.show_region_submenu = false;
                                             }
@@ -8655,10 +8825,18 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                     }
                                     if let Some((x, y, w, h)) = options_positions.get(4) {
                                         if point_in_rect(mx, my, *x, *y, *w, *h) {
-                                            ms_mut.show_region_submenu = true;
+                                            ms_mut.show_palette_settings = true;
+                                            ms_mut.active_menu = None;
+                                            paused_clone.store(true, Ordering::Relaxed);
+                                            refresh_palette_display(&emu_clone, &mut *ms_mut);
                                         }
                                     }
                                     if let Some((x, y, w, h)) = options_positions.get(5) {
+                                        if point_in_rect(mx, my, *x, *y, *w, *h) {
+                                            ms_mut.show_region_submenu = true;
+                                        }
+                                    }
+                                    if let Some((x, y, w, h)) = options_positions.get(6) {
                                         if point_in_rect(mx, my, *x, *y, *w, *h) {
                                             if let Some(path) = rfd::FileDialog::new()
                                                 .add_filter("FDS BIOS", &["rom", "bin"])
@@ -8669,7 +8847,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                             ms_mut.active_menu = None;
                                         }
                                     }
-                                    if let Some((x, y, w, h)) = options_positions.get(6) {
+                                    if let Some((x, y, w, h)) = options_positions.get(7) {
                                         if point_in_rect(mx, my, *x, *y, *w, *h) {
                                             if let Some(path) = rfd::FileDialog::new()
                                                 .add_filter("Study Box BIOS", &["rom", "bin"])
@@ -9004,7 +9182,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                             let submenu_w = (150.0 * sc).round() as usize;
                             let submenu_item_h = (16.0 * sc).round() as usize;
 
-                            let options_items = ["General", "Input", "Audio", "Video", "Region", "Set FDS BIOS", "Set Study Box BIOS"];
+                            let options_items = ["General", "Input", "Audio", "Video", "Palette", "Region", "Set FDS BIOS", "Set Study Box BIOS"];
                             let options_positions = calculate_item_positions(&options_items, dropdown_x, dropdown_y, dropdown_w, sc);
 
                             ms_mut.hovered_options_index = None;
@@ -9053,6 +9231,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                     || ms_mut.show_general_settings
                     || ms_mut.show_audio_settings
                     || ms_mut.show_video_settings
+                    || ms_mut.show_palette_settings
                     || ms_mut.show_input_settings
                     || ms_mut.show_controller1_settings
                     || ms_mut.show_controller2_settings
@@ -9090,9 +9269,9 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                         } else if lower.ends_with(".fds") || lower.ends_with(".qd") || lower.ends_with(".studybox") || lower.ends_with(".study") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.6.7: {}", filename)
+                        format!("AccuNES 1.6.8: {}", filename)
                     } else {
-                        "AccuNES 1.6.7".to_string()
+                        "AccuNES 1.6.8".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -9152,13 +9331,50 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
 
                 buffer.fill(colors.global_bg);
 
-                if *rom_loaded_clone.borrow() && height > menu_height && width > 0 {
-                    let screen_data = screen_buffer_clone.lock().unwrap();
-                    let nes_width = NES_WIDTH as usize;
-                    let nes_height = NES_HEIGHT as usize;
+                let nes_width = NES_WIDTH as usize;
+                let nes_height = NES_HEIGHT as usize;
+                let aspect_mode = *aspect_ratio_clone.borrow();
+                let resolved_region = resolved_region_ui.load(Ordering::Relaxed);
+                let resolved_is_pal = resolved_region == 2;
+                let nes_aspect = match aspect_mode {
+                    config::AspectRatio::Ntsc => (nes_width as f32 * 8.0 / 7.0) / nes_height as f32,
+                    config::AspectRatio::Pal => (nes_width as f32 * 11.0 / 8.0) / nes_height as f32,
+                    config::AspectRatio::Standard => 4.0 / 3.0,
+                    config::AspectRatio::Auto => {
+                        if resolved_is_pal {
+                            (nes_width as f32 * 11.0 / 8.0) / nes_height as f32
+                        } else {
+                            (nes_width as f32 * 8.0 / 7.0) / nes_height as f32
+                        }
+                    }
+                };
 
+                let applied_mode_changed = applied_aspect != Some(aspect_mode)
+                    || (aspect_mode == config::AspectRatio::Auto && applied_aspect_pal != Some(resolved_is_pal));
+                let is_maximized = window.is_maximized();
+                let is_fullscreen = window.fullscreen().is_some();
+                if height > menu_height && width > 0 && applied_mode_changed {
+                    applied_aspect = Some(aspect_mode);
+                    if aspect_mode == config::AspectRatio::Auto {
+                        applied_aspect_pal = Some(resolved_is_pal);
+                    } else {
+                        applied_aspect_pal = None;
+                    }
+                    if !is_maximized && !is_fullscreen {
+                        let available_height = height - menu_height;
+                        let target_w = ((available_height as f32) * nes_aspect).round() as u32;
+                        if target_w != width as u32 {
+                            window.set_inner_size(winit::dpi::PhysicalSize::new(target_w, height as u32));
+                        }
+                    }
+                }
+
+                if *rom_loaded_clone.borrow() && height > menu_height && width > 0 {
+                    let screen_data = {
+                        let guard = screen_buffer_clone.lock().unwrap();
+                        guard.to_vec()
+                    };
                     let available_height = height - menu_height;
-                    let nes_aspect = nes_width as f32 / nes_height as f32;
                     let screen_aspect = width as f32 / available_height as f32;
 
                     let (dest_w, dest_h, dest_x, dest_y) = if screen_aspect > nes_aspect {
@@ -9177,16 +9393,129 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                     menu_state_clone.borrow_mut().screen_dest_w = dest_w;
                     menu_state_clone.borrow_mut().screen_dest_h = dest_h;
 
+                    let video_filter = *video_filter_clone.borrow();
+                    let prescale_n = video_filter.scale_factor().map(|n| n as usize).unwrap_or(1);
+                    let (src_w, src_h, src) = match video_filter {
+                        config::VideoFilter::None | config::VideoFilter::Scanlines | config::VideoFilter::LcdGrid => {
+                            (nes_width, nes_height, screen_data.to_vec())
+                        }
+                        config::VideoFilter::Prescale2x | config::VideoFilter::Prescale3x
+                        | config::VideoFilter::Prescale4x | config::VideoFilter::Prescale6x
+                        | config::VideoFilter::Prescale8x | config::VideoFilter::Prescale10x => {
+                            let n = prescale_n;
+                            let pw = nes_width * n;
+                            let ph = nes_height * n;
+                            let mut pre = vec![0u32; pw * ph];
+                            for y in 0..nes_height {
+                                for x in 0..nes_width {
+                                    let base_p = screen_data[y * nes_width + x];
+                                    let v = 0xFF000000u32 | (base_p & 0x00FFFFFFu32);
+                                    let row_start = (y * n) * pw + (x * n);
+                                    for iy in 0..n {
+                                        let row = row_start + iy * pw;
+                                        for ix in 0..n {
+                                            pre[row + ix] = v;
+                                        }
+                                    }
+                                }
+                            }
+                            (pw, ph, pre)
+                        }
+                        config::VideoFilter::Scale2x => {
+                            let o = filters_scale::scale2x(&screen_data, nes_width, nes_height);
+                            (nes_width * 2, nes_height * 2, o)
+                        }
+                        config::VideoFilter::Scale3x => {
+                            let o = filters_scale::scale3x(&screen_data, nes_width, nes_height);
+                            (nes_width * 3, nes_height * 3, o)
+                        }
+                        config::VideoFilter::TwoXSaI => {
+                            let o = filters_sai::twoxsai(&screen_data, nes_width, nes_height);
+                            (nes_width * 2, nes_height * 2, o)
+                        }
+                        config::VideoFilter::SuperTwoXSaI => {
+                            let o = filters_sai::supertwoxsai(&screen_data, nes_width, nes_height);
+                            (nes_width * 2, nes_height * 2, o)
+                        }
+                        config::VideoFilter::SuperEagle => {
+                            let o = filters_sai::supereagle(&screen_data, nes_width, nes_height);
+                            (nes_width * 2, nes_height * 2, o)
+                        }
+                        config::VideoFilter::Hq2x => {
+                            let o = filters_hqx::hq2x(&screen_data, nes_width, nes_height);
+                            (nes_width * 2, nes_height * 2, o)
+                        }
+                        config::VideoFilter::Hq3x => {
+                            let o = filters_hqx::hq3x(&screen_data, nes_width, nes_height);
+                            (nes_width * 3, nes_height * 3, o)
+                        }
+                        config::VideoFilter::Hq4x => {
+                            let o = filters_hqx::hq4x(&screen_data, nes_width, nes_height);
+                            (nes_width * 4, nes_height * 4, o)
+                        }
+                        config::VideoFilter::Xbrz2x => {
+                            let o = filters_xbrz::xbrz(2, &screen_data, nes_width, nes_height);
+                            (nes_width * 2, nes_height * 2, o)
+                        }
+                        config::VideoFilter::Xbrz3x => {
+                            let o = filters_xbrz::xbrz(3, &screen_data, nes_width, nes_height);
+                            (nes_width * 3, nes_height * 3, o)
+                        }
+                        config::VideoFilter::Xbrz4x => {
+                            let o = filters_xbrz::xbrz(4, &screen_data, nes_width, nes_height);
+                            (nes_width * 4, nes_height * 4, o)
+                        }
+                        config::VideoFilter::Xbrz5x => {
+                            let o = filters_xbrz::xbrz(5, &screen_data, nes_width, nes_height);
+                            (nes_width * 5, nes_height * 5, o)
+                        }
+                        config::VideoFilter::Xbrz6x => {
+                            let o = filters_xbrz::xbrz(6, &screen_data, nes_width, nes_height);
+                            (nes_width * 6, nes_height * 6, o)
+                        }
+                        config::VideoFilter::NtscBlargg => {
+                            let phase = video_phase_render.load(Ordering::Relaxed);
+                            let ppu_data = {
+                                let guard = ppu_out_video.lock().unwrap();
+                                guard.to_vec()
+                            };
+                            let f = NTSC_BLARGG
+                                .get_or_init(|| filters_ntsc_blargg::NtscBlargg::new(&ppu::NES_PALETTE));
+                            let o = f.filter_frame(&ppu_data, phase);
+                            (602, 480, o)
+                        }
+                        config::VideoFilter::NtscBisqwit => {
+                            let phase = video_phase_render.load(Ordering::Relaxed);
+                            let ppu_data = {
+                                let guard = ppu_out_video.lock().unwrap();
+                                guard.to_vec()
+                            };
+                            let f = NTSC_BISQWIT.get_or_init(filters_ntsc_bisqwit::NtscBisqwit::new);
+                            let o = f.filter_frame(&ppu_data, phase);
+                            (512, 480, o)
+                        }
+                    };
+
                     let crop_enabled = *crop_overscan_clone.borrow();
-                    let crop = if crop_enabled { 8usize } else { 0 };
-                    let usable_w = nes_width - 2 * crop;
-                    let usable_h = nes_height - 2 * crop;
+                    let crop = if crop_enabled
+                        && !matches!(
+                            video_filter,
+                            config::VideoFilter::NtscBlargg | config::VideoFilter::NtscBisqwit
+                        )
+                    {
+                        8 * prescale_n
+                    } else {
+                        0
+                    };
+                    let usable_w = src_w.saturating_sub(2 * crop);
+                    let usable_h = src_h.saturating_sub(2 * crop);
+
                     let mut x_mapping = Vec::with_capacity(dest_w);
                     for dx in 0..dest_w {
                         if crop_enabled {
                             x_mapping.push(crop + (dx * usable_w) / dest_w);
                         } else {
-                            x_mapping.push((dx * nes_width) / dest_w);
+                            x_mapping.push((dx * src_w) / dest_w);
                         }
                     }
 
@@ -9194,21 +9523,67 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                         let sy = if crop_enabled {
                             crop + (dy * usable_h) / dest_h
                         } else {
-                            (dy * nes_height) / dest_h
+                            (dy * src_h) / dest_h
                         };
-                        if sy >= nes_height { continue; }
+                        if sy >= src_h { continue; }
                         let screen_y = dest_y + dy;
                         if screen_y >= height { continue; }
                         
                         let dest_row_offset = screen_y * width;
-                        let src_row_offset = sy * nes_width;
+                        let src_row_offset = sy * src_w;
                         let dest_start = dest_row_offset + dest_x;
 
                         if dest_start + dest_w <= buffer.len() {
                             for dx in 0..dest_w {
                                 let sx = x_mapping[dx];
-                                let pixel = screen_data[src_row_offset + sx];
+                                let pixel = src[src_row_offset + sx];
                                 buffer[dest_start + dx] = 0xFF000000u32 | (pixel & 0x00FFFFFFu32);
+                            }
+                        }
+                    }
+
+                    if video_filter == config::VideoFilter::Scanlines {
+                        let v_scale = ((dest_h as f32 / src_h as f32).round()).max(1.0) as usize;
+                        for dy in 0..dest_h {
+                            if v_scale > 1 && dy % v_scale != 0 {
+                                let screen_y = dest_y + dy;
+                                if screen_y >= height { continue; }
+                                let row_start = screen_y * width + dest_x;
+                                if row_start + dest_w > buffer.len() { continue; }
+                                for dx in 0..dest_w {
+                                    let p = buffer[row_start + dx];
+                                    let r = (((p >> 16) & 0xFF) as u32) * 187 / 256;
+                                    let g = (((p >> 8) & 0xFF) as u32) * 187 / 256;
+                                    let b = ((p & 0xFF) as u32) * 187 / 256;
+                                    buffer[row_start + dx] = 0xFF000000u32 | (r << 16) | (g << 8) | b;
+                                }
+                            }
+                        }
+                    } else if video_filter == config::VideoFilter::LcdGrid {
+                        let cell_w = (dest_w as f32 / src_w as f32).ceil().max(1.0);
+                        let cell_h = (dest_h as f32 / src_h as f32).ceil().max(1.0);
+                        for dy in 0..dest_h {
+                            let screen_y = dest_y + dy;
+                            if screen_y >= height { continue; }
+                            let row_start = screen_y * width + dest_x;
+                            if row_start + dest_w > buffer.len() { continue; }
+                            let fy = (dy as f32 % cell_h) / cell_h;
+                            for dx in 0..dest_w {
+                                let fx = (dx as f32 % cell_w) / cell_w;
+                                let m = if fx < 0.5 && fy < 0.5 {
+                                    1.0
+                                } else if fx >= 0.5 && fy < 0.5 {
+                                    0.45
+                                } else if fx < 0.5 && fy >= 0.5 {
+                                    0.45
+                                } else {
+                                    0.35
+                                };
+                                let p = buffer[row_start + dx];
+                                let r = ((((p >> 16) & 0xFF) as u32 as f32) * m) as u32;
+                                let g = ((((p >> 8) & 0xFF) as u32 as f32) * m) as u32;
+                                let b = (((p & 0xFF) as u32 as f32) * m) as u32;
+                                buffer[row_start + dx] = 0xFF000000u32 | (r << 16) | (g << 8) | b;
                             }
                         }
                     }
@@ -9444,7 +9819,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                             let dropdown_w = item_w;
                             let pad_x = (8.0 * scale).round() as usize;
                             let pad_y = (4.0 * scale).round() as usize;
-                            let options_items = ["General", "Input", "Audio", "Video", "Region", "Set FDS BIOS", "Set Study Box BIOS"];
+                            let options_items = ["General", "Input", "Audio", "Video", "Palette", "Region", "Set FDS BIOS", "Set Study Box BIOS"];
                             let text_max_w = dropdown_w.saturating_sub(pad_x * 2);
                             let item_heights: Vec<usize> = options_items.iter().map(|name| {
                                 measure_wrapped_height(name, text_max_w, scale) + pad_y * 2
@@ -9457,7 +9832,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                     draw_rect(&mut buffer, dropdown_x, item_y, dropdown_w, ih, width, menu_highlight);
                                 }
                                 draw_text_wrapped(&mut buffer, dropdown_x + pad_x, item_y + pad_y, text_max_w, width, name, menu_text, scale);
-                                if i == 4 {
+                                if i == 5 {
                                     let arrow_x = dropdown_x + dropdown_w - pad_x - (8.0 * scale).round() as usize;
                                     draw_text(&mut buffer, arrow_x, item_y + pad_y, width, ">", menu_text, scale);
                                 }
@@ -9524,7 +9899,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.6.7",
+                        "Version: 1.6.8",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
@@ -9882,7 +10257,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                     let gap = (8.0 * scale).round() as usize;
                     let title_h = (30.0 * scale).round() as usize;
                     let border_thickness = (2.0 * scale).round() as usize;
-                    let video_items = 4;
+                    let video_items = 7;
                     let inner_h = title_h + gap + video_items * (row_h + gap) - gap + border_thickness * 2;
                     let vh = inner_h;
                     let vx = (width.saturating_sub(vw)) / 2;
@@ -9910,7 +10285,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                     draw_text(&mut buffer, close_x + (6.0 * scale).round() as usize, close_y + (6.0 * scale).round() as usize, width, "X", colors.menu_text, scale);
 
                     let label_x = vx + (15.0 * scale).round() as usize;
-                    let box_w = (80.0 * scale).round() as usize;
+                    let box_w = (120.0 * scale).round() as usize;
                     let box_x = vx + vw - (15.0 * scale).round() as usize - box_w;
                     let mut row_y = vy + title_h + gap;
                     let video_labels = [
@@ -9930,6 +10305,113 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                         let vw_text = val.len() as f32 * 8.0 * scale;
                         draw_text(&mut buffer, box_x + ((box_w as f32 - vw_text) / 2.0).round() as usize, row_y + (6.0 * scale).round() as usize, width, val, menu_text, scale);
                         row_y += row_h + gap;
+                    }
+
+                    draw_text(&mut buffer, label_x, row_y + (6.0 * scale).round() as usize, width, "Aspect Ratio", menu_text, scale);
+                    let aspect_val = aspect_ratio_clone.borrow().label();
+                    let hovered = point_in_rect(mouse_x, mouse_y, box_x, row_y, box_w, row_h);
+                    let bg = if hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                    draw_rect(&mut buffer, box_x, row_y, box_w, row_h, width, colors.box_border);
+                    draw_rect(&mut buffer, box_x + 1, row_y + 1, box_w - 2, row_h - 2, width, bg);
+                    let vw_text = aspect_val.len() as f32 * 8.0 * scale;
+                    draw_text(&mut buffer, box_x + ((box_w as f32 - vw_text) / 2.0).round() as usize, row_y + (6.0 * scale).round() as usize, width, aspect_val, menu_text, scale);
+
+                    row_y += row_h + gap;
+                    draw_text(&mut buffer, label_x, row_y + (6.0 * scale).round() as usize, width, "Palette", menu_text, scale);
+                    let palette_val = palette_mode_clone.borrow().label();
+                    let hovered = point_in_rect(mouse_x, mouse_y, box_x, row_y, box_w, row_h);
+                    let bg = if hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                    draw_rect(&mut buffer, box_x, row_y, box_w, row_h, width, colors.box_border);
+                    draw_rect(&mut buffer, box_x + 1, row_y + 1, box_w - 2, row_h - 2, width, bg);
+                    let vw_text = palette_val.len() as f32 * 8.0 * scale;
+                    draw_text(&mut buffer, box_x + ((box_w as f32 - vw_text) / 2.0).round() as usize, row_y + (6.0 * scale).round() as usize, width, palette_val, menu_text, scale);
+
+                    row_y += row_h + gap;
+                    draw_text(&mut buffer, label_x, row_y + (6.0 * scale).round() as usize, width, "Filter", menu_text, scale);
+                    let filter_val = video_filter_clone.borrow().label();
+                    let hovered = point_in_rect(mouse_x, mouse_y, box_x, row_y, box_w, row_h);
+                    let bg = if hovered { colors.box_bg_hover } else { colors.box_bg_default };
+                    draw_rect(&mut buffer, box_x, row_y, box_w, row_h, width, colors.box_border);
+                    draw_rect(&mut buffer, box_x + 1, row_y + 1, box_w - 2, row_h - 2, width, bg);
+                    let vw_text = filter_val.len() as f32 * 8.0 * scale;
+                    draw_text(&mut buffer, box_x + ((box_w as f32 - vw_text) / 2.0).round() as usize, row_y + (6.0 * scale).round() as usize, width, filter_val, menu_text, scale);
+                }
+
+                if ms.show_palette_settings {
+                    let sc = scale;
+                    let vw = (320.0 * sc).round() as usize;
+                    let title_h = (30.0 * sc).round() as usize;
+                    let gap = (8.0 * sc).round() as usize;
+                    let cell = (14.0 * sc).round() as usize;
+                    let cell_gap = (1.0 * sc).round() as usize;
+                    let _grid_w = 16 * cell + 15 * cell_gap;
+                    let grid_h = 4 * cell + 3 * cell_gap;
+                    let label_h = (18.0 * sc).round() as usize;
+                    let lbl_gap = (4.0 * sc).round() as usize;
+                    let grid_gap = (4.0 * sc).round() as usize;
+                    let btn_h = (20.0 * sc).round() as usize;
+                    let btn_gap = (6.0 * sc).round() as usize;
+                    let use_w = (120.0 * sc).round() as usize;
+                    let load_w = (130.0 * sc).round() as usize;
+                    let section_h = label_h + lbl_gap + grid_h + grid_gap + btn_h;
+                    let sect_gap = (8.0 * sc).round() as usize;
+                    let pad_x = (10.0 * sc).round() as usize;
+                    let vh = title_h + gap + 3 * section_h + 2 * sect_gap + pad_x;
+                    let vx = (width.saturating_sub(vw)) / 2;
+                    let vy = (height.saturating_sub(vh)) / 2;
+                    let (mouse_x, mouse_y) = ms.mouse_pos;
+
+                    draw_rect(&mut buffer, vx, vy, vw, vh, width, colors.window_bg);
+                    draw_rect(&mut buffer, vx, vy, vw, title_h, width, colors.dropdown_bg);
+                    draw_text(&mut buffer, vx + (10.0 * sc).round() as usize, vy + (8.0 * sc).round() as usize, width, "Palette Settings", menu_text, scale);
+
+                    let border = (2.0 * sc).round() as usize;
+                    draw_rect(&mut buffer, vx, vy, vw, border, width, colors.window_border);
+                    draw_rect(&mut buffer, vx, vy, border, vh, width, colors.window_border);
+                    draw_rect(&mut buffer, vx + vw - border, vy, border, vh, width, colors.window_border);
+                    draw_rect(&mut buffer, vx, vy + vh - border, vw, border, width, colors.window_border);
+
+                    let close_w = (20.0 * sc).round() as usize;
+                    let close_h = (20.0 * sc).round() as usize;
+                    let close_x = vx + vw - close_w - pad_x;
+                    let close_y = vy + (5.0 * sc).round() as usize;
+                    draw_rect(&mut buffer, close_x, close_y, close_w, close_h, width, colors.close_bg);
+                    draw_text(&mut buffer, close_x + (6.0 * sc).round() as usize, close_y + (6.0 * sc).round() as usize, width, "X", colors.menu_text, scale);
+
+                    let palette_labels = ["NTSC", "PAL", "VS (sorted)"];
+                    for (i, pal_label) in palette_labels.iter().enumerate() {
+                        let sect_y = vy + title_h + gap + i * (section_h + sect_gap);
+
+                        let name_text = format!("{} Palette: {}", pal_label, ms.palette_names[i]);
+                        draw_text(&mut buffer, vx + pad_x, sect_y + (4.0 * sc).round() as usize, width, &name_text, menu_text, scale);
+
+                        let grid_y = sect_y + label_h + lbl_gap;
+                        for r in 0..4 {
+                            for c in 0..16 {
+                                let ci = r * 16 + c;
+                                let cx = vx + pad_x + c * (cell + cell_gap);
+                                let cy = grid_y + r * (cell + cell_gap);
+                                let rgb = ms.palette_colors[i][ci];
+                                let r8 = ((rgb >> 16) & 0xFF) as u32;
+                                let g8 = ((rgb >> 8) & 0xFF) as u32;
+                                let b8 = (rgb & 0xFF) as u32;
+                                let packed = 0xFF000000 | (r8 << 16) | (g8 << 8) | b8;
+                                draw_rect(&mut buffer, cx, cy, cell, cell, width, packed);
+                            }
+                        }
+
+                        let btn_y = grid_y + grid_h + grid_gap;
+                        let use_x = vx + pad_x;
+                        let use_hovered = point_in_rect(mouse_x, mouse_y, use_x, btn_y, use_w, btn_h);
+                        draw_rect(&mut buffer, use_x, btn_y, use_w, btn_h, width, colors.box_border);
+                        draw_rect(&mut buffer, use_x + 1, btn_y + 1, use_w - 2, btn_h - 2, width, if use_hovered { colors.box_bg_hover } else { colors.box_bg_default });
+                        draw_text(&mut buffer, use_x + (10.0 * sc).round() as usize, btn_y + (5.0 * sc).round() as usize, width, "Use Default", menu_text, scale);
+
+                        let load_x = use_x + use_w + btn_gap;
+                        let load_hovered = point_in_rect(mouse_x, mouse_y, load_x, btn_y, load_w, btn_h);
+                        draw_rect(&mut buffer, load_x, btn_y, load_w, btn_h, width, colors.box_border);
+                        draw_rect(&mut buffer, load_x + 1, btn_y + 1, load_w - 2, btn_h - 2, width, if load_hovered { colors.box_bg_hover } else { colors.box_bg_default });
+                        draw_text(&mut buffer, load_x + (10.0 * sc).round() as usize, btn_y + (5.0 * sc).round() as usize, width, "Load Custom", menu_text, scale);
                     }
                 }
 
@@ -11954,6 +12436,7 @@ config::ExpansionType::TopRider => config::ExpansionPortType::TopRider,
                         || ms_state.show_general_settings
                         || ms_state.show_audio_settings
                         || ms_state.show_video_settings
+                        || ms_state.show_palette_settings
                         || ms_state.show_input_settings
                         || ms_state.show_controller1_settings
                         || ms_state.show_controller2_settings

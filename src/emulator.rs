@@ -617,8 +617,18 @@ pub struct Emulator {
 
     pub screen: Vec<u32>,
 
+    // raw 256x240 PPU palette indices (incl. emphasis) for the NTSC filters
+    pub ppu_out: Vec<u16>,
+    pub ppu_dot_count: u64,
+    pub video_phase: u32,
+    pub completed_frames: u64,
+
     pub region_preference: Region,
     pub resolved_region: Region,
+    pub palette_mode: config::PaletteMode,
+    pub custom_ntsc_palette: Option<[u32; 512]>,
+    pub custom_pal_palette: Option<[u32; 512]>,
+    pub custom_vs_palette: Option<[u32; 512]>,
 
     pub is_um6578_cart: bool,
     pub is_vt32_cart: bool,
@@ -985,8 +995,16 @@ impl Emulator {
             expansion_adapter_shift_register: [0; 4],
             frame_advance_reached_vblank: false,
             screen: vec![0u32; 256 * 240],
+            ppu_out: vec![0u16; 256 * 240],
+            ppu_dot_count: 0,
+            video_phase: 0,
+            completed_frames: 0,
             region_preference: Region::Auto,
             resolved_region: Region::Ntsc,
+            palette_mode: config::load_palette_mode(),
+            custom_ntsc_palette: config::load_custom_palette_path("ntsc").and_then(|p| crate::ppu::load_palette_file(&p).ok()),
+            custom_pal_palette: config::load_custom_palette_path("pal").and_then(|p| crate::ppu::load_palette_file(&p).ok()),
+            custom_vs_palette: config::load_custom_palette_path("vs").and_then(|p| crate::ppu::load_palette_file(&p).ok()),
             is_um6578_cart: false,
             is_vt32_cart: false,
             is_vt369_ppu_cart: false,
@@ -2006,6 +2024,12 @@ impl Emulator {
                 self.emulator_core_ntsc();
             }
         }
+        self.completed_frames = self.completed_frames.wrapping_add(1);
+        self.video_phase = if self.is_pal() || self.is_dendy() {
+            (self.completed_frames & 1) as u32
+        } else {
+            (self.ppu_dot_count.wrapping_sub(82181) % 3) as u32
+        };
     }
 
     pub fn emulator_core(&mut self) {

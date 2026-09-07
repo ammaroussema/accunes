@@ -441,6 +441,315 @@ pub fn save_hide_mouse_cursor(enabled: bool) { save_bool_config("hide_mouse_curs
 pub fn load_crop_overscan() -> bool { load_bool_config("crop_overscan", false) }
 pub fn save_crop_overscan(enabled: bool) { save_bool_config("crop_overscan", enabled); }
 
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum AspectRatio {
+    Auto,
+    Ntsc,
+    Pal,
+    Standard,
+}
+
+pub fn load_aspect_ratio() -> AspectRatio {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("aspect_ratio=") {
+                match value.trim().to_lowercase().as_str() {
+                    "ntsc" => return AspectRatio::Ntsc,
+                    "pal" => return AspectRatio::Pal,
+                    "standard" => return AspectRatio::Standard,
+                    _ => return AspectRatio::Auto,
+                }
+            }
+        }
+    }
+    AspectRatio::Auto
+}
+
+pub fn save_aspect_ratio(aspect: AspectRatio) {
+    let s = match aspect {
+        AspectRatio::Auto => "auto",
+        AspectRatio::Ntsc => "ntsc",
+        AspectRatio::Pal => "pal",
+        AspectRatio::Standard => "standard",
+    };
+    upsert_config("aspect_ratio", s);
+}
+
+impl AspectRatio {
+    pub fn next(self) -> Self {
+        match self {
+            AspectRatio::Auto => AspectRatio::Ntsc,
+            AspectRatio::Ntsc => AspectRatio::Pal,
+            AspectRatio::Pal => AspectRatio::Standard,
+            AspectRatio::Standard => AspectRatio::Auto,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            AspectRatio::Auto => "Auto",
+            AspectRatio::Ntsc => "NTSC",
+            AspectRatio::Pal => "PAL",
+            AspectRatio::Standard => "Standard",
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum PaletteMode {
+    Auto,
+    Ntsc,
+    Pal,
+    Vs,
+}
+
+pub fn load_palette_mode() -> PaletteMode {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("palette=") {
+                match value.trim().to_lowercase().as_str() {
+                    "ntsc" => return PaletteMode::Ntsc,
+                    "pal" => return PaletteMode::Pal,
+                    "vs" => return PaletteMode::Vs,
+                    _ => return PaletteMode::Auto,
+                }
+            }
+        }
+    }
+    PaletteMode::Auto
+}
+
+pub fn load_custom_palette_path(kind: &str) -> Option<String> {
+    let key = format!("custom_{}_palette", kind);
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix(&format!("{}=", key)) {
+                let v = value.trim().to_string();
+                if !v.is_empty() {
+                    return Some(v);
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn save_custom_palette(kind: &str, pal_path: &str) {
+    upsert_config(&format!("custom_{}_palette", kind), pal_path);
+}
+
+pub fn clear_custom_palette(kind: &str) {
+    upsert_config(&format!("custom_{}_palette", kind), "");
+}
+
+pub fn save_palette_mode(mode: PaletteMode) {
+    let s = match mode {
+        PaletteMode::Auto => "auto",
+        PaletteMode::Ntsc => "ntsc",
+        PaletteMode::Pal => "pal",
+        PaletteMode::Vs => "vs",
+    };
+    upsert_config("palette", s);
+}
+
+impl PaletteMode {
+    pub fn next(self) -> Self {
+        match self {
+            PaletteMode::Auto => PaletteMode::Ntsc,
+            PaletteMode::Ntsc => PaletteMode::Pal,
+            PaletteMode::Pal => PaletteMode::Vs,
+            PaletteMode::Vs => PaletteMode::Auto,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            PaletteMode::Auto => "Auto",
+            PaletteMode::Ntsc => "NTSC",
+            PaletteMode::Pal => "PAL",
+            PaletteMode::Vs => "VS",
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum VideoFilter {
+    None,
+    Scanlines,
+    LcdGrid,
+    NtscBlargg,
+    NtscBisqwit,
+    Prescale2x,
+    Prescale3x,
+    Prescale4x,
+    Prescale6x,
+    Prescale8x,
+    Prescale10x,
+    Scale2x,
+    Scale3x,
+    TwoXSaI,
+    SuperTwoXSaI,
+    SuperEagle,
+    Hq2x,
+    Hq3x,
+    Hq4x,
+    Xbrz2x,
+    Xbrz3x,
+    Xbrz4x,
+    Xbrz5x,
+    Xbrz6x,
+}
+
+pub fn load_video_filter() -> VideoFilter {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("video_filter=") {
+                match value.trim().to_lowercase().as_str() {
+                    "scanlines" => return VideoFilter::Scanlines,
+                    "lcd_grid" => return VideoFilter::LcdGrid,
+                    "ntsc_blargg" => return VideoFilter::NtscBlargg,
+                    "ntsc_bisqwit" => return VideoFilter::NtscBisqwit,
+                    "prescale_2x" => return VideoFilter::Prescale2x,
+                    "prescale_3x" => return VideoFilter::Prescale3x,
+                    "prescale_4x" => return VideoFilter::Prescale4x,
+                    "prescale_6x" => return VideoFilter::Prescale6x,
+                    "prescale_8x" => return VideoFilter::Prescale8x,
+                    "prescale_10x" => return VideoFilter::Prescale10x,
+                    "scale2x" => return VideoFilter::Scale2x,
+                    "scale3x" => return VideoFilter::Scale3x,
+                    "2xsai" => return VideoFilter::TwoXSaI,
+                    "super2xsai" => return VideoFilter::SuperTwoXSaI,
+                    "supereagle" => return VideoFilter::SuperEagle,
+                    "hq2x" => return VideoFilter::Hq2x,
+                    "hq3x" => return VideoFilter::Hq3x,
+                    "hq4x" => return VideoFilter::Hq4x,
+                    "xbrz_2x" => return VideoFilter::Xbrz2x,
+                    "xbrz_3x" => return VideoFilter::Xbrz3x,
+                    "xbrz_4x" => return VideoFilter::Xbrz4x,
+                    "xbrz_5x" => return VideoFilter::Xbrz5x,
+                    "xbrz_6x" => return VideoFilter::Xbrz6x,
+                    _ => return VideoFilter::None,
+                }
+            }
+        }
+    }
+    VideoFilter::None
+}
+
+pub fn save_video_filter(filter: VideoFilter) {
+    let s = match filter {
+        VideoFilter::None => "none",
+        VideoFilter::Scanlines => "scanlines",
+        VideoFilter::LcdGrid => "lcd_grid",
+        VideoFilter::NtscBlargg => "ntsc_blargg",
+        VideoFilter::NtscBisqwit => "ntsc_bisqwit",
+        VideoFilter::Prescale2x => "prescale_2x",
+        VideoFilter::Prescale3x => "prescale_3x",
+        VideoFilter::Prescale4x => "prescale_4x",
+        VideoFilter::Prescale6x => "prescale_6x",
+        VideoFilter::Prescale8x => "prescale_8x",
+        VideoFilter::Prescale10x => "prescale_10x",
+        VideoFilter::Scale2x => "scale2x",
+        VideoFilter::Scale3x => "scale3x",
+        VideoFilter::TwoXSaI => "2xsai",
+        VideoFilter::SuperTwoXSaI => "super2xsai",
+        VideoFilter::SuperEagle => "supereagle",
+        VideoFilter::Hq2x => "hq2x",
+        VideoFilter::Hq3x => "hq3x",
+        VideoFilter::Hq4x => "hq4x",
+        VideoFilter::Xbrz2x => "xbrz_2x",
+        VideoFilter::Xbrz3x => "xbrz_3x",
+        VideoFilter::Xbrz4x => "xbrz_4x",
+        VideoFilter::Xbrz5x => "xbrz_5x",
+        VideoFilter::Xbrz6x => "xbrz_6x",
+    };
+    upsert_config("video_filter", s);
+}
+
+impl VideoFilter {
+    pub fn next(self) -> Self {
+        match self {
+            VideoFilter::None => VideoFilter::Scanlines,
+            VideoFilter::Scanlines => VideoFilter::LcdGrid,
+            VideoFilter::LcdGrid => VideoFilter::NtscBlargg,
+            VideoFilter::NtscBlargg => VideoFilter::NtscBisqwit,
+            VideoFilter::NtscBisqwit => VideoFilter::Prescale2x,
+            VideoFilter::Prescale2x => VideoFilter::Prescale3x,
+            VideoFilter::Prescale3x => VideoFilter::Prescale4x,
+            VideoFilter::Prescale4x => VideoFilter::Prescale6x,
+            VideoFilter::Prescale6x => VideoFilter::Prescale8x,
+            VideoFilter::Prescale8x => VideoFilter::Prescale10x,
+            VideoFilter::Prescale10x => VideoFilter::Scale2x,
+            VideoFilter::Scale2x => VideoFilter::Scale3x,
+            VideoFilter::Scale3x => VideoFilter::TwoXSaI,
+            VideoFilter::TwoXSaI => VideoFilter::SuperTwoXSaI,
+            VideoFilter::SuperTwoXSaI => VideoFilter::SuperEagle,
+            VideoFilter::SuperEagle => VideoFilter::Hq2x,
+            VideoFilter::Hq2x => VideoFilter::Hq3x,
+            VideoFilter::Hq3x => VideoFilter::Hq4x,
+            VideoFilter::Hq4x => VideoFilter::Xbrz2x,
+            VideoFilter::Xbrz2x => VideoFilter::Xbrz3x,
+            VideoFilter::Xbrz3x => VideoFilter::Xbrz4x,
+            VideoFilter::Xbrz4x => VideoFilter::Xbrz5x,
+            VideoFilter::Xbrz5x => VideoFilter::Xbrz6x,
+            VideoFilter::Xbrz6x => VideoFilter::None,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            VideoFilter::None => "None",
+            VideoFilter::Scanlines => "Scanlines",
+            VideoFilter::LcdGrid => "LCD Grid",
+            VideoFilter::NtscBlargg => "NTSC (Blargg)",
+            VideoFilter::NtscBisqwit => "NTSC (Bisqwit)",
+            VideoFilter::Prescale2x => "Prescale 2x",
+            VideoFilter::Prescale3x => "Prescale 3x",
+            VideoFilter::Prescale4x => "Prescale 4x",
+            VideoFilter::Prescale6x => "Prescale 6x",
+            VideoFilter::Prescale8x => "Prescale 8x",
+            VideoFilter::Prescale10x => "Prescale 10x",
+            VideoFilter::Scale2x => "Scale2x",
+            VideoFilter::Scale3x => "Scale3x",
+            VideoFilter::TwoXSaI => "2xSaI",
+            VideoFilter::SuperTwoXSaI => "Super2xSaI",
+            VideoFilter::SuperEagle => "SuperEagle",
+            VideoFilter::Hq2x => "HQ2x",
+            VideoFilter::Hq3x => "HQ3x",
+            VideoFilter::Hq4x => "HQ4x",
+            VideoFilter::Xbrz2x => "xBRZ 2x",
+            VideoFilter::Xbrz3x => "xBRZ 3x",
+            VideoFilter::Xbrz4x => "xBRZ 4x",
+            VideoFilter::Xbrz5x => "xBRZ 5x",
+            VideoFilter::Xbrz6x => "xBRZ 6x",
+        }
+    }
+
+    pub fn scale_factor(self) -> Option<u32> {
+        match self {
+            VideoFilter::Prescale2x | VideoFilter::Scale2x | VideoFilter::TwoXSaI
+            | VideoFilter::SuperTwoXSaI | VideoFilter::SuperEagle | VideoFilter::Hq2x
+            | VideoFilter::Xbrz2x => Some(2),
+            VideoFilter::NtscBlargg | VideoFilter::NtscBisqwit => None,
+            VideoFilter::Prescale3x | VideoFilter::Scale3x | VideoFilter::Hq3x | VideoFilter::Xbrz3x => Some(3),
+            VideoFilter::Prescale4x | VideoFilter::Hq4x | VideoFilter::Xbrz4x => Some(4),
+            VideoFilter::Prescale6x | VideoFilter::Xbrz6x => Some(6),
+            VideoFilter::Prescale8x => Some(8),
+            VideoFilter::Prescale10x => Some(10),
+            VideoFilter::Xbrz5x => Some(5),
+            _ => None,
+        }
+    }
+}
+
 pub fn load_theme() -> String {
     let path = config_path();
     if let Ok(content) = std::fs::read_to_string(&path) {
