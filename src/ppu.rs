@@ -272,7 +272,9 @@ impl Emulator {
 
 
 
-        if self.ppu_mask_show_background || self.ppu_mask_show_sprites {
+        if (self.ppu_mask_show_background || self.ppu_mask_show_sprites)
+            && (self.ppu_mask_show_background_delayed || self.ppu_mask_show_sprites_delayed)
+        {
             if self.ppu_scanline < 240 || self.ppu_scanline == self.pre_render_scanline() {
                 if self.ppu_dot == 256 {
                     if self.vt369_enhanced_ppu() && (self.ppu_scanline < 240 || self.ppu_scanline == self.pre_render_scanline()) {
@@ -2434,8 +2436,11 @@ impl Emulator {
         }
         else if self.ppu_dot >= 65 && self.ppu_dot <= 256 {
             if self.ppu_dot == 65 {
-                self.oam2_address = 0;
-                self.nine_objects_on_this_scanline = false;
+                if self.ppu_mask_show_background_delayed || self.ppu_mask_show_sprites_delayed {
+                    self.nine_objects_on_this_scanline = false;
+                    self.oam_corrupted_on_odd_cycle = false;
+                    self.oam_address_overflowed_during_sprite_evaluation = false;
+                }
             }
             if self.ppu_mask_show_background_instant
                 || self.ppu_mask_show_sprites_instant
@@ -2581,6 +2586,9 @@ impl Emulator {
                             self.oam2_address = self.oam2_address.wrapping_add(4);
                         }
                         self.ppu_oam_corruption_index = self.oam2_address;
+                        if self.ppu_dot == 256 {
+                            self.ppu_oam_corruption_index = if self.oam_corrupted_on_odd_cycle { 0 } else { 1 };
+                        }
                     }
                     self.ppu_oam_corruption_rendering_disabled_out_of_vblank_instant = false;
                 }
@@ -2590,10 +2598,6 @@ impl Emulator {
             self.ppu_current_scanline_contains_sprite_zero = self.ppu_next_scanline_contains_sprite_zero;
             if self.ppu_mask_show_background_delayed || self.ppu_mask_show_sprites_delayed {
                 self.ppu_oam_address = 0;
-            }
-            if self.ppu_dot == 257 {
-                self.oam2_address = 0;
-                self.sprite_evaluation_tick = 0;
             }
 
             if self.ppu_oam_corruption_rendering_disabled_out_of_vblank
@@ -2609,37 +2613,40 @@ impl Emulator {
                 self.ppu_octal_latch = self.ppu_address_bus as u8;
             }
 
-            let tick = self.sprite_evaluation_tick;
+            if self.ppu_mask_show_background_delayed || self.ppu_mask_show_sprites_delayed {
+                self.ppu_oam_latch = self.oam2[self.oam2_address as usize];
+            } else {
+                self.ppu_oam_latch = self.oam[self.ppu_oam_address as usize];
+            }
+
+            let tick = (self.ppu_dot - 1) & 7;
             match tick {
                 0 => {
                     if self.onebus_chr_routing_ppu() {
                         self.ppu_onebus_eva = 0;
                     }
                     if self.ppu_mask_show_background_delayed || self.ppu_mask_show_sprites_delayed {
-                        self.ppu_oam_latch = self.oam2[self.oam2_address as usize];
-                        let slot = (self.oam2_address / 4) as usize;
+                        let slot = (((self.ppu_dot - 1) & 0x38) >> 3) as usize;
                         if slot < 8 { self.ppu_sprite_y_position[slot] = self.ppu_oam_latch; }
                         let masked_v = self.vt369_mask_vram_addr_for_nt(self.ppu_v);
                         self.ppu_pattern_address_register_nt = 0x2000 + (masked_v & 0x0FFF);
                         self.ppu_address_bus = self.ppu_pattern_address_register_nt;
-                        self.in_range_check = ((self.ppu_scanline & 0xFF) as u16).wrapping_sub(self.ppu_oam_latch as u16);
                         self.increment_oam2_address();
                     }
                 }
                 1 => {
                     if self.ppu_mask_show_background_delayed || self.ppu_mask_show_sprites_delayed {
-                        self.ppu_oam_latch = self.oam2[self.oam2_address as usize];
-                        let slot = (self.oam2_address / 4) as usize;
+                        let slot = (((self.ppu_dot - 1) & 0x38) >> 3) as usize;
                         if slot < 8 { self.ppu_sprite_pattern[slot] = self.ppu_oam_latch; }
+                        self.in_range_check = ((self.ppu_scanline & 0xFF) as u16).wrapping_sub(self.ppu_oam_buffer as u16);
                         self.ppu_render_bg_fetches(); // dummy NT fetch
                         self.increment_oam2_address();
                     }
                 }
                 2 => {
                     if self.ppu_mask_show_background_delayed || self.ppu_mask_show_sprites_delayed {
-                        let slot = (self.oam2_address / 4) as usize;
+                        let slot = (((self.ppu_dot - 1) & 0x38) >> 3) as usize;
                         if slot < 8 { self.ppu_sprite_pattern[slot] = self.ppu_oam_buffer; }
-                        self.ppu_oam_latch = self.oam2[self.oam2_address as usize];
                         if slot < 8 { self.ppu_sprite_attribute[slot] = self.ppu_oam_latch; }
                         let masked_v = self.vt369_mask_vram_addr_for_nt(self.ppu_v);
                         self.ppu_pattern_address_register_nt = 0x2000 + (masked_v & 0x0FFF);
@@ -2649,8 +2656,7 @@ impl Emulator {
                 }
                 3 => {
                     if self.ppu_mask_show_background_delayed || self.ppu_mask_show_sprites_delayed {
-                        self.ppu_oam_latch = self.oam2[self.oam2_address as usize];
-                        let slot = (self.oam2_address / 4) as usize;
+                        let slot = (((self.ppu_dot - 1) & 0x38) >> 3) as usize;
                         if slot < 8 {
                             self.ppu_sprite_x_position[slot] = self.ppu_oam_latch;
                             self.ppu_sprite_shifter_counter[slot] = self.ppu_oam_latch;
@@ -2660,11 +2666,12 @@ impl Emulator {
                 }
                 4 => {
                     if self.ppu_mask_show_background_delayed || self.ppu_mask_show_sprites_delayed {
-                        self.ppu_oam_latch = self.oam2[self.oam2_address as usize];
-                        let slot = (self.oam2_address / 4) as usize;
+                        let slot = (((self.ppu_dot - 1) & 0x38) >> 3) as usize;
                         if slot < 8 { self.ppu_sprite_x_position[slot] = self.ppu_oam_latch; }
-                        self.ppu_sprite_get_address((self.oam2_address / 4) as usize);
-                        self.ppu_check_par();
+                        self.ppu_sprite_get_address((((self.ppu_dot - 1) & 0x38) >> 3) as usize);
+                        if self.is_um6578() {
+                            self.ppu_check_par();
+                        }
                         if !self.is_um6578() {
                             self.ppu_pattern_address_register_chr &= 0b1111111110111;
                         }
@@ -2673,11 +2680,10 @@ impl Emulator {
                 }
                 5 => {
                     if self.ppu_mask_show_background_delayed || self.ppu_mask_show_sprites_delayed {
-                        self.ppu_oam_latch = self.oam2[self.oam2_address as usize];
-                        let slot = (self.oam2_address / 4) as usize;
+                        let slot = (((self.ppu_dot - 1) & 0x38) >> 3) as usize;
                         if slot < 8 { self.ppu_sprite_x_position[slot] = self.ppu_oam_latch; }
                         if !self.is_um6578() {
-                            self.ppu_sprite_get_address((self.oam2_address / 4) as usize);
+                            self.ppu_sprite_get_address((((self.ppu_dot - 1) & 0x38) >> 3) as usize);
                         }
                         let base_addr = if self.is_um6578() {
                             self.ppu_pattern_address_register_chr
@@ -2724,22 +2730,22 @@ impl Emulator {
                 }
                 6 => {
                     if self.ppu_mask_show_background_delayed || self.ppu_mask_show_sprites_delayed {
-                        self.ppu_oam_latch = self.oam2[self.oam2_address as usize];
-                        let slot = (self.oam2_address / 4) as usize;
+                        let slot = (((self.ppu_dot - 1) & 0x38) >> 3) as usize;
                         if slot < 8 { self.ppu_sprite_x_position[slot] = self.ppu_oam_latch; }
-                        self.ppu_sprite_get_address((self.oam2_address / 4) as usize);
-                        self.ppu_check_par();
+                        self.ppu_sprite_get_address((((self.ppu_dot - 1) & 0x38) >> 3) as usize);
+                        if self.is_um6578() {
+                            self.ppu_check_par();
+                        }
                         self.ppu_pattern_address_register_chr |= 8;
                         self.ppu_address_bus = self.ppu_pattern_address_register_chr;
                     }
                 }
                 7 => {
                     if self.ppu_mask_show_background_delayed || self.ppu_mask_show_sprites_delayed {
-                        self.ppu_oam_latch = self.oam2[self.oam2_address as usize];
-                        let slot = (self.oam2_address / 4) as usize;
+                        let slot = (((self.ppu_dot - 1) & 0x38) >> 3) as usize;
                         if slot < 8 { self.ppu_sprite_x_position[slot] = self.ppu_oam_latch; }
                         if !self.is_um6578() {
-                            self.ppu_sprite_get_address((self.oam2_address / 4) as usize);
+                            self.ppu_sprite_get_address((((self.ppu_dot - 1) & 0x38) >> 3) as usize);
                         }
                         let base_addr = if self.is_um6578() {
                             self.ppu_pattern_address_register_chr
@@ -2861,6 +2867,9 @@ impl Emulator {
             }
         }
         self.ppu_address_bus = address & 0x3FFF;
+        if !self.is_um6578() {
+            self.ppu_pattern_address_register_chr = address & 0x3FFF;
+        }
     }
 }
 

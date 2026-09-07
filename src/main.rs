@@ -19,6 +19,7 @@ mod apu;
 mod bus;
 mod config;
 mod nesdb;
+mod ps2_device_port;
 mod region;
 mod vt03_palette;
 mod vt32_palette;
@@ -96,6 +97,7 @@ enum FileMenuItem {
     Open,
     Close,
     Recent,
+    Screenshot,
     QuickSave,
     QuickLoad,
     SaveState,
@@ -626,6 +628,10 @@ struct MenuState {
     screen_dest_w: usize,
     screen_dest_h: usize,
     theme: String,
+    open_dropdown: Option<u8>,
+    dropdown_scroll: usize,
+    dropdown_list_y: usize,
+    dropdown_vis: usize,
 }
 
 impl MenuState {
@@ -686,6 +692,10 @@ impl MenuState {
             screen_dest_w: 0,
             screen_dest_h: 0,
             theme: config::load_theme(),
+            open_dropdown: None,
+            dropdown_scroll: 0,
+            dropdown_list_y: 0,
+            dropdown_vis: 0,
         }
     }
 }
@@ -898,7 +908,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.6.6";
+const APP_VERSION: &str = "1.6.7";
 
 fn strip_version_prefix(s: &str) -> &str {
     s.trim_start_matches(|c: char| c.is_ascii_alphabetic())
@@ -1128,6 +1138,273 @@ fn draw_image_rgba(buffer: &mut [u32], x: usize, y: usize, width: usize, rgba_da
 
 fn point_in_rect(px: usize, py: usize, x: usize, y: usize, w: usize, h: usize) -> bool {
     px >= x && px < x + w && py >= y && py < y + h
+}
+
+const TYPE_DROPDOWN_VISIBLE: usize = 10;
+
+fn dropdown_visible_rows(item_h: usize, list_y: usize, height: usize) -> usize {
+    let room = height.saturating_sub(list_y) / item_h.max(1);
+    std::cmp::min(TYPE_DROPDOWN_VISIBLE, room.max(1))
+}
+
+fn controller_choices(port: u8) -> Vec<config::ControllerType> {
+    let mut list = Vec::new();
+    let mut t = config::ControllerType::Gamepad;
+    loop {
+        let show = match port {
+            1 => t != config::ControllerType::SudokuExcalibur2,
+            2 => t != config::ControllerType::SudokuExcalibur,
+            _ => true,
+        };
+        if show {
+            list.push(t);
+        }
+        t = t.next();
+        if t == config::ControllerType::Gamepad {
+            break;
+        }
+    }
+    list
+}
+
+fn expansion_port_choices() -> Vec<config::ExpansionPortType> {
+    let mut list = Vec::new();
+    let mut t = config::ExpansionPortType::None;
+    loop {
+        list.push(t);
+        t = t.next();
+        if t == config::ExpansionPortType::None {
+            break;
+        }
+    }
+    list
+}
+
+#[derive(Clone, Copy)]
+enum ScreenshotFormat {
+    Jpeg,
+    Png,
+    Bmp,
+}
+
+fn save_screenshot(
+    screen: &[u32],
+    width: u32,
+    height: u32,
+    path: &std::path::Path,
+    format: ScreenshotFormat,
+) -> Result<(), String> {
+    let mut rgb = Vec::with_capacity((width as usize) * (height as usize) * 3);
+    for &p in screen.iter().take((width as usize) * (height as usize)) {
+        rgb.push(((p >> 16) & 0xFF) as u8);
+        rgb.push(((p >> 8) & 0xFF) as u8);
+        rgb.push((p & 0xFF) as u8);
+    }
+    let img = image::RgbImage::from_raw(width, height, rgb)
+        .ok_or_else(|| "Failed to build image buffer".to_string())?;
+    let img_format = match format {
+        ScreenshotFormat::Jpeg => image::ImageFormat::Jpeg,
+        ScreenshotFormat::Png => image::ImageFormat::Png,
+        ScreenshotFormat::Bmp => image::ImageFormat::Bmp,
+    };
+    img.save_with_format(path, img_format).map_err(|e| e.to_string())
+}
+
+fn screenshot_format_from_ext(path: &std::path::Path) -> Option<ScreenshotFormat> {
+    let ext = path.extension()?.to_string_lossy().to_ascii_lowercase();
+    match ext.as_str() {
+        "png" => Some(ScreenshotFormat::Png),
+        "jpg" | "jpeg" => Some(ScreenshotFormat::Jpeg),
+        "bmp" => Some(ScreenshotFormat::Bmp),
+        _ => None,
+    }
+}
+
+fn sanitize_file_stem(stem: &str) -> String {
+    let out: String = stem
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .collect();
+    if out.is_empty() {
+        "accunes".to_string()
+    } else {
+        out
+    }
+}
+
+fn next_screenshot_number(base: &str) -> usize {
+    let base_lower = base.to_ascii_lowercase();
+    let mut used: Vec<usize> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(".") {
+        for entry in rd.flatten() {
+            let fname = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            if let Some(rest) = fname.strip_prefix(&base_lower) {
+                if let Some(digits) = rest.strip_prefix('-') {
+                    let digits: String = digits.chars().take_while(|c| c.is_ascii_digit()).collect();
+                    if digits.len() == 4 {
+                        if let Ok(n) = digits.parse::<usize>() {
+                            used.push(n);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    (1..=9999).find(|n| !used.contains(n)).unwrap_or(1)
+}
+
+fn apply_controller_choice(
+    port: u8,
+    sel: config::ControllerType,
+    controller1_type: &Rc<RefCell<config::ControllerType>>,
+    controller2_type: &Rc<RefCell<config::ControllerType>>,
+    emu: &Arc<Mutex<Emulator>>,
+) {
+    if port == 1 {
+        if sel == config::ControllerType::SudokuExcalibur2 {
+            return;
+        }
+        let prev = *controller1_type.borrow();
+        *controller1_type.borrow_mut() = sel;
+        config::save_controller_type("controller1_type", sel);
+        emu.lock().unwrap().controller1_type = sel;
+        let mut partner_set = None;
+        if sel == config::ControllerType::SudokuExcalibur {
+            partner_set = Some(config::ControllerType::SudokuExcalibur2);
+        } else if sel == config::ControllerType::FourScore {
+            partner_set = Some(config::ControllerType::FourScore);
+        } else if prev.is_sudoku() || prev == config::ControllerType::FourScore {
+            partner_set = Some(config::ControllerType::None);
+        }
+        if let Some(p) = partner_set {
+            *controller2_type.borrow_mut() = p;
+            config::save_controller_type("controller2_type", p);
+            emu.lock().unwrap().controller2_type = p;
+        }
+    } else {
+        if sel == config::ControllerType::SudokuExcalibur {
+            return;
+        }
+        let prev = *controller2_type.borrow();
+        *controller2_type.borrow_mut() = sel;
+        config::save_controller_type("controller2_type", sel);
+        emu.lock().unwrap().controller2_type = sel;
+        let mut partner_set = None;
+        if sel == config::ControllerType::SudokuExcalibur2 {
+            partner_set = Some(config::ControllerType::SudokuExcalibur);
+        } else if sel == config::ControllerType::FourScore {
+            partner_set = Some(config::ControllerType::FourScore);
+        } else if prev.is_sudoku() || prev == config::ControllerType::FourScore {
+            partner_set = Some(config::ControllerType::None);
+        }
+        if let Some(p) = partner_set {
+            *controller1_type.borrow_mut() = p;
+            config::save_controller_type("controller1_type", p);
+            emu.lock().unwrap().controller1_type = p;
+        }
+    }
+}
+
+fn apply_expansion_choice(
+    sel: config::ExpansionPortType,
+    prev: config::ExpansionPortType,
+    expansion_type: &Rc<RefCell<config::ExpansionType>>,
+    expansion_adapter_type: &Rc<RefCell<config::ExpansionAdapterType>>,
+    controller2_type: &Rc<RefCell<config::ControllerType>>,
+    emu: &Arc<Mutex<Emulator>>,
+) {
+    let (dev, adap) = config::save_expansion_port_type(sel);
+    *expansion_type.borrow_mut() = dev;
+    *expansion_adapter_type.borrow_mut() = adap;
+    emu.lock().unwrap().expansion_type = dev;
+    emu.lock().unwrap().expansion_adapter_type = adap;
+    if sel.is_adapter() {
+        let mut c2t = controller2_type.borrow_mut();
+        if *c2t != config::ControllerType::None {
+            *c2t = config::ControllerType::None;
+            config::save_controller_type("controller2_type", config::ControllerType::None);
+            emu.lock().unwrap().controller2_type = config::ControllerType::None;
+        }
+    } else if prev.is_adapter() {
+        let mut c2t = controller2_type.borrow_mut();
+        *c2t = config::ControllerType::Gamepad;
+        config::save_controller_type("controller2_type", config::ControllerType::Gamepad);
+        emu.lock().unwrap().controller2_type = config::ControllerType::Gamepad;
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_dropdown_list(
+    buffer: &mut [u32],
+    width: usize,
+    scale: f32,
+    colors: UiColors,
+    labels: &[&'static str],
+    cur_idx: usize,
+    scroll: usize,
+    x: usize,
+    y: usize,
+    list_w: usize,
+    item_h: usize,
+    vis: usize,
+    mouse_x: usize,
+    mouse_y: usize,
+) -> Option<usize> {
+    let list_h = vis * item_h;
+    draw_rect(buffer, x, y, list_w, list_h, width, colors.window_bg);
+    draw_rect(buffer, x, y, list_w, list_h, width, colors.box_border);
+    let text_pad = (2.0 * scale).round() as usize;
+    let char_w = (8.0 * scale).round() as usize;
+    for i in 0..vis {
+        let idx = scroll + i;
+        if idx >= labels.len() {
+            break;
+        }
+        let item_y = y + i * item_h;
+        let in_list = point_in_rect(mouse_x, mouse_y, x, y, list_w, list_h);
+        let is_hover = in_list && mouse_y >= item_y && mouse_y < item_y + item_h;
+        let is_cur = idx == cur_idx;
+        let bg = if is_hover {
+            colors.box_bg_hover
+        } else if is_cur {
+            colors.menu_highlight
+        } else {
+            colors.dropdown_bg
+        };
+        draw_rect(buffer, x + 1, item_y, list_w.saturating_sub(2), item_h, width, bg);
+        let label = labels[idx];
+        let vw = (label.len() as f32 * 8.0 * scale).round() as usize;
+        let text_y = item_y + (5.0 * scale).round() as usize;
+        if vw <= list_w {
+            let text_x = x + (list_w.saturating_sub(vw)) / 2;
+            draw_text(buffer, text_x, text_y, width, label, colors.menu_text, scale);
+        } else if is_hover {
+            draw_text(buffer, x + text_pad, text_y, width, label, colors.menu_text, scale);
+        } else {
+            let max_chars = (list_w.saturating_sub(text_pad * 2) / char_w.max(1)).max(1);
+            let clipped: String = label.chars().take(max_chars).collect();
+            draw_text(buffer, x + text_pad, text_y, width, &clipped, colors.menu_text, scale);
+        }
+        if is_cur {
+            let dot = (6.0 * scale).round() as usize;
+            let dx = x + (4.0 * scale).round() as usize;
+            let dy = item_y + item_h / 2 - dot / 2;
+            draw_rect(buffer, dx, dy, dot, dot, width, colors.menu_text);
+        }
+    }
+    if point_in_rect(mouse_x, mouse_y, x, y, list_w, list_h) {
+        let rel = (mouse_y - y) / item_h.max(1);
+        if rel < vis {
+            let idx = scroll + rel;
+            if idx < labels.len() {
+                return Some(idx);
+            }
+        }
+    }
+    None
 }
 
 fn expansion_device_button_count(t: config::ExpansionType) -> usize {
@@ -1465,7 +1742,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.6.6")
+        .with_title("AccuNES 1.6.7")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -1531,6 +1808,18 @@ fn main() {
     let subor_mouse_dy = Arc::new(Mutex::new([0i32; 2]));
     let hori_track_dx = Arc::new(Mutex::new([0.0f32; 2]));
     let hori_track_dy = Arc::new(Mutex::new([0.0f32; 2]));
+    let ps2_mouse_delta_x = Arc::new(Mutex::new([0.0f32; 2]));
+    let ps2_mouse_delta_y = Arc::new(Mutex::new([0.0f32; 2]));
+    let ps2_mouse_acc_buttons = Arc::new(Mutex::new([0u8; 2]));
+    let yuxing_mouse_delta_x = Arc::new(Mutex::new([0.0f32; 2]));
+    let yuxing_mouse_delta_y = Arc::new(Mutex::new([0.0f32; 2]));
+    let yuxing_mouse_buttons = Arc::new(Mutex::new([0u8; 2]));
+    let belsonic_mouse_delta_x = Arc::new(Mutex::new([0.0f32; 2]));
+    let belsonic_mouse_delta_y = Arc::new(Mutex::new([0.0f32; 2]));
+    let belsonic_mouse_buttons = Arc::new(Mutex::new([0u8; 2]));
+    let megabook_mouse_delta_x = Arc::new(Mutex::new([0.0f32; 2]));
+    let megabook_mouse_delta_y = Arc::new(Mutex::new([0.0f32; 2]));
+    let megabook_mouse_buttons = Arc::new(Mutex::new([0u8; 2]));
     {
         let mut e = emu.lock().unwrap();
         e.controller_port1 = controller_port1.clone();
@@ -1586,6 +1875,18 @@ fn main() {
         e.subor_mouse_dy = subor_mouse_dy.clone();
         e.hori_track_dx = hori_track_dx.clone();
         e.hori_track_dy = hori_track_dy.clone();
+        e.ps2_mouse_delta_x = ps2_mouse_delta_x.clone();
+        e.ps2_mouse_delta_y = ps2_mouse_delta_y.clone();
+        e.ps2_mouse_acc_buttons = ps2_mouse_acc_buttons.clone();
+        e.yuxing_mouse_delta_x = yuxing_mouse_delta_x.clone();
+        e.yuxing_mouse_delta_y = yuxing_mouse_delta_y.clone();
+        e.yuxing_mouse_buttons = yuxing_mouse_buttons.clone();
+        e.belsonic_mouse_delta_x = belsonic_mouse_delta_x.clone();
+        e.belsonic_mouse_delta_y = belsonic_mouse_delta_y.clone();
+        e.belsonic_mouse_buttons = belsonic_mouse_buttons.clone();
+        e.megabook_mouse_delta_x = megabook_mouse_delta_x.clone();
+        e.megabook_mouse_delta_y = megabook_mouse_delta_y.clone();
+        e.megabook_mouse_buttons = megabook_mouse_buttons.clone();
         e.region_preference = config::load_region();
     }
     let cpal_device = cpal::default_host().default_output_device().expect("Failed to get default output device");
@@ -1900,6 +2201,18 @@ fn main() {
     let subor_mouse_dy_clone = subor_mouse_dy.clone();
     let hori_track_dx_clone = hori_track_dx.clone();
     let hori_track_dy_clone = hori_track_dy.clone();
+    let ps2_mouse_delta_x_clone = ps2_mouse_delta_x.clone();
+    let ps2_mouse_delta_y_clone = ps2_mouse_delta_y.clone();
+    let ps2_mouse_acc_buttons_clone = ps2_mouse_acc_buttons.clone();
+    let yuxing_mouse_delta_x_clone = yuxing_mouse_delta_x.clone();
+    let yuxing_mouse_delta_y_clone = yuxing_mouse_delta_y.clone();
+    let yuxing_mouse_buttons_clone = yuxing_mouse_buttons.clone();
+    let belsonic_mouse_delta_x_clone = belsonic_mouse_delta_x.clone();
+    let belsonic_mouse_delta_y_clone = belsonic_mouse_delta_y.clone();
+    let belsonic_mouse_buttons_clone = belsonic_mouse_buttons.clone();
+    let megabook_mouse_delta_x_clone = megabook_mouse_delta_x.clone();
+    let megabook_mouse_delta_y_clone = megabook_mouse_delta_y.clone();
+    let megabook_mouse_buttons_clone = megabook_mouse_buttons.clone();
     let zapper_trigger_binding_clone = zapper_trigger_binding.clone();
     let expansion_zapper_trigger_binding_clone = expansion_zapper_trigger_binding.clone();
     let expansion_oeka_click_binding_clone = expansion_oeka_click_binding.clone();
@@ -2691,6 +3004,44 @@ fn main() {
                     if s == &btn_name {
                         let mut sb = subor_mouse_buttons_clone.lock().unwrap();
                         if pressed { sb[1] |= 1 << i; } else { sb[1] &= !(1 << i); }
+                    }
+                }
+            }
+            // new mouse buttons (ps2/yuxing/belsonic/megabook) port 1
+            if controller1_type_clone.borrow().is_serial_mouse() {
+                let m1 = snes_mouse1_bindings_clone.borrow();
+                for (i, s) in m1.iter().enumerate() {
+                    if s == &btn_name {
+                        if pressed {
+                            ps2_mouse_acc_buttons_clone.lock().unwrap()[0] |= 1 << i;
+                            yuxing_mouse_buttons_clone.lock().unwrap()[0] |= 1 << i;
+                            belsonic_mouse_buttons_clone.lock().unwrap()[0] |= 1 << i;
+                            megabook_mouse_buttons_clone.lock().unwrap()[0] |= 1 << i;
+                        } else {
+                            ps2_mouse_acc_buttons_clone.lock().unwrap()[0] &= !(1 << i);
+                            yuxing_mouse_buttons_clone.lock().unwrap()[0] &= !(1 << i);
+                            belsonic_mouse_buttons_clone.lock().unwrap()[0] &= !(1 << i);
+                            megabook_mouse_buttons_clone.lock().unwrap()[0] &= !(1 << i);
+                        }
+                    }
+                }
+            }
+            // new mouse buttons port 2
+            if controller2_type_clone.borrow().is_serial_mouse() {
+                let m2 = snes_mouse2_bindings_clone.borrow();
+                for (i, s) in m2.iter().enumerate() {
+                    if s == &btn_name {
+                        if pressed {
+                            ps2_mouse_acc_buttons_clone.lock().unwrap()[1] |= 1 << i;
+                            yuxing_mouse_buttons_clone.lock().unwrap()[1] |= 1 << i;
+                            belsonic_mouse_buttons_clone.lock().unwrap()[1] |= 1 << i;
+                            megabook_mouse_buttons_clone.lock().unwrap()[1] |= 1 << i;
+                        } else {
+                            ps2_mouse_acc_buttons_clone.lock().unwrap()[1] &= !(1 << i);
+                            yuxing_mouse_buttons_clone.lock().unwrap()[1] &= !(1 << i);
+                            belsonic_mouse_buttons_clone.lock().unwrap()[1] &= !(1 << i);
+                            megabook_mouse_buttons_clone.lock().unwrap()[1] &= !(1 << i);
+                        }
                     }
                 }
             }
@@ -3525,6 +3876,44 @@ fn main() {
                         if s == &key_str {
                             let mut sb = subor_mouse_buttons_clone.lock().unwrap();
                             if pressed { sb[1] |= 1 << i; } else { sb[1] &= !(1 << i); }
+                        }
+                    }
+                }
+                // new mouse buttons (ps2/yuxing/belsonic/megabook) port 1
+                if controller1_type_clone.borrow().is_serial_mouse() {
+                    let m1 = snes_mouse1_bindings_clone.borrow();
+                    for (i, s) in m1.iter().enumerate() {
+                        if s == &key_str {
+                            if pressed {
+                                ps2_mouse_acc_buttons_clone.lock().unwrap()[0] |= 1 << i;
+                                yuxing_mouse_buttons_clone.lock().unwrap()[0] |= 1 << i;
+                                belsonic_mouse_buttons_clone.lock().unwrap()[0] |= 1 << i;
+                                megabook_mouse_buttons_clone.lock().unwrap()[0] |= 1 << i;
+                            } else {
+                                ps2_mouse_acc_buttons_clone.lock().unwrap()[0] &= !(1 << i);
+                                yuxing_mouse_buttons_clone.lock().unwrap()[0] &= !(1 << i);
+                                belsonic_mouse_buttons_clone.lock().unwrap()[0] &= !(1 << i);
+                                megabook_mouse_buttons_clone.lock().unwrap()[0] &= !(1 << i);
+                            }
+                        }
+                    }
+                }
+                // new mouse buttons port 2
+                if controller2_type_clone.borrow().is_serial_mouse() {
+                    let m2 = snes_mouse2_bindings_clone.borrow();
+                    for (i, s) in m2.iter().enumerate() {
+                        if s == &key_str {
+                            if pressed {
+                                ps2_mouse_acc_buttons_clone.lock().unwrap()[1] |= 1 << i;
+                                yuxing_mouse_buttons_clone.lock().unwrap()[1] |= 1 << i;
+                                belsonic_mouse_buttons_clone.lock().unwrap()[1] |= 1 << i;
+                                megabook_mouse_buttons_clone.lock().unwrap()[1] |= 1 << i;
+                            } else {
+                                ps2_mouse_acc_buttons_clone.lock().unwrap()[1] &= !(1 << i);
+                                yuxing_mouse_buttons_clone.lock().unwrap()[1] &= !(1 << i);
+                                belsonic_mouse_buttons_clone.lock().unwrap()[1] &= !(1 << i);
+                                megabook_mouse_buttons_clone.lock().unwrap()[1] &= !(1 << i);
+                            }
                         }
                     }
                 }
@@ -4787,6 +5176,42 @@ fn main() {
                             hdx[1] += dx as f32;
                             hdy[1] += dy as f32;
                         }
+                        // ps2 mouse: raw deltas
+                        {
+                            let mut pdx = ps2_mouse_delta_x_clone.lock().unwrap();
+                            let mut pdy = ps2_mouse_delta_y_clone.lock().unwrap();
+                            pdx[0] += dx as f32;
+                            pdy[0] += dy as f32;
+                            pdx[1] += dx as f32;
+                            pdy[1] += dy as f32;
+                        }
+                        // yuxing mouse: raw deltas
+                        {
+                            let mut ydx = yuxing_mouse_delta_x_clone.lock().unwrap();
+                            let mut ydy = yuxing_mouse_delta_y_clone.lock().unwrap();
+                            ydx[0] += dx as f32;
+                            ydy[0] += dy as f32;
+                            ydx[1] += dx as f32;
+                            ydy[1] += dy as f32;
+                        }
+                        // belsonic mouse: raw deltas
+                        {
+                            let mut bdx = belsonic_mouse_delta_x_clone.lock().unwrap();
+                            let mut bdy = belsonic_mouse_delta_y_clone.lock().unwrap();
+                            bdx[0] += dx as f32;
+                            bdy[0] += dy as f32;
+                            bdx[1] += dx as f32;
+                            bdy[1] += dy as f32;
+                        }
+                        // megabook mouse: raw deltas
+                        {
+                            let mut mdx = megabook_mouse_delta_x_clone.lock().unwrap();
+                            let mut mdy = megabook_mouse_delta_y_clone.lock().unwrap();
+                            mdx[0] += dx as f32;
+                            mdy[0] += dy as f32;
+                            mdx[1] += dx as f32;
+                            mdy[1] += dy as f32;
+                        }
                         // ze cheng keyboard: raw mouse deltas
                         {
                             let mut zdx = zecheng_keyboard_dx_clone.lock().unwrap();
@@ -4821,6 +5246,23 @@ WinitEvent::WindowEvent {
                 event: WindowEvent::MouseWheel { delta, .. },
                 ..
             } => {
+                if menu_state_clone.borrow().open_dropdown.is_some() {
+                    let amount = match delta {
+                        winit::event::MouseScrollDelta::LineDelta(_, y) => (y * 3.0) as i32,
+                        winit::event::MouseScrollDelta::PixelDelta(p) => (p.y / 20.0).round() as i32,
+                    };
+                    let mut ms_mut = menu_state_clone.borrow_mut();
+                    if let Some(dp) = ms_mut.open_dropdown {
+                        let len = match dp {
+                            1 => controller_choices(1).len(),
+                            2 => controller_choices(2).len(),
+                            _ => expansion_port_choices().len(),
+                        };
+                        let max_scroll = len.saturating_sub(ms_mut.dropdown_vis.max(1));
+                        let cur = ms_mut.dropdown_scroll as i32 - amount;
+                        ms_mut.dropdown_scroll = cur.clamp(0, max_scroll as i32) as usize;
+                    }
+                }
                 if expansion_type_clone.borrow().is_abl_pinball() {
                     let amount = match delta {
                         winit::event::MouseScrollDelta::LineDelta(_, y) => (y * 40.0) as i32,
@@ -5425,6 +5867,44 @@ WinitEvent::WindowEvent {
                             if s == &btn_str {
                                 let mut sb = subor_mouse_buttons_clone.lock().unwrap();
                                 if pressed { sb[1] |= 1 << i; } else { sb[1] &= !(1 << i); }
+                            }
+                        }
+                    }
+                    // new mouse buttons (ps2/yuxing/belsonic/megabook) port 1
+                    if controller1_type_clone.borrow().is_serial_mouse() {
+                        let m1 = snes_mouse1_bindings_clone.borrow();
+                        for (i, s) in m1.iter().enumerate() {
+                            if s == &btn_str {
+                                if pressed {
+                                    ps2_mouse_acc_buttons_clone.lock().unwrap()[0] |= 1 << i;
+                                    yuxing_mouse_buttons_clone.lock().unwrap()[0] |= 1 << i;
+                                    belsonic_mouse_buttons_clone.lock().unwrap()[0] |= 1 << i;
+                                    megabook_mouse_buttons_clone.lock().unwrap()[0] |= 1 << i;
+                                } else {
+                                    ps2_mouse_acc_buttons_clone.lock().unwrap()[0] &= !(1 << i);
+                                    yuxing_mouse_buttons_clone.lock().unwrap()[0] &= !(1 << i);
+                                    belsonic_mouse_buttons_clone.lock().unwrap()[0] &= !(1 << i);
+                                    megabook_mouse_buttons_clone.lock().unwrap()[0] &= !(1 << i);
+                                }
+                            }
+                        }
+                    }
+                    // new mouse buttons port 2
+                    if controller2_type_clone.borrow().is_serial_mouse() {
+                        let m2 = snes_mouse2_bindings_clone.borrow();
+                        for (i, s) in m2.iter().enumerate() {
+                            if s == &btn_str {
+                                if pressed {
+                                    ps2_mouse_acc_buttons_clone.lock().unwrap()[1] |= 1 << i;
+                                    yuxing_mouse_buttons_clone.lock().unwrap()[1] |= 1 << i;
+                                    belsonic_mouse_buttons_clone.lock().unwrap()[1] |= 1 << i;
+                                    megabook_mouse_buttons_clone.lock().unwrap()[1] |= 1 << i;
+                                } else {
+                                    ps2_mouse_acc_buttons_clone.lock().unwrap()[1] &= !(1 << i);
+                                    yuxing_mouse_buttons_clone.lock().unwrap()[1] &= !(1 << i);
+                                    belsonic_mouse_buttons_clone.lock().unwrap()[1] &= !(1 << i);
+                                    megabook_mouse_buttons_clone.lock().unwrap()[1] &= !(1 << i);
+                                }
                             }
                         }
                     }
@@ -7287,7 +7767,10 @@ let is_subor_keyboard = expansion_type_clone.borrow().is_subor_keyboard();
                         let close_y = input_y + (5.0 * sc).round() as usize;
                         if point_in_rect(mx, my, close_x, close_y, close_w, close_h) {
                             drop(ms);
-                            menu_state_clone.borrow_mut().show_input_settings = false;
+                            let mut ms_mut = menu_state_clone.borrow_mut();
+                            ms_mut.show_input_settings = false;
+                            ms_mut.open_dropdown = None;
+                            ms_mut.dropdown_scroll = 0;
                             paused_clone.store(false, Ordering::Relaxed);
                         } else {
                             let row_h = (22.0 * sc).round() as usize;
@@ -7306,7 +7789,106 @@ let is_subor_keyboard = expansion_type_clone.borrow().is_subor_keyboard();
                             let type_y = cfg_y + configure_h + (8.0 * sc).round() as usize;
                             let t1_box_x = c1_cfg_x;
                             let t2_box_x = c2_cfg_x;
-                            if point_in_rect(mx, my, c1_cfg_x, cfg_y, box_w, configure_h) {
+                            let dd_item_h = (20.0 * sc).round() as usize;
+                            let dd_w = box_w;
+                            if let Some(dd_port) = ms.open_dropdown {
+                                let (dd_x, dd_labels, dd_prev) = match dd_port {
+                                    1 => {
+                                        let list = controller_choices(1);
+                                        let labels: Vec<&'static str> = list.iter().map(|t| t.label()).collect();
+                                        (t1_box_x, labels, config::ExpansionPortType::None)
+                                    }
+                                    2 => {
+                                        let list = controller_choices(2);
+                                        let labels: Vec<&'static str> = list.iter().map(|t| t.label()).collect();
+                                        (t2_box_x, labels, config::ExpansionPortType::None)
+                                    }
+                                    _ => {
+                                        let exp_cfg_x = input_x + input_w.saturating_sub(box_w) / 2;
+                                        let ept = {
+                                            let dt = *expansion_type_clone.borrow();
+                                            let at = *expansion_adapter_type_clone.borrow();
+                                            match at {
+                                                config::ExpansionAdapterType::TwoPlayer => config::ExpansionPortType::TwoPlayerAdapter,
+                                                config::ExpansionAdapterType::FourPlayer => config::ExpansionPortType::FourPlayerAdapter,
+                                                config::ExpansionAdapterType::HoriFourPlayer => config::ExpansionPortType::HoriFourPlayerAdapter,
+                                                config::ExpansionAdapterType::None => match dt {
+                                                    config::ExpansionType::ArkanoidPaddle => config::ExpansionPortType::ArkanoidPaddle,
+                                                    config::ExpansionType::FamicomZapper => config::ExpansionPortType::FamicomZapper,
+                                                    config::ExpansionType::OekaKidsTablet => config::ExpansionPortType::OekaKidsTablet,
+                                                    config::ExpansionType::FamilyTrainerA => config::ExpansionPortType::FamilyTrainerA,
+                                                    config::ExpansionType::FamilyTrainerB => config::ExpansionPortType::FamilyTrainerB,
+                                                    config::ExpansionType::KonamiHyperShot => config::ExpansionPortType::KonamiHyperShot,
+                                                    config::ExpansionType::FamilyBasicKeyboard => config::ExpansionPortType::FamilyBasicKeyboard,
+                                                    config::ExpansionType::PartyTap => config::ExpansionPortType::PartyTap,
+                                                    config::ExpansionType::PachinkoController => config::ExpansionPortType::PachinkoController,
+                                                    config::ExpansionType::ExcitingBoxing => config::ExpansionPortType::ExcitingBoxing,
+                                                    config::ExpansionType::JissenMahjong => config::ExpansionPortType::JissenMahjong,
+                                                    config::ExpansionType::QuizKing => config::ExpansionPortType::QuizKing,
+                                                    config::ExpansionType::SuborKeyboard => config::ExpansionPortType::SuborKeyboard,
+                                                    config::ExpansionType::Pec586Keyboard => config::ExpansionPortType::Pec586Keyboard,
+                                                    config::ExpansionType::Bit79Keyboard => config::ExpansionPortType::Bit79Keyboard,
+                                                    config::ExpansionType::KedaKeyboard => config::ExpansionPortType::KedaKeyboard,
+                                                    config::ExpansionType::KingwonKeyboard => config::ExpansionPortType::KingwonKeyboard,
+                                                    config::ExpansionType::ZeChengKeyboard => config::ExpansionPortType::ZeChengKeyboard,
+                                                    config::ExpansionType::BarcodeBattler => config::ExpansionPortType::BarcodeBattler,
+                                                    config::ExpansionType::HoriTrack => config::ExpansionPortType::HoriTrack,
+                                                    config::ExpansionType::BandaiHyperShot => config::ExpansionPortType::BandaiHyperShot,
+                                                    config::ExpansionType::TurboFile => config::ExpansionPortType::TurboFile,
+                                                    config::ExpansionType::BattleBox => config::ExpansionPortType::BattleBox,
+                                                    config::ExpansionType::TopRider => config::ExpansionPortType::TopRider,
+                                                    config::ExpansionType::FamiNetSys => config::ExpansionPortType::FamiNetSys,
+                                                    config::ExpansionType::CityPatrolman => config::ExpansionPortType::CityPatrolman,
+                                                    config::ExpansionType::Moguraa => config::ExpansionPortType::Moguraa,
+                                                    config::ExpansionType::SharpC1Cassette => config::ExpansionPortType::SharpC1Cassette,
+                                                    config::ExpansionType::GoldenNuggetCasino => config::ExpansionPortType::GoldenNuggetCasino,
+                                                    config::ExpansionType::ABLPinball => config::ExpansionPortType::ABLPinball,
+                                                    config::ExpansionType::TVPump => config::ExpansionPortType::TVPump,
+                                                    config::ExpansionType::TrifaceMahjong => config::ExpansionPortType::TrifaceMahjong,
+                                                    config::ExpansionType::MahjongGekitou => config::ExpansionPortType::MahjongGekitou,
+                                                    config::ExpansionType::None => config::ExpansionPortType::None,
+                                                },
+                                            }
+                                        };
+                                        let list = expansion_port_choices();
+                                        let labels: Vec<&'static str> = list.iter().map(|t| t.label()).collect();
+                                        (exp_cfg_x, labels, ept)
+                                    }
+                                };
+                                let scroll = ms.dropdown_scroll;
+                                let dd_y = ms.dropdown_list_y;
+                                let dd_list_h = ms.dropdown_vis.max(1) * dd_item_h;
+                                if point_in_rect(mx, my, dd_x, dd_y, dd_w, dd_list_h) {
+                                    let rel = (my - dd_y) / dd_item_h.max(1);
+                                    let idx = scroll + rel;
+                                    if idx < dd_labels.len() {
+                                        drop(ms);
+                                        match dd_port {
+                                            1 => {
+                                                let sel = controller_choices(1)[idx];
+                                                apply_controller_choice(1, sel, &controller1_type_clone, &controller2_type_clone, &emu_clone);
+                                            }
+                                            2 => {
+                                                let sel = controller_choices(2)[idx];
+                                                apply_controller_choice(2, sel, &controller1_type_clone, &controller2_type_clone, &emu_clone);
+                                            }
+                                            _ => {
+                                                let sel = expansion_port_choices()[idx];
+                                                apply_expansion_choice(sel, dd_prev, &expansion_type_clone, &expansion_adapter_type_clone, &controller2_type_clone, &emu_clone);
+                                            }
+                                        }
+                                        let mut mm = menu_state_clone.borrow_mut();
+                                        mm.open_dropdown = None;
+                                        mm.dropdown_scroll = 0;
+                                    } else {
+                                        drop(ms);
+                                        menu_state_clone.borrow_mut().open_dropdown = None;
+                                    }
+                                } else {
+                                    drop(ms);
+                                    menu_state_clone.borrow_mut().open_dropdown = None;
+                                }
+                            } else if point_in_rect(mx, my, c1_cfg_x, cfg_y, box_w, configure_h) {
                                 let c1t = *controller1_type_clone.borrow();
                                 if c1t != config::ControllerType::None {
                                     drop(ms);
@@ -7319,35 +7901,41 @@ let is_subor_keyboard = expansion_type_clone.borrow().is_subor_keyboard();
                                     menu_state_clone.borrow_mut().show_controller2_settings = true;
                                 }
                             } else if point_in_rect(mx, my, t1_box_x, type_y, box_w, row_h) {
-                                let mut ct = controller1_type_clone.borrow_mut();
-                                let prev = *ct;
-                                *ct = ct.next();
-                                if *ct == config::ControllerType::FourScore {
-                                    *controller2_type_clone.borrow_mut() = config::ControllerType::FourScore;
-                                    config::save_controller_type("controller2_type", config::ControllerType::FourScore);
-                                    emu_clone.lock().unwrap().controller2_type = config::ControllerType::FourScore;
-                                } else if prev == config::ControllerType::FourScore {
-                                    *controller2_type_clone.borrow_mut() = config::ControllerType::None;
-                                    config::save_controller_type("controller2_type", config::ControllerType::None);
-                                    emu_clone.lock().unwrap().controller2_type = config::ControllerType::None;
+                                drop(ms);
+                                let mut mm = menu_state_clone.borrow_mut();
+                                if mm.open_dropdown == Some(1) {
+                                    mm.open_dropdown = None;
+                                    mm.dropdown_list_y = 0;
+                                    mm.dropdown_vis = 0;
+                                } else {
+                                    let list_y = type_y + row_h + (2.0 * sc).round() as usize;
+                                    let vis = dropdown_visible_rows(dd_item_h, list_y, height);
+                                    mm.open_dropdown = Some(1);
+                                    mm.dropdown_list_y = list_y;
+                                    mm.dropdown_vis = vis;
+                                    let list = controller_choices(1);
+                                    let cur = *controller1_type_clone.borrow();
+                                    let ci = list.iter().position(|x| *x == cur).unwrap_or(0);
+                                    mm.dropdown_scroll = ci.saturating_sub(vis.saturating_sub(1));
                                 }
-                                config::save_controller_type("controller1_type", *ct);
-                                emu_clone.lock().unwrap().controller1_type = *ct;
                             } else if point_in_rect(mx, my, t2_box_x, type_y, box_w, row_h) {
-                                let mut ct = controller2_type_clone.borrow_mut();
-                                let prev = *ct;
-                                *ct = ct.next();
-                                if *ct == config::ControllerType::FourScore {
-                                    *controller1_type_clone.borrow_mut() = config::ControllerType::FourScore;
-                                    config::save_controller_type("controller1_type", config::ControllerType::FourScore);
-                                    emu_clone.lock().unwrap().controller1_type = config::ControllerType::FourScore;
-                                } else if prev == config::ControllerType::FourScore {
-                                    *controller1_type_clone.borrow_mut() = config::ControllerType::None;
-                                    config::save_controller_type("controller1_type", config::ControllerType::None);
-                                    emu_clone.lock().unwrap().controller1_type = config::ControllerType::None;
+                                drop(ms);
+                                let mut mm = menu_state_clone.borrow_mut();
+                                if mm.open_dropdown == Some(2) {
+                                    mm.open_dropdown = None;
+                                    mm.dropdown_list_y = 0;
+                                    mm.dropdown_vis = 0;
+                                } else {
+                                    let list_y = type_y + row_h + (2.0 * sc).round() as usize;
+                                    let vis = dropdown_visible_rows(dd_item_h, list_y, height);
+                                    mm.open_dropdown = Some(2);
+                                    mm.dropdown_list_y = list_y;
+                                    mm.dropdown_vis = vis;
+                                    let list = controller_choices(2);
+                                    let cur = *controller2_type_clone.borrow();
+                                    let ci = list.iter().position(|x| *x == cur).unwrap_or(0);
+                                    mm.dropdown_scroll = ci.saturating_sub(vis.saturating_sub(1));
                                 }
-                                config::save_controller_type("controller2_type", *ct);
-                                emu_clone.lock().unwrap().controller2_type = *ct;
                             } else {
                                 let exp_title_y = type_y + row_h + (12.0 * sc).round() as usize;
                                 let exp_cfg_y = exp_title_y + row_h + (5.0 * sc).round() as usize;
@@ -7421,25 +8009,22 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                         menu_state_clone.borrow_mut().show_expansion_settings = true;
                                     }
                                 } else if point_in_rect(mx, my, exp_type_box_x, exp_type_y, box_w, row_h) {
-                                    let cur = exp_port_type;
-                                    let nxt = cur.next();
-                                    let (dev, adap) = config::save_expansion_port_type(nxt);
-                                    *expansion_type_clone.borrow_mut() = dev;
-                                    *expansion_adapter_type_clone.borrow_mut() = adap;
-                                    emu_clone.lock().unwrap().expansion_type = dev;
-                                    emu_clone.lock().unwrap().expansion_adapter_type = adap;
-                                    if nxt.is_adapter() {
-                                        let mut c2t = controller2_type_clone.borrow_mut();
-                                        if *c2t != config::ControllerType::None {
-                                            *c2t = config::ControllerType::None;
-                                            config::save_controller_type("controller2_type", config::ControllerType::None);
-                                            emu_clone.lock().unwrap().controller2_type = config::ControllerType::None;
-                                        }
-                                    } else if cur.is_adapter() {
-                                        let mut c2t = controller2_type_clone.borrow_mut();
-                                        *c2t = config::ControllerType::Gamepad;
-                                        config::save_controller_type("controller2_type", config::ControllerType::Gamepad);
-                                        emu_clone.lock().unwrap().controller2_type = config::ControllerType::Gamepad;
+                                    drop(ms);
+                                    let mut mm = menu_state_clone.borrow_mut();
+                                    if mm.open_dropdown == Some(3) {
+                                        mm.open_dropdown = None;
+                                        mm.dropdown_list_y = 0;
+                                        mm.dropdown_vis = 0;
+                                    } else {
+                                        let list_y = exp_type_y + row_h + (2.0 * sc).round() as usize;
+                                        let vis = dropdown_visible_rows(dd_item_h, list_y, height);
+                                        mm.open_dropdown = Some(3);
+                                        mm.dropdown_list_y = list_y;
+                                        mm.dropdown_vis = vis;
+                                        let list = expansion_port_choices();
+                                        let cur = exp_port_type;
+                                        let ci = list.iter().position(|x| *x == cur).unwrap_or(0);
+                                        mm.dropdown_scroll = ci.saturating_sub(vis.saturating_sub(1));
                                     }
                                 } else if point_in_rect(mx, my, dpad_box_x, dpad_y, box_w, row_h) {
                                     let new_val = !*allow_opposing_dpad_clone.borrow();
@@ -7516,12 +8101,12 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                 let recent_w = (200.0 * sc).round() as usize;
                                 let slot_h = (16.0 * sc).round() as usize;
 
-                                let file_items = ["Open", "Close", "Recent", "Quick Save", "Quick Load", "Save State", "Load State", "Exit"];
+                                let file_items = ["Open", "Close", "Recent", "Screenshot", "Quick Save", "Quick Load", "Save State", "Load State", "Exit"];
                                 let file_positions = calculate_item_positions(&file_items, dropdown_x, dropdown_y, dropdown_w, sc);
                                 
                                 let recent_anchor_y = dropdown_y + file_positions[0].3 + file_positions[1].3;
-                                let save_anchor_y = dropdown_y + file_positions[0].3 + file_positions[1].3 + file_positions[2].3 + file_positions[3].3 + file_positions[4].3;
-                                let load_anchor_y = dropdown_y + file_positions[0].3 + file_positions[1].3 + file_positions[2].3 + file_positions[3].3 + file_positions[4].3 + file_positions[5].3;
+                                let save_anchor_y = dropdown_y + file_positions[0].3 + file_positions[1].3 + file_positions[2].3 + file_positions[3].3 + file_positions[4].3 + file_positions[5].3;
+                                let load_anchor_y = dropdown_y + file_positions[0].3 + file_positions[1].3 + file_positions[2].3 + file_positions[3].3 + file_positions[4].3 + file_positions[5].3 + file_positions[6].3;
 
                                 if ms_mut.show_recent_submenu {
                                     let roms = recent_roms_clone.borrow();
@@ -7634,6 +8219,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                     FileMenuItem::Open,
                                     FileMenuItem::Close,
                                     FileMenuItem::Recent,
+                                    FileMenuItem::Screenshot,
                                     FileMenuItem::QuickSave,
                                     FileMenuItem::QuickLoad,
                                     FileMenuItem::SaveState,
@@ -7719,6 +8305,41 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                                 ms_mut.show_recent_submenu = !ms_mut.show_recent_submenu;
                                                 ms_mut.show_save_state_submenu = false;
                                                 ms_mut.show_load_state_submenu = false;
+                                            }
+                                            FileMenuItem::Screenshot => {
+                                                if *rom_loaded_clone.borrow() {
+                                                    let base = if let Some(ref rom_path) = *current_rom_clone.borrow() {
+                                                        std::path::Path::new(rom_path)
+                                                            .file_stem()
+                                                            .map(|s| sanitize_file_stem(&s.to_string_lossy()))
+                                                            .unwrap_or_else(|| "accunes".to_string())
+                                                    } else {
+                                                        "accunes".to_string()
+                                                    };
+                                                    let num = next_screenshot_number(&base);
+                                                    let default_name = format!("{}-{:04}.bmp", base, num);
+                                                    if let Some(path) = rfd::FileDialog::new()
+                                                        .set_directory(".")
+                                                        .set_file_name(&default_name)
+                                                        .add_filter("PNG Image", &["png"])
+                                                        .add_filter("JPEG Image", &["jpg", "jpeg"])
+                                                        .add_filter("BMP Image", &["bmp"])
+                                                        .save_file() {
+                                                        let (path, format) = match screenshot_format_from_ext(&path) {
+                                                            Some(f) => (path, f),
+                                                            None => {
+                                                                let p = std::path::PathBuf::from(&path).with_extension("bmp");
+                                                                (p, ScreenshotFormat::Bmp)
+                                                            }
+                                                        };
+                                                        let screen = screen_buffer_clone.lock().unwrap();
+                                                        if let Err(e) = save_screenshot(&screen, NES_WIDTH, NES_HEIGHT, &path, format) {
+                                                            eprintln!("Failed to save screenshot: {}", e);
+                                                        } else {
+                                                            println!("Saved screenshot to {}", path.display());
+                                                        }
+                                                    }
+                                                }
                                             }
                                             FileMenuItem::QuickSave => {
                                                 if *rom_loaded_clone.borrow() {
@@ -8272,17 +8893,18 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                             let recent_w = (200.0 * sc).round() as usize;
                             let slot_h = (16.0 * sc).round() as usize;
 
-                            let file_items = ["Open", "Close", "Recent", "Quick Save", "Quick Load", "Save State", "Load State", "Exit"];
+                            let file_items = ["Open", "Close", "Recent", "Screenshot", "Quick Save", "Quick Load", "Save State", "Load State", "Exit"];
                             let file_positions = calculate_item_positions(&file_items, dropdown_x, dropdown_y, dropdown_w, sc);
                             
                             let recent_anchor_y = dropdown_y + file_positions[0].3 + file_positions[1].3;
-                            let save_anchor_y = dropdown_y + file_positions[0].3 + file_positions[1].3 + file_positions[2].3 + file_positions[3].3 + file_positions[4].3;
-                            let load_anchor_y = dropdown_y + file_positions[0].3 + file_positions[1].3 + file_positions[2].3 + file_positions[3].3 + file_positions[4].3 + file_positions[5].3;
+                            let save_anchor_y = dropdown_y + file_positions[0].3 + file_positions[1].3 + file_positions[2].3 + file_positions[3].3 + file_positions[4].3 + file_positions[5].3;
+                            let load_anchor_y = dropdown_y + file_positions[0].3 + file_positions[1].3 + file_positions[2].3 + file_positions[3].3 + file_positions[4].3 + file_positions[5].3 + file_positions[6].3;
 
                             let file_menu_items = [
                                 FileMenuItem::Open,
                                 FileMenuItem::Close,
                                 FileMenuItem::Recent,
+                                FileMenuItem::Screenshot,
                                 FileMenuItem::QuickSave,
                                 FileMenuItem::QuickLoad,
                                 FileMenuItem::SaveState,
@@ -8468,9 +9090,9 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                         } else if lower.ends_with(".fds") || lower.ends_with(".qd") || lower.ends_with(".studybox") || lower.ends_with(".study") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.6.6: {}", filename)
+                        format!("AccuNES 1.6.7: {}", filename)
                     } else {
-                        "AccuNES 1.6.6".to_string()
+                        "AccuNES 1.6.7".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -8628,6 +9250,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                 ("Open", FileMenuItem::Open),
                                 ("Close", FileMenuItem::Close),
                                 ("Recent", FileMenuItem::Recent),
+                                ("Screenshot", FileMenuItem::Screenshot),
                                 ("Quick Save", FileMenuItem::QuickSave),
                                 ("Quick Load", FileMenuItem::QuickLoad),
                                 ("Save State", FileMenuItem::SaveState),
@@ -8653,7 +9276,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                 }
                                 let enabled = match item {
                                     FileMenuItem::QuickLoad => quick_save_slot_clone.borrow().is_some() && *rom_loaded_clone.borrow(),
-                                    FileMenuItem::QuickSave | FileMenuItem::SaveState | FileMenuItem::LoadState => *rom_loaded_clone.borrow(),
+                                    FileMenuItem::QuickSave | FileMenuItem::Screenshot | FileMenuItem::SaveState | FileMenuItem::LoadState => *rom_loaded_clone.borrow(),
                                     FileMenuItem::Close => *rom_loaded_clone.borrow(),
                                     _ => true,
                                 };
@@ -8699,7 +9322,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
 
                             if ms.show_save_state_submenu {
                                 let save_x = dropdown_x + dropdown_w;
-                                let save_anchor_y = dropdown_y + item_heights[0..5].iter().sum::<usize>();
+                                let save_anchor_y = dropdown_y + item_heights[0..6].iter().sum::<usize>();
                                 let submenu_w = (150.0 * scale).round() as usize;
                                 let slot_h = (16.0 * scale).round() as usize;
                                 let save_h = 9 * slot_h;
@@ -8716,7 +9339,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
 
                             if ms.show_load_state_submenu {
                                 let load_x = dropdown_x + dropdown_w;
-                                let load_anchor_y = dropdown_y + item_heights[0..6].iter().sum::<usize>();
+                                let load_anchor_y = dropdown_y + item_heights[0..7].iter().sum::<usize>();
                                 let submenu_w = (150.0 * scale).round() as usize;
                                 let slot_h = (16.0 * scale).round() as usize;
                                 let load_h = 9 * slot_h;
@@ -8901,7 +9524,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.6.6",
+                        "Version: 1.6.7",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
@@ -9519,6 +10142,10 @@ config::ExpansionType::Pec586Keyboard => config::ExpansionPortType::Pec586Keyboa
                     draw_rect(&mut buffer, t1_box_x + 1, type_y + 1, box_w - 2, row_h - 2, width, t1_bg);
                     let t1_vw = t1_val.len() as f32 * 8.0 * scale;
                     draw_text(&mut buffer, t1_box_x + ((box_w as f32 - t1_vw) / 2.0).round() as usize, type_y + (6.0 * scale).round() as usize, width, t1_val, menu_text, scale);
+                    let dd_item_h = (20.0 * scale).round() as usize;
+                    let dd_w = box_w;
+                    let t1_arrow_x = t1_box_x + box_w - (14.0 * scale).round() as usize;
+                    draw_text(&mut buffer, t1_arrow_x, type_y + (6.0 * scale).round() as usize, width, "v", colors.menu_text, scale);
                     let t2_box_x = col2_x + type_label_w + label_gap;
                     draw_text(&mut buffer, col2_x, type_y + (6.0 * scale).round() as usize, width, "Type:", menu_text, scale);
                     let c2_type = *controller2_type_clone.borrow();
@@ -9529,6 +10156,8 @@ config::ExpansionType::Pec586Keyboard => config::ExpansionPortType::Pec586Keyboa
                     draw_rect(&mut buffer, t2_box_x + 1, type_y + 1, box_w - 2, row_h - 2, width, t2_bg);
                     let t2_vw = t2_val.len() as f32 * 8.0 * scale;
                     draw_text(&mut buffer, t2_box_x + ((box_w as f32 - t2_vw) / 2.0).round() as usize, type_y + (6.0 * scale).round() as usize, width, t2_val, menu_text, scale);
+                    let t2_arrow_x = t2_box_x + box_w - (14.0 * scale).round() as usize;
+                    draw_text(&mut buffer, t2_arrow_x, type_y + (6.0 * scale).round() as usize, width, "v", colors.menu_text, scale);
                     let exp_title_y = type_y + row_h + (12.0 * scale).round() as usize;
                     let exp_title_vw = ("Famicom Expansion Port".len() as f32 * 8.0 * scale).round() as usize;
                     let exp_title_x = input_x + input_w.saturating_sub(exp_title_vw) / 2;
@@ -9619,6 +10248,8 @@ config::ExpansionType::TopRider => config::ExpansionPortType::TopRider,
                     draw_rect(&mut buffer, exp_type_box_x + 1, exp_type_y + 1, box_w - 2, row_h - 2, width, exp_type_bg);
                     let exp_vw = exp_val.len() as f32 * 8.0 * scale;
                     draw_text(&mut buffer, exp_type_box_x + ((box_w as f32 - exp_vw) / 2.0).round() as usize, exp_type_y + (6.0 * scale).round() as usize, width, exp_val, menu_text, scale);
+                    let exp_arrow_x = exp_type_box_x + box_w - (14.0 * scale).round() as usize;
+                    draw_text(&mut buffer, exp_arrow_x, exp_type_y + (6.0 * scale).round() as usize, width, "v", colors.menu_text, scale);
                     let dpad_y = exp_type_y + row_h + (15.0 * scale).round() as usize;
                     draw_text(&mut buffer, col1_x, dpad_y + (6.0 * scale).round() as usize, width, "Allow L+R/U+D:", menu_text, scale);
                     let dpad_box_x = btn2_x_offset;
@@ -9657,6 +10288,38 @@ config::ExpansionType::TopRider => config::ExpansionPortType::TopRider,
                     let cfg_btn_label = "Configure";
                     let cfg_btn_vw = cfg_btn_label.len() as f32 * 8.0 * scale;
                     draw_text(&mut buffer, hk_btn_x + ((box_w as f32 - cfg_btn_vw) / 2.0).round() as usize, hk_y + (7.0 * scale).round() as usize, width, cfg_btn_label, menu_text, scale);
+                    if let Some(dp) = ms.open_dropdown {
+                        let bx = match dp {
+                            1 => t1_box_x,
+                            2 => t2_box_x,
+                            _ => exp_type_box_x,
+                        };
+                        let list_y = ms.dropdown_list_y;
+                        let vis = ms.dropdown_vis.max(1);
+                        match dp {
+                            1 => {
+                                let list = controller_choices(1);
+                                let cur = *controller1_type_clone.borrow();
+                                let cur_idx = list.iter().position(|x| *x == cur).unwrap_or(0);
+                                let labels: Vec<&'static str> = list.iter().map(|t| t.label()).collect();
+                                draw_dropdown_list(&mut buffer, width, scale, colors, &labels, cur_idx, ms.dropdown_scroll, bx, list_y, dd_w, dd_item_h, vis, ms.mouse_pos.0, ms.mouse_pos.1);
+                            }
+                            2 => {
+                                let list = controller_choices(2);
+                                let cur = *controller2_type_clone.borrow();
+                                let cur_idx = list.iter().position(|x| *x == cur).unwrap_or(0);
+                                let labels: Vec<&'static str> = list.iter().map(|t| t.label()).collect();
+                                draw_dropdown_list(&mut buffer, width, scale, colors, &labels, cur_idx, ms.dropdown_scroll, bx, list_y, dd_w, dd_item_h, vis, ms.mouse_pos.0, ms.mouse_pos.1);
+                            }
+                            _ => {
+                                let list = expansion_port_choices();
+                                let cur = exp_port_type;
+                                let cur_idx = list.iter().position(|x| *x == cur).unwrap_or(0);
+                                let labels: Vec<&'static str> = list.iter().map(|t| t.label()).collect();
+                                draw_dropdown_list(&mut buffer, width, scale, colors, &labels, cur_idx, ms.dropdown_scroll, bx, list_y, dd_w, dd_item_h, vis, mouse_x, mouse_y);
+                            }
+                        }
+                    }
                 }
 
                 if ms.show_hotkeys_settings {

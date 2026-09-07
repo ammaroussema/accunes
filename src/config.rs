@@ -490,6 +490,12 @@ pub enum ControllerType {
     SNESPad,
     SNESMouse,
     SuborMouse,
+    PS2Mouse,
+    YuxingMouse,
+    BelsonicMouse,
+    MegaBookMouse,
+    SudokuExcalibur,
+    SudokuExcalibur2,
     FourScore,
     VirtualBoy,
 }
@@ -506,7 +512,13 @@ impl ControllerType {
             ControllerType::PowerPadB => ControllerType::SNESPad,
             ControllerType::SNESPad => ControllerType::SNESMouse,
             ControllerType::SNESMouse => ControllerType::SuborMouse,
-            ControllerType::SuborMouse => ControllerType::FourScore,
+            ControllerType::SuborMouse => ControllerType::PS2Mouse,
+            ControllerType::PS2Mouse => ControllerType::YuxingMouse,
+            ControllerType::YuxingMouse => ControllerType::BelsonicMouse,
+            ControllerType::BelsonicMouse => ControllerType::MegaBookMouse,
+            ControllerType::MegaBookMouse => ControllerType::SudokuExcalibur,
+            ControllerType::SudokuExcalibur => ControllerType::SudokuExcalibur2,
+            ControllerType::SudokuExcalibur2 => ControllerType::FourScore,
             ControllerType::FourScore => ControllerType::VirtualBoy,
             ControllerType::VirtualBoy => ControllerType::None,
         }
@@ -523,9 +535,21 @@ impl ControllerType {
             ControllerType::SNESPad => "SNES Pad",
             ControllerType::SNESMouse => "SNES Mouse",
             ControllerType::SuborMouse => "Subor Mouse",
+            ControllerType::PS2Mouse => "PS/2 Mouse",
+            ControllerType::YuxingMouse => "Yuxing Mouse",
+            ControllerType::BelsonicMouse => "Macro Winners Mouse",
+            ControllerType::MegaBookMouse => "Mega Book Mouse",
+            ControllerType::SudokuExcalibur => "Sudoku",
+            ControllerType::SudokuExcalibur2 => "Sudoku",
             ControllerType::FourScore => "Four Score",
             ControllerType::VirtualBoy => "Virtual Boy Gamepad",
         }
+    }
+    pub fn is_sudoku(self) -> bool {
+        matches!(self, ControllerType::SudokuExcalibur | ControllerType::SudokuExcalibur2)
+    }
+    pub fn is_serial_mouse(self) -> bool {
+        matches!(self, ControllerType::PS2Mouse | ControllerType::YuxingMouse | ControllerType::BelsonicMouse | ControllerType::MegaBookMouse)
     }
 }
 
@@ -545,6 +569,12 @@ pub fn load_controller_type(key: &str) -> ControllerType {
                     "snespad" | "snes pad" => ControllerType::SNESPad,
                     "snesmouse" | "snes mouse" => ControllerType::SNESMouse,
                     "subormouse" | "subor mouse" => ControllerType::SuborMouse,
+                    "ps2mouse" | "ps2 mouse" | "ps/2 mouse" | "ps/2mouse" | "ps2" => ControllerType::PS2Mouse,
+                    "yuxingmouse" | "yuxing mouse" => ControllerType::YuxingMouse,
+                    "belsonicmouse" | "belsonic mouse" | "macro winners mouse" | "macrowinnersmouse" | "macro winners" | "macrowinners" => ControllerType::BelsonicMouse,
+                    "megabookmouse" | "mega book mouse" | "megabook" => ControllerType::MegaBookMouse,
+                    "sudokuexcalibur" | "sudoku excalibur" | "sudoku" | "sudokuexcalibur1" | "sudoku excalibur (port 1 only)" | "sudoku1" => ControllerType::SudokuExcalibur,
+                    "sudokuexcalibur2" | "sudoku excalibur 2" | "sudoku2" | "sudoku excalibur (port 2 only)" => ControllerType::SudokuExcalibur2,
                     "fourscore" | "four score" => ControllerType::FourScore,
                     "virtualboy" | "virtual boy" | "virtualboygamepad" | "virtual boy gamepad" | "virtualboycontroller" | "virtual boy controller" | "virtualboypad" | "virtual boy pad" => ControllerType::VirtualBoy,
                     _ => ControllerType::None,
@@ -567,6 +597,12 @@ pub fn save_controller_type(key: &str, ct: ControllerType) {
         ControllerType::SNESPad => "snespad",
         ControllerType::SNESMouse => "snesmouse",
         ControllerType::SuborMouse => "subormouse",
+        ControllerType::PS2Mouse => "ps2mouse",
+        ControllerType::YuxingMouse => "yuxingmouse",
+        ControllerType::BelsonicMouse => "belsonicmouse",
+        ControllerType::MegaBookMouse => "megabookmouse",
+        ControllerType::SudokuExcalibur => "sudokuexcalibur",
+        ControllerType::SudokuExcalibur2 => "sudokuexcalibur2",
         ControllerType::FourScore => "fourscore",
         ControllerType::VirtualBoy => "virtualboy",
     };

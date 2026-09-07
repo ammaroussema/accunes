@@ -3,6 +3,7 @@
 use crate::cartridge::Cartridge;
 use crate::config;
 use crate::region::{Region, TvSystem};
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
@@ -217,6 +218,7 @@ pub struct Emulator {
     pub ppu_oam_buffer: u8,
     pub ppu_oam_read_latch: u8,
     pub ppu_render_temp: u8,
+
     pub in_range_check: u16,
     pub nine_objects_on_this_scanline: bool,
     pub ppu_oam_corruption_rendering_disabled_out_of_vblank: bool,
@@ -563,6 +565,39 @@ pub struct Emulator {
     pub hori_track_dx: Arc<Mutex<[f32; 2]>>,
     pub hori_track_dy: Arc<Mutex<[f32; 2]>>,
     pub hori_track_readbit: [u8; 2],
+    pub yuxing_mouse_bits: [VecDeque<bool>; 2],
+    pub yuxing_mouse_port: [u8; 2],
+    pub yuxing_mouse_x_mov: [i32; 2],
+    pub yuxing_mouse_y_mov: [i32; 2],
+    pub yuxing_mouse_delta_x: Arc<Mutex<[f32; 2]>>,
+    pub yuxing_mouse_delta_y: Arc<Mutex<[f32; 2]>>,
+    pub yuxing_mouse_buttons: Arc<Mutex<[u8; 2]>>,
+    pub belsonic_mouse_bits: [u32; 2],
+    pub belsonic_mouse_bitptr: [u8; 2],
+    pub belsonic_mouse_strobe: [u8; 2],
+    pub belsonic_mouse_byte_num: [u8; 2],
+    pub belsonic_mouse_x_mov: [i32; 2],
+    pub belsonic_mouse_y_mov: [i32; 2],
+    pub belsonic_mouse_delta_x: Arc<Mutex<[f32; 2]>>,
+    pub belsonic_mouse_delta_y: Arc<Mutex<[f32; 2]>>,
+    pub belsonic_mouse_buttons: Arc<Mutex<[u8; 2]>>,
+    pub megabook_mouse_bits: [u32; 2],
+    pub megabook_mouse_bitptr: [u8; 2],
+    pub megabook_mouse_strobe: [u8; 2],
+    pub megabook_mouse_byte_num: [u8; 2],
+    pub megabook_mouse_x_mov: [i32; 2],
+    pub megabook_mouse_y_mov: [i32; 2],
+    pub megabook_mouse_delta_x: Arc<Mutex<[f32; 2]>>,
+    pub megabook_mouse_delta_y: Arc<Mutex<[f32; 2]>>,
+    pub megabook_mouse_buttons: Arc<Mutex<[u8; 2]>>,
+    pub ps2_mouse_port: [crate::ps2_device_port::Ps2DevicePort; 2],
+    pub ps2_mouse_x_delta: [i32; 2],
+    pub ps2_mouse_y_delta: [i32; 2],
+    pub ps2_mouse_buttons: [u8; 2],
+    pub ps2_mouse_direction: [bool; 2],
+    pub ps2_mouse_delta_x: Arc<Mutex<[f32; 2]>>,
+    pub ps2_mouse_delta_y: Arc<Mutex<[f32; 2]>>,
+    pub ps2_mouse_acc_buttons: Arc<Mutex<[u8; 2]>>,
 
     pub controller_port3: Arc<AtomicU8>,
     pub controller_port4: Arc<AtomicU8>,
@@ -917,6 +952,25 @@ impl Emulator {
             subor_mouse_dy: Arc::new(Mutex::new([0; 2])),
             subor_mouse_latch: [0; 2],
             hori_track_state: [0; 2], hori_track_dx: Arc::new(Mutex::new([0.0; 2])), hori_track_dy: Arc::new(Mutex::new([0.0; 2])), hori_track_readbit: [0; 2],
+            yuxing_mouse_bits: std::array::from_fn(|_| VecDeque::new()),
+            yuxing_mouse_port: [0; 2],
+            yuxing_mouse_x_mov: [0; 2], yuxing_mouse_y_mov: [0; 2],
+            yuxing_mouse_delta_x: Arc::new(Mutex::new([0.0; 2])), yuxing_mouse_delta_y: Arc::new(Mutex::new([0.0; 2])),
+            yuxing_mouse_buttons: Arc::new(Mutex::new([0; 2])),
+            belsonic_mouse_bits: [0; 2], belsonic_mouse_bitptr: [0; 2], belsonic_mouse_strobe: [0; 2], belsonic_mouse_byte_num: [0; 2],
+            belsonic_mouse_x_mov: [0; 2], belsonic_mouse_y_mov: [0; 2],
+            belsonic_mouse_delta_x: Arc::new(Mutex::new([0.0; 2])), belsonic_mouse_delta_y: Arc::new(Mutex::new([0.0; 2])),
+            belsonic_mouse_buttons: Arc::new(Mutex::new([0; 2])),
+            megabook_mouse_bits: [0; 2], megabook_mouse_bitptr: [0; 2], megabook_mouse_strobe: [0; 2], megabook_mouse_byte_num: [0; 2],
+            megabook_mouse_x_mov: [0; 2], megabook_mouse_y_mov: [0; 2],
+            megabook_mouse_delta_x: Arc::new(Mutex::new([0.0; 2])), megabook_mouse_delta_y: Arc::new(Mutex::new([0.0; 2])),
+            megabook_mouse_buttons: Arc::new(Mutex::new([0; 2])),
+            ps2_mouse_port: std::array::from_fn(|_| crate::ps2_device_port::Ps2DevicePort::new()),
+            ps2_mouse_x_delta: [0; 2], ps2_mouse_y_delta: [0; 2],
+            ps2_mouse_buttons: [0; 2],
+            ps2_mouse_direction: [false; 2],
+            ps2_mouse_delta_x: Arc::new(Mutex::new([0.0; 2])), ps2_mouse_delta_y: Arc::new(Mutex::new([0.0; 2])),
+            ps2_mouse_acc_buttons: Arc::new(Mutex::new([0; 2])),
             controller_port3: Arc::new(AtomicU8::new(0)),
             controller_port4: Arc::new(AtomicU8::new(0)),
             fourscore_readbit: [0; 2],
@@ -1286,6 +1340,338 @@ impl Emulator {
         if self.expansion_type.is_sharp_c1_cassette() {
             self.tape_cpu_cycle();
         }
+        for idx in 0..2usize {
+            let ctype = if idx == 0 { self.controller1_type } else { self.controller2_type };
+            if ctype == config::ControllerType::PS2Mouse {
+                self.ps2_mouse_port[idx].cpu_cycle();
+                self.ps2_mouse_handle_cmd(idx);
+            }
+        }
+    }
+
+    pub(crate) fn ps2_mouse_handle_cmd(&mut self, idx: usize) {
+        if let Some(&cmd) = self.ps2_mouse_port[idx].data_from_host.front() {
+            match cmd {
+                0xEB => {
+                    self.ps2_mouse_port[idx].data_from_host.pop_front();
+                    self.ps2_mouse_port[idx].data_to_host.clear();
+                    let x = -self.ps2_mouse_y_delta[idx];
+                    let y = self.ps2_mouse_x_delta[idx];
+                    let b = self.ps2_mouse_buttons[idx];
+                    let buttons = (b & 1) | ((b & 2) << 1) | ((b & 4) >> 1);
+                    let byte1 = (buttons & 7) | 8 | if x < 0 { 0x10 } else { 0 } | if y < 0 { 0x20 } else { 0 };
+                    self.ps2_mouse_port[idx].data_to_host.push_back(0xFA);
+                    self.ps2_mouse_port[idx].data_to_host.push_back(byte1);
+                    self.ps2_mouse_port[idx].data_to_host.push_back(x as u8);
+                    self.ps2_mouse_port[idx].data_to_host.push_back(y as u8);
+                }
+                0xFF => {
+                    self.ps2_mouse_port[idx].data_from_host.pop_front();
+                    self.ps2_mouse_port[idx].data_to_host.clear();
+                    self.ps2_mouse_port[idx].data_to_host.push_back(0xFA);
+                    self.ps2_mouse_port[idx].data_to_host.push_back(0xAA);
+                    self.ps2_mouse_port[idx].data_to_host.push_back(0x00);
+                }
+                0xF0 => {
+                    self.ps2_mouse_port[idx].data_from_host.pop_front();
+                    self.ps2_mouse_port[idx].data_to_host.clear();
+                    self.ps2_mouse_port[idx].data_to_host.push_back(0xFA);
+                }
+                _ => {
+                    self.ps2_mouse_port[idx].data_from_host.pop_front();
+                    self.ps2_mouse_port[idx].data_to_host.clear();
+                }
+            }
+        }
+    }
+
+    pub(crate) fn ps2_mouse_read(&mut self, idx: usize) -> u8 {
+        self.ps2_mouse_port[idx].set_host_clock(true);
+        let clock = self.ps2_mouse_port[idx].get_clock();
+        let data = self.ps2_mouse_port[idx].get_data();
+        let bit = if self.ps2_mouse_direction[idx] { !data } else { clock };
+        bit as u8
+    }
+
+    pub(crate) fn ps2_mouse_write(&mut self, idx: usize, val: u8) {
+        self.ps2_mouse_port[idx].set_host_clock(true);
+        self.ps2_mouse_direction[idx] = val & 0x04 != 0;
+        self.ps2_mouse_port[idx].set_host_data(val & 0x01 != 0);
+    }
+
+    pub(crate) fn yuxing_mouse_write(&mut self, idx: usize, val: u8) {
+        let prev = self.yuxing_mouse_port[idx];
+        self.yuxing_mouse_port[idx] = val;
+        if val & 4 == 0 && prev & 1 == 0 && val & 1 != 0 {
+            if self.yuxing_mouse_bits[idx].is_empty() {
+                let amount_y = self.yuxing_mouse_y_mov[idx].clamp(-127, 127);
+                let amount_x = self.yuxing_mouse_x_mov[idx].clamp(-127, 127);
+                let b = self.yuxing_mouse_buttons.lock().unwrap();
+                let hw = b[idx];
+                drop(b);
+                let byte0 = 0x40
+                    | if hw & 1 != 0 { 0x20 } else { 0 }
+                    | if hw & 2 != 0 { 0x10 } else { 0 }
+                    | (amount_x as u8 >> 4 & 0x0C)
+                    | (amount_y as u8 >> 6 & 0x03);
+                let byte1 = amount_y as u8 & 0x3F;
+                let byte2 = amount_x as u8 & 0x3F;
+                Self::add_byte_to_yuxing_queue(&mut self.yuxing_mouse_bits[idx], byte0);
+                Self::add_byte_to_yuxing_queue(&mut self.yuxing_mouse_bits[idx], byte1);
+                Self::add_byte_to_yuxing_queue(&mut self.yuxing_mouse_bits[idx], byte2);
+                self.yuxing_mouse_y_mov[idx] -= amount_y;
+                self.yuxing_mouse_x_mov[idx] -= amount_x;
+            } else {
+                self.yuxing_mouse_bits[idx].pop_front();
+            }
+        }
+    }
+
+    fn add_byte_to_yuxing_queue(queue: &mut VecDeque<bool>, what: u8) {
+        queue.push_back(false);
+        let mut v = what;
+        for _ in 0..7 {
+            queue.push_back(v & 0x40 != 0);
+            v <<= 1;
+        }
+        queue.push_back(true);
+    }
+
+    pub(crate) fn belsonic_mouse_write(&mut self, idx: usize, val: u8) {
+        let strobe_active = val & 1 != 0 && val & 2 == 0 && val & 4 == 0;
+        if self.belsonic_mouse_strobe[idx] != 0 && val & 1 == 0 {
+            self.belsonic_mouse_bitptr[idx] = 0;
+            let amount_y = self.belsonic_mouse_y_mov[idx].clamp(-31, 31);
+            let amount_x = self.belsonic_mouse_x_mov[idx].clamp(-31, 31);
+            let b = self.belsonic_mouse_buttons.lock().unwrap();
+            let hw = b[idx];
+            drop(b);
+            let delta_moving = amount_x > 1 || amount_x < -1 || amount_y > 1 || amount_y < -1;
+            let byte_num = self.belsonic_mouse_byte_num[idx];
+            if delta_moving || byte_num != 0 {
+                match byte_num {
+                    0 => {
+                        let byte = 1
+                            | ((amount_y.abs() as u8) >> 2 & 0x04)
+                            | if amount_y < 0 { 0x08 } else { 0 }
+                            | (amount_x.abs() as u8) & 0x10
+                            | if amount_x < 0 { 0x20 } else { 0 }
+                            | (((hw & 1) as u8) << 7)
+                            | (((hw & 2) as u8) << 6);
+                        self.belsonic_mouse_bits[idx] = byte as u32;
+                        self.belsonic_mouse_byte_num[idx] = 1;
+                    }
+                    1 => {
+                        let byte = 2 | ((amount_x.abs() as u8) << 2 & 0x3C);
+                        self.belsonic_mouse_bits[idx] = byte as u32;
+                        self.belsonic_mouse_byte_num[idx] = 2;
+                    }
+                    _ => {
+                        let byte = 3 | ((amount_y.abs() as u8) << 2 & 0x3C);
+                        self.belsonic_mouse_bits[idx] = byte as u32;
+                        self.belsonic_mouse_y_mov[idx] -= amount_y;
+                        self.belsonic_mouse_x_mov[idx] -= amount_x;
+                        self.belsonic_mouse_byte_num[idx] = 0;
+                    }
+                }
+            } else {
+                let byte = if amount_y < 0 { 0x0C } else { 0 }
+                    | if amount_y > 0 { 0x08 } else { 0 }
+                    | if amount_x < 0 { 0x30 } else { 0 }
+                    | if amount_x > 0 { 0x20 } else { 0 }
+                    | (((hw & 1) as u8) << 7)
+                    | (((hw & 2) as u8) << 6);
+                self.belsonic_mouse_bits[idx] = byte as u32;
+                self.belsonic_mouse_y_mov[idx] -= amount_y;
+                self.belsonic_mouse_x_mov[idx] -= amount_x;
+                self.belsonic_mouse_byte_num[idx] = 0;
+            }
+        }
+        self.belsonic_mouse_strobe[idx] = strobe_active as u8;
+    }
+
+    pub(crate) fn megabook_mouse_write(&mut self, idx: usize, val: u8) {
+        let strobe_active = val & 1 != 0 && val & 2 == 0 && val & 4 == 0;
+        if self.megabook_mouse_strobe[idx] != 0 && val & 1 == 0 {
+            self.megabook_mouse_bitptr[idx] = 0;
+            let amount_y = self.megabook_mouse_y_mov[idx].clamp(-31, 31);
+            let amount_x = self.megabook_mouse_x_mov[idx].clamp(-31, 31);
+            let b = self.megabook_mouse_buttons.lock().unwrap();
+            let hw = b[idx];
+            drop(b);
+            let delta_moving = amount_x > 1 || amount_x < -1 || amount_y > 1 || amount_y < -1;
+            let byte_num = self.megabook_mouse_byte_num[idx];
+            if delta_moving || byte_num != 0 {
+                match byte_num {
+                    0 => {
+                        let byte = (1 << 4)
+                            | ((amount_y.abs() as u8) >> 4 & 0x01)
+                            | if amount_y < 0 { 0x02 } else { 0 }
+                            | ((amount_x.abs() as u8) >> 2 & 0x04)
+                            | if amount_x < 0 { 0x08 } else { 0 }
+                            | (((hw & 1) as u8) << 7)
+                            | (((hw & 2) as u8) << 6);
+                        self.megabook_mouse_bits[idx] = byte as u32;
+                        self.megabook_mouse_byte_num[idx] = 1;
+                    }
+                    1 => {
+                        let byte = (2 << 4) | ((amount_x.abs() as u8) & 0x0F);
+                        self.megabook_mouse_bits[idx] = byte as u32;
+                        self.megabook_mouse_byte_num[idx] = 2;
+                    }
+                    _ => {
+                        let byte = (3 << 4) | ((amount_y.abs() as u8) & 0x0F);
+                        self.megabook_mouse_bits[idx] = byte as u32;
+                        self.megabook_mouse_y_mov[idx] -= amount_y;
+                        self.megabook_mouse_x_mov[idx] -= amount_x;
+                        self.megabook_mouse_byte_num[idx] = 0;
+                    }
+                }
+            } else {
+                let byte = if amount_y < 0 { 0x03 } else { 0 }
+                    | if amount_y > 0 { 0x02 } else { 0 }
+                    | if amount_x < 0 { 0x0C } else { 0 }
+                    | if amount_x > 0 { 0x08 } else { 0 }
+                    | (((hw & 1) as u8) << 7)
+                    | (((hw & 2) as u8) << 6);
+                self.megabook_mouse_bits[idx] = byte as u32;
+                self.megabook_mouse_y_mov[idx] -= amount_y;
+                self.megabook_mouse_x_mov[idx] -= amount_x;
+                self.megabook_mouse_byte_num[idx] = 0;
+            }
+        }
+        self.megabook_mouse_strobe[idx] = strobe_active as u8;
+    }
+
+    pub(crate) fn yuxing_mouse_read(&self, idx: usize) -> u8 {
+        if self.yuxing_mouse_port[idx] & 4 != 0 {
+            let b = self.yuxing_mouse_buttons.lock().unwrap();
+            let hw = b[idx];
+            drop(b);
+            if hw != 0 || self.yuxing_mouse_y_mov[idx] != 0 || self.yuxing_mouse_x_mov[idx] != 0 {
+                return 1;
+            } else {
+                return 0;
+            }
+        }
+        if self.yuxing_mouse_port[idx] & 1 != 0 && !self.yuxing_mouse_bits[idx].is_empty() {
+            let front = self.yuxing_mouse_bits[idx][0];
+            return if front { 0 } else { 1 };
+        }
+        0
+    }
+
+    pub(crate) fn belsonic_mouse_read(&mut self, idx: usize) -> u8 {
+        if self.belsonic_mouse_bitptr[idx] < 8 {
+            let bit = (self.belsonic_mouse_bits[idx] << self.belsonic_mouse_bitptr[idx] >> 7 & 1) as u8;
+            self.belsonic_mouse_bitptr[idx] += 1;
+            bit
+        } else {
+            0
+        }
+    }
+
+    pub(crate) fn megabook_mouse_read(&mut self, idx: usize) -> u8 {
+        if self.megabook_mouse_bitptr[idx] < 8 {
+            let bit = (self.megabook_mouse_bits[idx] << self.megabook_mouse_bitptr[idx] >> 7 & 1) as u8;
+            self.megabook_mouse_bitptr[idx] += 1;
+            bit
+        } else {
+            0
+        }
+    }
+
+    pub(crate) fn fold_mouse_deltas(&mut self) {
+        // ps2 mouse
+        {
+            let dx = &mut *self.ps2_mouse_delta_x.lock().unwrap();
+            let dy = &mut *self.ps2_mouse_delta_y.lock().unwrap();
+            let b = self.ps2_mouse_acc_buttons.lock().unwrap();
+            for i in 0..2usize {
+                let raw_x = dx[i].round() as i32;
+                let raw_y = dy[i].round() as i32;
+                self.ps2_mouse_x_delta[i] = (raw_x >> 1) | (raw_x & 1);
+                self.ps2_mouse_y_delta[i] = (raw_y >> 1) | (raw_y & 1);
+                self.ps2_mouse_buttons[i] = b[i];
+                dx[i] = 0.0;
+                dy[i] = 0.0;
+            }
+        }
+        // yuxing mouse
+        {
+            let dx = &mut *self.yuxing_mouse_delta_x.lock().unwrap();
+            let dy = &mut *self.yuxing_mouse_delta_y.lock().unwrap();
+            for i in 0..2usize {
+                let dxi = dx[i].round() as i32;
+                let dyi = dy[i].round() as i32;
+                self.yuxing_mouse_x_mov[i] = self.yuxing_mouse_x_mov[i].saturating_add(dxi);
+                self.yuxing_mouse_y_mov[i] = self.yuxing_mouse_y_mov[i].saturating_add(dyi);
+                dx[i] = 0.0;
+                dy[i] = 0.0;
+            }
+        }
+        // belsonic mouse
+        {
+            let dx = &mut *self.belsonic_mouse_delta_x.lock().unwrap();
+            let dy = &mut *self.belsonic_mouse_delta_y.lock().unwrap();
+            for i in 0..2usize {
+                let dxi = dx[i].round() as i32;
+                let dyi = dy[i].round() as i32;
+                self.belsonic_mouse_x_mov[i] = self.belsonic_mouse_x_mov[i].saturating_add(dxi);
+                self.belsonic_mouse_y_mov[i] = self.belsonic_mouse_y_mov[i].saturating_add(dyi);
+                dx[i] = 0.0;
+                dy[i] = 0.0;
+            }
+        }
+        // megabook mouse
+        {
+            let dx = &mut *self.megabook_mouse_delta_x.lock().unwrap();
+            let dy = &mut *self.megabook_mouse_delta_y.lock().unwrap();
+            for i in 0..2usize {
+                let dxi = dx[i].round() as i32;
+                let dyi = dy[i].round() as i32;
+                self.megabook_mouse_x_mov[i] = self.megabook_mouse_x_mov[i].saturating_add(dxi);
+                self.megabook_mouse_y_mov[i] = self.megabook_mouse_y_mov[i].saturating_add(dyi);
+                dx[i] = 0.0;
+                dy[i] = 0.0;
+            }
+        }
+    }
+
+    pub(crate) fn save_ps2_port(&self, idx: usize, out: &mut Vec<u8>) {
+        let p = &self.ps2_mouse_port[idx];
+        out.push(if p.host_clock { 1 } else { 0 });
+        out.push(if p.host_data { 1 } else { 0 });
+        out.push(if p.device_clock { 1 } else { 0 });
+        out.push(if p.device_data { 1 } else { 0 });
+        out.extend_from_slice(&p.state.to_le_bytes());
+        out.extend_from_slice(&p.cycles.to_le_bytes());
+        out.push(p.latch);
+        out.push(p.one_bits);
+        let fh: Vec<u8> = p.data_from_host.iter().copied().collect();
+        out.push(fh.len().min(255) as u8);
+        for &b in fh.iter().take(255) { out.push(b); }
+        let th: Vec<u8> = p.data_to_host.iter().copied().collect();
+        out.push(th.len().min(255) as u8);
+        for &b in th.iter().take(255) { out.push(b); }
+    }
+
+    pub(crate) fn load_ps2_port(&mut self, idx: usize, read_u8: &mut dyn FnMut() -> Result<u8, String>) -> Result<(), String> {
+        self.ps2_mouse_port[idx].host_clock = read_u8()? != 0;
+        self.ps2_mouse_port[idx].host_data = read_u8()? != 0;
+        self.ps2_mouse_port[idx].device_clock = read_u8()? != 0;
+        self.ps2_mouse_port[idx].device_data = read_u8()? != 0;
+        self.ps2_mouse_port[idx].state = u16::from_le_bytes([read_u8()?, read_u8()?]);
+        self.ps2_mouse_port[idx].cycles = i32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        self.ps2_mouse_port[idx].latch = read_u8()?;
+        self.ps2_mouse_port[idx].one_bits = read_u8()?;
+        self.ps2_mouse_port[idx].data_from_host.clear();
+        let mut len = read_u8()?;
+        while len > 0 { self.ps2_mouse_port[idx].data_from_host.push_back(read_u8()?); len -= 1; }
+        self.ps2_mouse_port[idx].data_to_host.clear();
+        let mut len = read_u8()?;
+        while len > 0 { self.ps2_mouse_port[idx].data_to_host.push_back(read_u8()?); len -= 1; }
+        Ok(())
     }
 
     pub fn tape_play(&mut self, path: std::path::PathBuf, file_format: u8) {
@@ -2123,6 +2509,48 @@ impl Emulator {
         out.extend_from_slice(&self.hori_track_state[1].to_le_bytes());
         out.push(self.hori_track_readbit[0]);
         out.push(self.hori_track_readbit[1]);
+        for p in 0..2usize {
+            let q = &self.yuxing_mouse_bits[p];
+            out.push(q.len().min(255) as u8);
+            for b in q.iter().take(255) {
+                out.push(if *b { 1 } else { 0 });
+            }
+        }
+        out.push(self.yuxing_mouse_port[0]);
+        out.push(self.yuxing_mouse_port[1]);
+        out.extend_from_slice(&self.yuxing_mouse_x_mov[0].to_le_bytes());
+        out.extend_from_slice(&self.yuxing_mouse_x_mov[1].to_le_bytes());
+        out.extend_from_slice(&self.yuxing_mouse_y_mov[0].to_le_bytes());
+        out.extend_from_slice(&self.yuxing_mouse_y_mov[1].to_le_bytes());
+        out.extend_from_slice(&self.belsonic_mouse_bits[0].to_le_bytes());
+        out.extend_from_slice(&self.belsonic_mouse_bits[1].to_le_bytes());
+        out.push(self.belsonic_mouse_bitptr[0]);
+        out.push(self.belsonic_mouse_bitptr[1]);
+        out.push(self.belsonic_mouse_strobe[0]);
+        out.push(self.belsonic_mouse_strobe[1]);
+        out.push(self.belsonic_mouse_byte_num[0]);
+        out.push(self.belsonic_mouse_byte_num[1]);
+        out.extend_from_slice(&self.belsonic_mouse_x_mov[0].to_le_bytes());
+        out.extend_from_slice(&self.belsonic_mouse_x_mov[1].to_le_bytes());
+        out.extend_from_slice(&self.belsonic_mouse_y_mov[0].to_le_bytes());
+        out.extend_from_slice(&self.belsonic_mouse_y_mov[1].to_le_bytes());
+        out.extend_from_slice(&self.megabook_mouse_bits[0].to_le_bytes());
+        out.extend_from_slice(&self.megabook_mouse_bits[1].to_le_bytes());
+        out.push(self.megabook_mouse_bitptr[0]);
+        out.push(self.megabook_mouse_bitptr[1]);
+        out.push(self.megabook_mouse_strobe[0]);
+        out.push(self.megabook_mouse_strobe[1]);
+        out.push(self.megabook_mouse_byte_num[0]);
+        out.push(self.megabook_mouse_byte_num[1]);
+        out.extend_from_slice(&self.megabook_mouse_x_mov[0].to_le_bytes());
+        out.extend_from_slice(&self.megabook_mouse_x_mov[1].to_le_bytes());
+        out.extend_from_slice(&self.megabook_mouse_y_mov[0].to_le_bytes());
+        out.extend_from_slice(&self.megabook_mouse_y_mov[1].to_le_bytes());
+        out.push(self.ps2_mouse_direction[0] as u8);
+        out.push(self.ps2_mouse_direction[1] as u8);
+        for p in 0..2usize {
+            self.save_ps2_port(p, &mut out);
+        }
         out.push(self.fourscore_readbit[0]);
         out.push(self.fourscore_readbit[1]);
         out.push(self.expansion_adapter_ports[0].load(Ordering::Relaxed));
@@ -2599,6 +3027,52 @@ impl Emulator {
         self.hori_track_state[1] = u32::from_le_bytes(ht1);
         self.hori_track_readbit[0] = read_u8()?;
         self.hori_track_readbit[1] = read_u8()?;
+        for p in 0..2usize {
+            self.yuxing_mouse_bits[p].clear();
+            let len = read_u8()?;
+            for _ in 0..len {
+                self.yuxing_mouse_bits[p].push_back(read_u8()? != 0);
+            }
+        }
+        self.yuxing_mouse_port[0] = read_u8()?;
+        self.yuxing_mouse_port[1] = read_u8()?;
+        self.yuxing_mouse_x_mov[0] = i32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        self.yuxing_mouse_x_mov[1] = i32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        self.yuxing_mouse_y_mov[0] = i32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        self.yuxing_mouse_y_mov[1] = i32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        let mut bm0 = [0u8; 4]; for b in bm0.iter_mut() { *b = read_u8()?; }
+        let mut bm1 = [0u8; 4]; for b in bm1.iter_mut() { *b = read_u8()?; }
+        self.belsonic_mouse_bits[0] = u32::from_le_bytes(bm0);
+        self.belsonic_mouse_bits[1] = u32::from_le_bytes(bm1);
+        self.belsonic_mouse_bitptr[0] = read_u8()?;
+        self.belsonic_mouse_bitptr[1] = read_u8()?;
+        self.belsonic_mouse_strobe[0] = read_u8()?;
+        self.belsonic_mouse_strobe[1] = read_u8()?;
+        self.belsonic_mouse_byte_num[0] = read_u8()?;
+        self.belsonic_mouse_byte_num[1] = read_u8()?;
+        self.belsonic_mouse_x_mov[0] = i32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        self.belsonic_mouse_x_mov[1] = i32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        self.belsonic_mouse_y_mov[0] = i32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        self.belsonic_mouse_y_mov[1] = i32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        let mut mm0 = [0u8; 4]; for b in mm0.iter_mut() { *b = read_u8()?; }
+        let mut mm1 = [0u8; 4]; for b in mm1.iter_mut() { *b = read_u8()?; }
+        self.megabook_mouse_bits[0] = u32::from_le_bytes(mm0);
+        self.megabook_mouse_bits[1] = u32::from_le_bytes(mm1);
+        self.megabook_mouse_bitptr[0] = read_u8()?;
+        self.megabook_mouse_bitptr[1] = read_u8()?;
+        self.megabook_mouse_strobe[0] = read_u8()?;
+        self.megabook_mouse_strobe[1] = read_u8()?;
+        self.megabook_mouse_byte_num[0] = read_u8()?;
+        self.megabook_mouse_byte_num[1] = read_u8()?;
+        self.megabook_mouse_x_mov[0] = i32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        self.megabook_mouse_x_mov[1] = i32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        self.megabook_mouse_y_mov[0] = i32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        self.megabook_mouse_y_mov[1] = i32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]);
+        self.ps2_mouse_direction[0] = read_u8()? != 0;
+        self.ps2_mouse_direction[1] = read_u8()? != 0;
+        for p in 0..2usize {
+            self.load_ps2_port(p, &mut || read_u8())?;
+        }
         self.fourscore_readbit[0] = read_u8()?;
         self.fourscore_readbit[1] = read_u8()?;
         self.expansion_adapter_ports[0].store(read_u8()?, Ordering::Relaxed);

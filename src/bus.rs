@@ -959,6 +959,58 @@ impl Emulator {
                     self.internal_bus = self.data_bus;
                     return self.data_bus;
                 }
+                if ctype == crate::config::ControllerType::PS2Mouse {
+                    let idx = (reg == 0x17) as usize;
+                    let ps2_val = self.ps2_mouse_read(idx);
+                    self.apu_controller_ports_strobed = false;
+                    let ps2_byte = ps2_val | (self.data_bus & 0xFE);
+                    if self.do_oam_dma && self.data_pins_are_not_floating {
+                        self.internal_bus = self.data_bus;
+                        return self.data_bus;
+                    }
+                    self.data_bus = ps2_byte;
+                    self.internal_bus = self.data_bus;
+                    return self.data_bus;
+                }
+                if ctype == crate::config::ControllerType::YuxingMouse {
+                    let idx = (reg == 0x17) as usize;
+                    let yx_val = self.yuxing_mouse_read(idx);
+                    self.apu_controller_ports_strobed = false;
+                    let yx_byte = yx_val | (self.data_bus & 0xFE);
+                    if self.do_oam_dma && self.data_pins_are_not_floating {
+                        self.internal_bus = self.data_bus;
+                        return self.data_bus;
+                    }
+                    self.data_bus = yx_byte;
+                    self.internal_bus = self.data_bus;
+                    return self.data_bus;
+                }
+                if ctype == crate::config::ControllerType::BelsonicMouse {
+                    let idx = (reg == 0x17) as usize;
+                    let bs_val = self.belsonic_mouse_read(idx);
+                    self.apu_controller_ports_strobed = false;
+                    let bs_byte = bs_val | (self.data_bus & 0xFE);
+                    if self.do_oam_dma && self.data_pins_are_not_floating {
+                        self.internal_bus = self.data_bus;
+                        return self.data_bus;
+                    }
+                    self.data_bus = bs_byte;
+                    self.internal_bus = self.data_bus;
+                    return self.data_bus;
+                }
+                if ctype == crate::config::ControllerType::MegaBookMouse {
+                    let idx = (reg == 0x17) as usize;
+                    let mb_val = self.megabook_mouse_read(idx);
+                    self.apu_controller_ports_strobed = false;
+                    let mb_byte = mb_val | (self.data_bus & 0xFE);
+                    if self.do_oam_dma && self.data_pins_are_not_floating {
+                        self.internal_bus = self.data_bus;
+                        return self.data_bus;
+                    }
+                    self.data_bus = mb_byte;
+                    self.internal_bus = self.data_bus;
+                    return self.data_bus;
+                }
                 if self.expansion_type == crate::config::ExpansionType::HoriTrack {
                     let idx = (reg == 0x17) as usize;
                     let val = (self.hori_track_state[idx] & 0x01) as u8;
@@ -2065,6 +2117,30 @@ impl Emulator {
             if self.expansion_type.is_mahjong_gekitou() {
                 self.mahjong_gekitou_write(input);
             }
+            if self.controller1_type == crate::config::ControllerType::PS2Mouse {
+                self.ps2_mouse_write(0, input);
+            }
+            if self.controller2_type == crate::config::ControllerType::PS2Mouse {
+                self.ps2_mouse_write(1, input);
+            }
+            if self.controller1_type == crate::config::ControllerType::YuxingMouse {
+                self.yuxing_mouse_write(0, input);
+            }
+            if self.controller2_type == crate::config::ControllerType::YuxingMouse {
+                self.yuxing_mouse_write(1, input);
+            }
+            if self.controller1_type == crate::config::ControllerType::BelsonicMouse {
+                self.belsonic_mouse_write(0, input);
+            }
+            if self.controller2_type == crate::config::ControllerType::BelsonicMouse {
+                self.belsonic_mouse_write(1, input);
+            }
+            if self.controller1_type == crate::config::ControllerType::MegaBookMouse {
+                self.megabook_mouse_write(0, input);
+            }
+            if self.controller2_type == crate::config::ControllerType::MegaBookMouse {
+                self.megabook_mouse_write(1, input);
+            }
             if (input & 1) != 0 {
                 self.paddle_readbit[0] = 0;
                 self.paddle_readbit[1] = 0;
@@ -2098,6 +2174,7 @@ impl Emulator {
                     }
                 }
                 // latch accumulated mouse deltas into state
+                self.fold_mouse_deltas();
                 {
                     let dx_lock = &mut *self.snes_mouse_delta_x.lock().unwrap();
                     let dy_lock = &mut *self.snes_mouse_delta_y.lock().unwrap();
