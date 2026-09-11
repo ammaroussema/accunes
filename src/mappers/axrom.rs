@@ -27,8 +27,20 @@ impl MapperAxROM {
 }
 
 impl Mapper for MapperAxROM {
+    fn reset(&mut self) {
+        self.bank_select = 0;
+        self.single_screen_high = false;
+    }
+
+    fn reset_power_cycle(&mut self) {
+        self.reset();
+    }
+
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
+            if cart.prg_rom.is_empty() {
+                return FetchResult { data: 0, driven: true };
+            }
             let banks_32k = (cart.prg_rom.len() / 0x8000).max(1);
             let bank = (self.bank_select & 0x0F) as usize % banks_32k;
             let offset = bank * 0x8000 + (address as usize & 0x7FFF);
@@ -82,20 +94,27 @@ impl Mapper for MapperAxROM {
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
         if !ciram {
             let byte = if using_chr_ram {
-                chr_ram[address as usize & 0x1FFF]
-            } else {
+                if !chr_ram.is_empty() {
+                    chr_ram[address as usize & (chr_ram.len() - 1)]
+                } else {
+                    0
+                }
+            } else if !chr_rom.is_empty() {
                 chr_rom[address as usize % chr_rom.len()]
+            } else {
+                0
             };
             new_addr_bus |= byte as u16;
         } else {
-            new_addr_bus |= vram[self.ciram_offset(address)] as u16;
+            let off = self.ciram_offset(address);
+            let byte = if !vram.is_empty() {
+                vram[off % vram.len()]
+            } else {
+                0
+            };
+            new_addr_bus |= byte as u16;
         }
         (new_addr_bus as u8, new_addr_bus)
-    }
-
-    fn reset(&mut self) {
-        self.bank_select = 0;
-        self.single_screen_high = false;
     }
 
     fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {

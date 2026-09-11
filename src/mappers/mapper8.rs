@@ -1,121 +1,127 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
+use crate::mappers::ffe::{FfeConfig, MapperFfe};
 
 pub struct Mapper8 {
-    latch: u8,
+    inner: MapperFfe,
 }
 
 impl Mapper8 {
-    pub fn new() -> Self {
-        Self { latch: 0 }
-    }
-
-    fn prg_read(&self, cart: &Cartridge, address: u16) -> u8 {
-        let prg_len = cart.prg_rom.len();
-        if prg_len == 0 {
-            return 0;
-        }
-        let bank = if address < 0xC000 {
-            (self.latch >> 3) as usize
-        } else {
-            1
-        };
-        let offset = (bank * 0x4000 + (address as usize & 0x3FFF)) % prg_len;
-        cart.prg_rom[offset]
-    }
-
-    fn chr_read(
-        &self,
-        address: u16,
-        chr_rom: &[u8],
-        chr_ram: &[u8],
-        using_chr_ram: bool,
-    ) -> u8 {
-        let len = if using_chr_ram { chr_ram.len() } else { chr_rom.len() };
-        if len == 0 {
-            return 0;
-        }
-        let page = (self.latch & 3) as usize;
-        let offset = (page * 0x2000 + (address as usize & 0x1FFF)) % len;
-        if using_chr_ram {
-            chr_ram[offset]
-        } else {
-            chr_rom[offset]
+    pub fn new(header: &[u8], has_battery: bool, has_trainer: bool, trainer: &[u8]) -> Self {
+        Self {
+            inner: MapperFfe::new(FfeConfig::mapper8(header, has_battery, has_trainer, trainer)),
         }
     }
 
-    fn mirror_addr(horizontal: bool, address: u16) -> u16 {
-        let norm = address & 0x2FFF;
-        if horizontal {
-            (norm & 0x33FF) | ((norm & 0x0800) >> 1)
-        } else {
-            norm & 0x37FF
-        }
+    pub fn default_new() -> Self {
+        Self::new(&[], false, false, &[])
+    }
+}
+
+impl Default for Mapper8 {
+    fn default() -> Self {
+        Self::default_new()
     }
 }
 
 impl Mapper for Mapper8 {
     fn reset(&mut self) {
-        self.latch = 0;
+        self.inner.reset();
+    }
+
+    fn reset_with_cart(&mut self, cart: &mut Cartridge) {
+        self.inner.reset_with_cart(cart);
+    }
+
+    fn initial_pc(&self) -> Option<u16> {
+        self.inner.initial_pc()
+    }
+
+    fn reset_power_cycle(&mut self) {
+        self.inner.reset_power_cycle();
     }
 
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
-        if address >= 0x8000 {
-            return FetchResult {
-                data: self.prg_read(cart, address),
-                driven: true,
-            };
-        }
-        FetchResult {
-            data: 0,
-            driven: false,
-        }
+        self.inner.fetch_prg(cart, address)
     }
 
-    fn store_prg(&mut self, _cart: &mut Cartridge, address: u16, data: u8) {
-        if address >= 0x8000 {
-            self.latch = data;
-        }
+    fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
+        self.inner.store_prg(cart, address, data);
     }
 
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
-        Self::mirror_addr(cart.nametable_horizontal_mirroring, address)
+        self.inner.mirror_nametable(cart, address)
     }
 
     fn fetch_ppu(
         &mut self,
-        _prg_rom: &[u8],
+        prg_rom: &[u8],
         chr_rom: &[u8],
-        _prg_ram: &[u8],
+        prg_ram: &[u8],
         chr_ram: &[u8],
-        _prg_vram: &[u8],
+        prg_vram: &[u8],
         using_chr_ram: bool,
         nametable_horizontal_mirroring: bool,
-        _alternative_nametable_arrangement: bool,
+        alternative_nametable_arrangement: bool,
         ppu_address_bus: u16,
         ppu_octal_latch: u8,
         vram: &[u8],
     ) -> (u8, u16) {
-        let address = (ppu_address_bus & 0x3F00) | ppu_octal_latch as u16;
-        if address >= 0x2000 {
-            let mirrored = Self::mirror_addr(nametable_horizontal_mirroring, address);
-            let data = vram[(mirrored & 0x7FF) as usize];
-            return (data, address);
-        }
-        let data = self.chr_read(address, chr_rom, chr_ram, using_chr_ram);
-        (data, address)
+        self.inner.fetch_ppu(
+            prg_rom,
+            chr_rom,
+            prg_ram,
+            chr_ram,
+            prg_vram,
+            using_chr_ram,
+            nametable_horizontal_mirroring,
+            alternative_nametable_arrangement,
+            ppu_address_bus,
+            ppu_octal_latch,
+            vram,
+        )
     }
 
-    fn save_mapper_registers(&self, _cart: &Cartridge) -> Vec<u8> {
-        vec![self.latch]
+    fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
+        self.inner.store_ppu(cart, address, data, vram);
     }
 
-    fn load_mapper_registers(&mut self, _cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
-        if start < state.len() {
-            self.latch = state[start];
-            start + 1
-        } else {
-            start
-        }
+    fn ppu_clock(
+        &mut self,
+        ppu_address_bus: u16,
+        ppu_a12_prev: bool,
+        scanline: u16,
+        dot: u16,
+        ppu_sprite_x16: bool,
+        rendering_on: bool,
+    ) -> bool {
+        self.inner.ppu_clock(
+            ppu_address_bus,
+            ppu_a12_prev,
+            scanline,
+            dot,
+            ppu_sprite_x16,
+            rendering_on,
+        )
+    }
+
+    fn cpu_clock(&mut self, cycles: u8) -> bool {
+        self.inner.cpu_clock(cycles)
+    }
+
+    fn cpu_clock_irq_level(&self) -> bool {
+        self.inner.cpu_clock_irq_level()
+    }
+
+    fn take_irq_ack(&mut self) -> bool {
+        self.inner.take_irq_ack()
+    }
+
+    fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8> {
+        self.inner.save_mapper_registers(cart)
+    }
+
+    fn load_mapper_registers(&mut self, cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
+        self.inner.load_mapper_registers(cart, state, start)
     }
 }

@@ -87,17 +87,23 @@ launch AccuNES and use the menu to open a valid nes rom file (`.nes`, `.fds`, `.
 ## Future
 
 possible future additions:
-- cheats!
 - tas record/playback!
 
 if you have more suggestions feel free to send them through github!
 
 ## Credits
 - [Oussema Ammar](https://github.com/ammaroussema): hello! this is me! i made the emulator :D
-- [FCEUX](https://fceux.com): very helpful in understanding vs system, pal and dendy! also some obscure mappers and audio config!
-- [Mesen](https://www.mesen.ca/): very helpful for obscure mappers and video config!
+- [FCEUX](https://fceux.com): very helpful in understanding vs system, pal and dendy! also some obscure mappers, video filters, controllers and audio config!
+- [Mesen](https://www.mesen.ca/): very helpful for obscure mappers, NSF/NSFe mapper, cheats, video filters, audio config, controllers and video config!
 - [Nestopia](http://0ldsk00l.ca/nestopia/): very helpful for obscure mappers!
-- [NintendulatorNRS](https://www.qmtpro.com/~nes/nintendulator/): very useful for ALOT of obscure mappers and controller configs!
+- [NintendulatorNRS](https://www.qmtpro.com/~nes/nintendulator/): very useful for ALOT of obscure mappers, controllers and controller configs!
 - [TriCNES](https://github.com/100thCoin/TriCNES/tree/main): helped me discover a lot of odd hardware accurate behavior for all main components!!
+- [zenju]: made the original xbrz video filter!
+- [Maxim Stepen & Cameron Zemek]: made the original hq video filter!
+- [RetroArch, Hans-Kristian Arntzen and Daniel de Matteis]: made the original sai video filter!
+- [Andrea Mazzoleni]: made the original scale video filter!
+- [Bisqwit]: made the bisqwit NTSC video filter!
+- [Blargg]: made the blargg NTSC video filter!
+- [feos, HardwareMan and r57shell]: made the PAL video filter!
 - [NesDev](https://www.nesdev.org/): can't forget the classics! if you're ever making a nes emulator, there's nothing more perfect than this site!!!
 

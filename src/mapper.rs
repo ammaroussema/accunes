@@ -604,6 +604,7 @@ pub enum ExpansionAudioType {
     Vrc7,
     Namco163,
     Sunsoft5b,
+    Nsf,
     Other,
 }
 
@@ -715,6 +716,9 @@ pub trait Mapper: Send {
     fn is_vt32(&self) -> bool { false }
     fn is_um6578(&self) -> bool { false }
     fn is_study_box(&self) -> bool { false }
+    fn is_nsf(&self) -> bool { false }
+    fn nsf_info(&self) -> Option<&crate::nsf::NsfInfo> { None }
+    fn init_nsf_track(&mut self, _track: u8) {}
     fn um6578_chr(&self) -> u8 { 0 }
 
     // onebus CPU opcode encryption (mapper 256 submapper 12-15)
@@ -735,7 +739,7 @@ pub trait Mapper: Send {
 
     fn set_dip_switches(&mut self, _value: u8) {}
 
-    // barcode scanner input for bandai datach (mapper 157) games
+    // barcode scanner input for bandai datach games
     fn set_barcode(&mut self, _rcode: &[u8]) -> bool { false }
 
     // controller read adjustment for vs system mappers
@@ -748,10 +752,7 @@ pub trait Mapper: Send {
     fn audio_sample(&self) -> f32 { 0.0 }
     fn expansion_audio_type(&self) -> ExpansionAudioType { ExpansionAudioType::Other }
 
-    // dedicated PCM channel for mappers that stream audio (e.g. the Famicom
-    // Study Box tape player). Called once per audio flush; `out` is filled with
-    // `host_sample_rate` samples (mono, -1.0..1.0) produced for the current
-    // output window and appended to the output ring alongside the APU mix.
+    // famicom study box audio output
     fn extra_audio(&mut self, _out: &mut Vec<f32>, _count: usize, _host_sample_rate: u32) {}
 
     // notify mapper of the output (host) audio sample rate
@@ -762,7 +763,7 @@ pub trait Mapper: Send {
         false
     }
 
-    // post-store hook for mappers with a CPU-side DMA engine (e.g. mapper 800)
+    // post-store hook for mappers with a CPU-side DMA engine
     fn execute_dma(&mut self, _cart: &mut Cartridge, _ram: &mut [u8], _vram: &mut [u8]) -> bool {
         false
     }
@@ -791,6 +792,14 @@ pub trait Mapper: Send {
 
     // and finally mapper reset handling
     fn reset(&mut self) {}
+
+    fn reset_with_cart(&mut self, _cart: &mut Cartridge) {
+        self.reset();
+    }
+
+    fn initial_pc(&self) -> Option<u16> {
+        None
+    }
 
     // power cycle reset handling (for mappers that need to differentiate between a reset and a power cycle)
     fn reset_power_cycle(&mut self) {
@@ -863,31 +872,75 @@ pub fn create_mapper(
             rom,
             has_battery,
         ))),
-        6 => Box::new(MapperFfe::new(FfeConfig::mapper6(
-            header,
-            submapper_id,
-            has_battery,
-        ))),
+        6 => {
+            let has_trainer = (header.len() > 6 && (header[6] & 4) != 0) || (!misc_rom.is_empty() && misc_rom.len() <= 512);
+            let trainer_data = if header.len() > 6 && (header[6] & 4) != 0 && rom.len() >= 0x10 + 512 {
+                &rom[0x10..0x10 + 512]
+            } else if !misc_rom.is_empty() && misc_rom.len() <= 512 {
+                &misc_rom[..]
+            } else {
+                &[]
+            };
+            Box::new(MapperFfe::new(FfeConfig::mapper6(
+                header,
+                submapper_id,
+                has_battery,
+                has_trainer,
+                trainer_data,
+            )))
+        }
         7 => Box::new(MapperAxROM::new(submapper_id)),
-        8 => Box::new(Mapper8::new()),
+        8 => {
+            let has_trainer = (header.len() > 6 && (header[6] & 4) != 0) || (!misc_rom.is_empty() && misc_rom.len() <= 512);
+            let trainer_data = if header.len() > 6 && (header[6] & 4) != 0 && rom.len() >= 0x10 + 512 {
+                &rom[0x10..0x10 + 512]
+            } else if !misc_rom.is_empty() && misc_rom.len() <= 512 {
+                &misc_rom[..]
+            } else {
+                &[]
+            };
+            Box::new(Mapper8::new(header, has_battery, has_trainer, trainer_data))
+        }
         9 => Box::new(MapperMMC2::new()),
         10 => Box::new(MapperMMC4::new()),
         11 => Box::new(Mapper11::new()),
-        12 => Box::new(Mapper12::new(
-            header,
-            submapper_id,
-            if using_chr_ram { 0 } else { header[5] },
-            rom,
-            rom_name,
-            has_battery,
-        )),
+        12 => {
+            let has_trainer = (header.len() > 6 && (header[6] & 4) != 0) || (!misc_rom.is_empty() && misc_rom.len() <= 512);
+            let trainer_data = if header.len() > 6 && (header[6] & 4) != 0 && rom.len() >= 0x10 + 512 {
+                &rom[0x10..0x10 + 512]
+            } else if !misc_rom.is_empty() && misc_rom.len() <= 512 {
+                &misc_rom[..]
+            } else {
+                &[]
+            };
+            Box::new(Mapper12::new(
+                header,
+                submapper_id,
+                if using_chr_ram { 0 } else { header[5] },
+                rom,
+                rom_name,
+                has_battery,
+                has_trainer,
+                trainer_data,
+            ))
+        }
         13 => Box::new(MapperCpROM::new()),
         14 => Box::new(MapperSL1632::new()),
         15 => Box::new(Mapper15::new()),
         16 => Box::new(MapperBandai::new(BandaiKind::Mapper16)),
-        17 => Box::new(MapperFfe::new(FfeConfig::mapper17(header, has_battery))),
+        17 => {
+            let has_trainer = (header.len() > 6 && (header[6] & 4) != 0) || (!misc_rom.is_empty() && misc_rom.len() <= 512);
+            let trainer_data = if header.len() > 6 && (header[6] & 4) != 0 && rom.len() >= 0x10 + 512 {
+                &rom[0x10..0x10 + 512]
+            } else if !misc_rom.is_empty() && misc_rom.len() <= 512 {
+                &misc_rom[..]
+            } else {
+                &[]
+            };
+            Box::new(MapperFfe::new(FfeConfig::mapper17(header, submapper_id, has_battery, has_trainer, trainer_data)))
+        }
         18 => Box::new(Mapper18::new()),
-        19 => Box::new(Mapper19::new()),
+        19 => Box::new(Mapper19::with_submapper(submapper_id)),
     //  20 => Box::new(MapperFDS::new()),  (FDS assignment)
         21 => Box::new(Vrc2And4::new(VrcVariant::Mapper21)),
         22 => Box::new(Vrc2And4::new(VrcVariant::Mapper22)),
@@ -1548,7 +1601,7 @@ pub fn create_mapper(
         529 => Box::new(Mapper529::new(header, rom, rom_name)),
         530 => Box::new(Mapper530::new(header, rom, rom_name)),
         531 => Box::new(Mapper531::new(header, rom, rom_name)),
-        532 => Box::new(Mapper19::new()),
+        532 => Box::new(Mapper19::with_submapper(submapper_id)),
         533 => Box::new(Mapper533::new()),
         534 => Box::new(MapperAx5202p::new(Ax5202pVariant::Mapper534)),
         535 => Box::new(Mapper535::new()),

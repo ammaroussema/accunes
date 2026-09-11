@@ -28,6 +28,8 @@ pub struct NtscBisqwit {
     signal_high: [i8; 0x80],
     sinetable: [i8; 27],
     y_width: i32,
+    i_width: i32,
+    q_width: i32,
     y: i32,
     ir: i32,
     ig: i32,
@@ -83,21 +85,25 @@ impl NtscBisqwit {
         let saturation = ((0.0 + 1.0) * (0.0 + 1.0) * 144044.0) as i32;
         let brightness = 0i32;
 
-        let y_width = 12i32 + 24i32;
+        let y_width = 12i32;
+        let i_width = 23i32;
+        let q_width = 23i32;
 
         let y = contrast / y_width;
-        let ir = (contrast as f64 * 1.994681e-6 * saturation as f64 / y_width as f64) as i32;
-        let qr = (contrast as f64 * 9.915742e-7 * saturation as f64 / y_width as f64) as i32;
-        let ig = (contrast as f64 * 9.151351e-8 * saturation as f64 / y_width as f64) as i32;
-        let qg = (contrast as f64 * -6.334805e-7 * saturation as f64 / y_width as f64) as i32;
-        let ib = (contrast as f64 * -1.012984e-6 * saturation as f64 / y_width as f64) as i32;
-        let qb = (contrast as f64 * 1.667217e-6 * saturation as f64 / y_width as f64) as i32;
+        let ir = (contrast as f64 * 1.994681e-6 * saturation as f64 / i_width as f64) as i32;
+        let qr = (contrast as f64 * 9.915742e-7 * saturation as f64 / q_width as f64) as i32;
+        let ig = (contrast as f64 * 9.151351e-8 * saturation as f64 / i_width as f64) as i32;
+        let qg = (contrast as f64 * -6.334805e-7 * saturation as f64 / q_width as f64) as i32;
+        let ib = (contrast as f64 * -1.012984e-6 * saturation as f64 / i_width as f64) as i32;
+        let qb = (contrast as f64 * 1.667217e-6 * saturation as f64 / q_width as f64) as i32;
 
         NtscBisqwit {
             signal_low,
             signal_high,
             sinetable,
             y_width,
+            i_width,
+            q_width,
             y,
             ir,
             ig,
@@ -144,31 +150,33 @@ impl NtscBisqwit {
     }
 
     fn ntsc_decode_line(&self, width: usize, signal: &[i8], target: &mut [u32], phase0: usize) {
-        const PAD: usize = 36;
-        let mut pbuf = [0i8; SIGNAL_WIDTH + PAD * 2];
-        pbuf[PAD..PAD + width].copy_from_slice(signal);
-
         let mut ysum = self.brightness;
         let mut isum = 0i32;
         let mut qsum = 0i32;
 
         let mut out = 0usize;
-        let mut cind = 0usize;
-        let mut s = -(self.y_width / 2);
-        while s < width as i32 {
-            let hi = (s + PAD as i32 + self.y_width / 2) as usize;
-            let lo = hi - self.y_width as usize;
-            let inc = pbuf[hi] as i32 - pbuf[lo] as i32;
-            ysum += inc;
-            let cv = self.sinetable[cind + phase0] as i32;
-            let sv = self.sinetable[cind + 3 + phase0] as i32;
-            isum += cv * inc;
-            qsum += sv * inc;
-            cind += 1;
-            if cind == 12 {
-                cind = 0;
-            }
-            if s >= 0 && s & 3 == 0 {
+        for s in 0..width {
+            let read = |pos: i32| -> i32 {
+                if pos >= 0 && (pos as usize) < width {
+                    signal[pos as usize] as i32
+                } else {
+                    0
+                }
+            };
+
+            let y_new = read(s as i32);
+            let y_old = read(s as i32 - self.y_width);
+            ysum += y_new - y_old;
+
+            let cos_val = self.sinetable[((s + 36) % 12 + phase0) as usize] as i32;
+            let cos_old = self.sinetable[((s as i32 - self.i_width + 36) % 12 + phase0 as i32) as usize] as i32;
+            isum += y_new * cos_val - read(s as i32 - self.i_width) * cos_old;
+
+            let sin_val = self.sinetable[((s + 36) % 12 + 3 + phase0) as usize] as i32;
+            let sin_old = self.sinetable[((s as i32 - self.q_width + 36) % 12 + 3 + phase0 as i32) as usize] as i32;
+            qsum += y_new * sin_val - read(s as i32 - self.q_width) * sin_old;
+
+            if s & 3 == 0 {
                 let r = clamp255((ysum * self.y + isum * self.ir + qsum * self.qr) / 65536);
                 let g = clamp255((ysum * self.y + isum * self.ig + qsum * self.qg) / 65536);
                 let b = clamp255((ysum * self.y + isum * self.ib + qsum * self.qb) / 65536);
@@ -176,7 +184,6 @@ impl NtscBisqwit {
                     0xFF000000u32 | (((r as u32) & 0xFF) << 16) | (((g as u32) & 0xFF) << 8) | ((b as u32) & 0xFF);
                 out += 1;
             }
-            s += 1;
         }
     }
 

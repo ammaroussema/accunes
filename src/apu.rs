@@ -166,6 +166,7 @@ impl Emulator {
             crate::mapper::ExpansionAudioType::Vrc7 => ext_val * 1.0 * self.vrc7_volume,
             crate::mapper::ExpansionAudioType::Namco163 => ext_val * 20.0 * self.n163_volume,
             crate::mapper::ExpansionAudioType::Sunsoft5b => ext_val * 15.0 * self.sunsoft5b_volume,
+            crate::mapper::ExpansionAudioType::Nsf => ext_val * self.expansion_volume,
             crate::mapper::ExpansionAudioType::Other => ext_val * 0.1 * 5000.0 * self.expansion_volume,
         };
 
@@ -205,7 +206,7 @@ impl Emulator {
             if self.apu_controller_ports_strobing {
                 if !self.apu_controller_ports_strobed {
                     self.apu_controller_ports_strobed = true;
-                    // vs system zapper: set controller_port1 for shift register on $4016
+                    // vs system zapper
                     if self.controller1_type == crate::config::ControllerType::Zapper {
                         if self.cart.as_ref().map(|c| c.is_vs_system).unwrap_or(false) {
                             self.controller_port1.store(0x08
@@ -764,6 +765,21 @@ impl Emulator {
                 .extra_audio(&mut extra, apu_out.len(), self.audio_host_sample_rate as u32);
         }
 
+        let nsf_vol = if self.is_nsf_cart {
+            if let Some(ref mut player) = self.nsf_player {
+                let v = if player.is_paused { 0.0 } else { player.current_volume };
+                let mixed: Vec<f32> = (0..apu_out.len())
+                    .map(|i| ((apu_out[i] + extra.get(i).copied().unwrap_or(0.0)) * v).clamp(-1.0, 1.0))
+                    .collect();
+                player.push_audio_samples(&mixed);
+                v
+            } else {
+                1.0
+            }
+        } else {
+            1.0
+        };
+
         if self.audio_enabled {
             let mut ring = if let Some(ref buffer) = self.audio_buffer {
                 buffer.lock().unwrap()
@@ -771,7 +787,7 @@ impl Emulator {
                 return;
             };
             for i in 0..apu_out.len() {
-                let s = apu_out[i] + extra.get(i).copied().unwrap_or(0.0);
+                let s = (apu_out[i] + extra.get(i).copied().unwrap_or(0.0)) * nsf_vol;
                 ring.push(s.clamp(-1.0, 1.0));
             }
         }

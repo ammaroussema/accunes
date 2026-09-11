@@ -35,11 +35,14 @@ impl Emulator {
                 if let Some(data) = cart.mapper_chip.cpu_ram_override(address) {
                     self.data_bus = data;
                     self.data_pins_are_not_floating = true;
-                    return data;
+                } else {
+                    self.data_bus = self.ram[(address & self.cpu_ram_mask) as usize];
+                    self.data_pins_are_not_floating = true;
                 }
-            }
-            self.data_bus = self.ram[(address & self.cpu_ram_mask) as usize];
-            self.data_pins_are_not_floating = true;        } else if address >= 0x2000 && address < 0x4000 {
+            } else {
+                self.data_bus = self.ram[(address & self.cpu_ram_mask) as usize];
+                self.data_pins_are_not_floating = true;
+            }        } else if address >= 0x2000 && address < 0x4000 {
             let vt369 = self
                 .cart
                 .as_ref()
@@ -1125,6 +1128,9 @@ impl Emulator {
             }
         }
 
+        if self.cheats.has_active_cheats() {
+            self.data_bus = self.cheats.apply(address, self.data_bus);
+        }
         self.internal_bus = self.data_bus;
         self.data_bus
     }

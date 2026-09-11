@@ -588,3 +588,4 @@ pub mod flash_s29;
 pub mod rainbow_audio;
 pub mod rainbow;
 pub mod mapper800;
+pub mod nsf;

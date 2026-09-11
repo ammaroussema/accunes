@@ -617,7 +617,6 @@ pub struct Emulator {
 
     pub screen: Vec<u32>,
 
-    // raw 256x240 PPU palette indices (incl. emphasis) for the NTSC filters
     pub ppu_out: Vec<u16>,
     pub ppu_dot_count: u64,
     pub video_phase: u32,
@@ -637,6 +636,10 @@ pub struct Emulator {
     pub is_vs_system_cart: bool,
     pub vt03_4bpp_bg_cart: bool,
     pub vt03_4bpp_sp_cart: bool,
+    pub is_nsf_cart: bool,
+    pub nsf_player: Option<crate::nsf_player::NsfPlayer>,
+    pub current_theme: String,
+    pub cheats: crate::cheats::CheatManager,
 }
 
 impl Emulator {
@@ -1012,6 +1015,10 @@ impl Emulator {
             is_vs_system_cart: false,
             vt03_4bpp_bg_cart: false,
             vt03_4bpp_sp_cart: false,
+            is_nsf_cart: false,
+            nsf_player: None,
+            current_theme: config::load_theme(),
+            cheats: crate::cheats::CheatManager::new(),
         }
     }
 
@@ -1025,6 +1032,17 @@ impl Emulator {
         self.is_vs_system_cart = cart.is_vs_system;
         self.vt03_4bpp_bg_cart = cart.mapper_chip.vt03_4bpp_bg();
         self.vt03_4bpp_sp_cart = cart.mapper_chip.vt03_4bpp_sp();
+        self.is_nsf_cart = cart.mapper_chip.is_nsf();
+        if self.is_nsf_cart {
+            if let Some(info) = cart.mapper_chip.nsf_info().cloned() {
+                let mut player = crate::nsf_player::NsfPlayer::new(info);
+                player.set_sample_rate(self.audio_host_sample_rate as u32);
+                player.set_theme(&self.current_theme);
+                self.nsf_player = Some(player);
+            }
+        } else {
+            self.nsf_player = None;
+        }
         self.cpu_ram_mask = if self.is_um6578_cart {
             0x1FFF
         } else if cart.mapper_chip.onebus_cpu_ram_4k() {
@@ -1047,11 +1065,18 @@ impl Emulator {
         }
         self.load_turbo_file();
         self.load_battle_box();
+        if let Some(ref cart) = self.cart {
+            self.cheats.load_for_rom(&cart.name);
+        }
         let host_rate = self.audio_host_sample_rate as u32;
         if let Some(ref mut cart) = self.cart {
             cart.mapper_chip.set_audio_sample_rate(host_rate);
         }
         self.reset_audio();
+        if self.is_nsf_cart {
+            let start_song = self.nsf_player.as_ref().map(|p| p.current_track).unwrap_or(0);
+            self.init_nsf_track(start_song);
+        }
     }
     pub fn clear_cart(&mut self) {
         if let Some(old) = self.cart.take() {
@@ -1064,6 +1089,8 @@ impl Emulator {
         self.is_vs_system_cart = false;
         self.vt03_4bpp_bg_cart = false;
         self.vt03_4bpp_sp_cart = false;
+        self.is_nsf_cart = false;
+        self.nsf_player = None;
         self.reset_audio();
     }
 
@@ -1216,12 +1243,22 @@ impl Emulator {
         self.ppu_reset = false;
 
         if let Some(ref mut cart) = self.cart {
-            if (cart.memory_mapper == 6 || cart.memory_mapper == 17) && !cart.trainer.is_empty() {
-                crate::mappers::ffe::install_trainer(&cart.trainer, &mut cart.prg_ram);
+            let trainer_data = if !cart.trainer.is_empty() {
+                &cart.trainer[..]
+            } else if !cart.misc_rom.is_empty() && cart.misc_rom.len() <= 512 {
+                &cart.misc_rom[..]
+            } else {
+                &[]
+            };
+            if matches!(cart.memory_mapper, 6 | 8 | 12 | 17) && !trainer_data.is_empty() {
+                crate::mappers::ffe::install_trainer(trainer_data, &mut cart.prg_ram);
             }
-                        let saved_dip = cart.mapper_chip.get_dip_switches();
-            cart.mapper_chip.reset();
+            let saved_dip = cart.mapper_chip.get_dip_switches();
+            cart.reset_mapper();
             cart.mapper_chip.set_dip_switches(saved_dip);
+            if matches!(cart.memory_mapper, 6 | 8 | 12 | 17) {
+                self.store(0x40, 0x4017);
+            }
         }
         self.reset_audio();
     }
@@ -1991,6 +2028,17 @@ impl Emulator {
         }
     }
 
+    pub fn has_barcode_support(&self) -> bool {
+        if self.expansion_type.is_barcode_battler() {
+            return true;
+        }
+        if let Some(ref cart) = self.cart {
+            cart.memory_mapper == 157
+        } else {
+            false
+        }
+    }
+
 
     // run one frame!
     pub fn core_frame_advance(&mut self) {
@@ -2002,26 +2050,29 @@ impl Emulator {
             }
         }
         self.frame_advance_reached_vblank = false;
-        if self.is_pal() {
-            while !self.frame_advance_reached_vblank {
-                self.emulator_core_pal();
-            }
-            while self.ppu_scanline != 0 {
-                self.emulator_core_pal();
-            }
-        } else if self.is_dendy() {
-            while !self.frame_advance_reached_vblank {
-                self.emulator_core_dendy();
-            }
-            while self.ppu_scanline != 0 {
-                self.emulator_core_dendy();
-            }
-        } else {
-            while !self.frame_advance_reached_vblank {
-                self.emulator_core_ntsc();
-            }
-            while self.ppu_scanline != 0 {
-                self.emulator_core_ntsc();
+        let nsf_paused = self.is_nsf_cart && self.nsf_player.as_ref().map_or(false, |p| p.is_paused);
+        if !nsf_paused {
+            if self.is_pal() {
+                while !self.frame_advance_reached_vblank {
+                    self.emulator_core_pal();
+                }
+                while self.ppu_scanline != 0 {
+                    self.emulator_core_pal();
+                }
+            } else if self.is_dendy() {
+                while !self.frame_advance_reached_vblank {
+                    self.emulator_core_dendy();
+                }
+                while self.ppu_scanline != 0 {
+                    self.emulator_core_dendy();
+                }
+            } else {
+                while !self.frame_advance_reached_vblank {
+                    self.emulator_core_ntsc();
+                }
+                while self.ppu_scanline != 0 {
+                    self.emulator_core_ntsc();
+                }
             }
         }
         self.completed_frames = self.completed_frames.wrapping_add(1);
@@ -2030,6 +2081,88 @@ impl Emulator {
         } else {
             (self.ppu_dot_count.wrapping_sub(82181) % 3) as u32
         };
+
+        if self.is_nsf_cart {
+            let fps = if self.is_pal() { 50.0 } else { 60.0988 };
+            let auto_action = if let Some(ref mut player) = self.nsf_player {
+                let action = player.update_frame(fps);
+                player.draw_hud(&mut self.screen, fps);
+                action
+            } else {
+                None
+            };
+            if let Some(action) = auto_action {
+                self.nsf_action(action);
+            }
+        }
+    }
+
+    pub fn init_nsf_track(&mut self, track: u8) {
+        if !self.is_nsf_cart {
+            return;
+        }
+        if let Some(ref mut player) = self.nsf_player {
+            player.select_track(track);
+        }
+        if let Some(ref mut cart) = self.cart {
+            cart.mapper_chip.init_nsf_track(track);
+        }
+
+        self.a = track;
+        self.x = if self.is_pal() { 1 } else { 0 };
+        self.y = 0;
+        self.stack_pointer = 0xFD;
+        self.program_counter = 0x4100;
+
+        self.flag_carry = false;
+        self.flag_zero = false;
+        self.flag_interrupt = true;
+        self.flag_decimal = false;
+        self.flag_overflow = false;
+        self.flag_negative = false;
+
+        self.cpu_read = true;
+        self.do_brk = false;
+        self.do_nmi = false;
+        self.do_irq = false;
+        self.do_reset = false;
+        self.first_cycle_of_oam_dma = false;
+        self.do_oam_dma = false;
+        self.do_dmc_dma = false;
+        self.operation_cycle = 0;
+
+        self.ram.fill(0);
+
+        for addr in 0x4000..=0x4013 {
+            self.store(0, addr);
+        }
+        self.store(0, 0x4015);
+        self.store(0x0F, 0x4015);
+        self.store(0x40, 0x4017);
+
+        self.store(0, 0x2000);
+        self.store(0, 0x2001);
+    }
+
+    pub fn nsf_action(&mut self, action: crate::nsf_player::NsfPlayerAction) {
+        if !self.is_nsf_cart {
+            return;
+        }
+        let track_to_init = if let Some(ref mut player) = self.nsf_player {
+            player.handle_action(action)
+        } else {
+            None
+        };
+        if let Some(track) = track_to_init {
+            self.init_nsf_track(track);
+        }
+    }
+
+    pub fn set_theme(&mut self, theme_name: &str) {
+        self.current_theme = theme_name.to_string();
+        if let Some(ref mut player) = self.nsf_player {
+            player.set_theme(theme_name);
+        }
     }
 
     pub fn emulator_core(&mut self) {

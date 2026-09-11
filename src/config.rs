@@ -18,25 +18,125 @@ fn exe_dir() -> PathBuf {
 pub fn save_file_path(rom_path: &str) -> PathBuf {
     let path = Path::new(rom_path);
     let name = path.file_stem().unwrap_or(path.as_os_str());
-    exe_dir().join("saves").join(name).with_extension("sav")
+    PathBuf::from(load_saves_dir()).join(name).with_extension("sav")
 }
 
 pub fn turbofile_save_path(rom_path: &str) -> PathBuf {
     let path = Path::new(rom_path);
     let name = path.file_stem().unwrap_or(path.as_os_str());
-    exe_dir().join("saves").join(format!("{}.turbofile.sav", name.to_string_lossy()))
+    PathBuf::from(load_saves_dir()).join(format!("{}.turbofile.sav", name.to_string_lossy()))
 }
 
 pub fn battlebox_save_path(rom_path: &str) -> PathBuf {
     let path = Path::new(rom_path);
     let name = path.file_stem().unwrap_or(path.as_os_str());
-    exe_dir().join("saves").join(format!("{}.battlebox.sav", name.to_string_lossy()))
+    PathBuf::from(load_saves_dir()).join(format!("{}.battlebox.sav", name.to_string_lossy()))
 }
 
 pub fn state_file_path(rom_path: &str, slot: usize) -> PathBuf {
     let path = Path::new(rom_path);
     let name = path.file_stem().unwrap_or(path.as_os_str());
-    exe_dir().join("savestates").join(format!("{}.state{}", name.to_string_lossy(), slot))
+    PathBuf::from(load_savestates_dir()).join(format!("{}.state{}", name.to_string_lossy(), slot))
+}
+
+pub fn load_roms_dir() -> String {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("roms_dir=") {
+                return value.trim().to_string();
+            }
+        }
+    }
+    String::new()
+}
+
+pub fn save_roms_dir(dir: &str) {
+    upsert_config("roms_dir", dir);
+}
+
+pub fn load_saves_dir() -> String {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("saves_dir=") {
+                let v = value.trim().to_string();
+                if !v.is_empty() {
+                    return v;
+                }
+            }
+        }
+    }
+    exe_dir().join("saves").to_string_lossy().into_owned()
+}
+
+pub fn save_saves_dir(dir: &str) {
+    upsert_config("saves_dir", dir);
+}
+
+pub fn load_cheats_dir() -> String {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("cheats_dir=") {
+                let v = value.trim().to_string();
+                if !v.is_empty() {
+                    return v;
+                }
+            }
+        }
+    }
+    let dir = exe_dir().join("cheats");
+    let _ = std::fs::create_dir_all(&dir);
+    dir.to_string_lossy().into_owned()
+}
+
+#[allow(dead_code)]
+pub fn save_cheats_dir(dir: &str) {
+    upsert_config("cheats_dir", dir);
+}
+
+pub fn load_savestates_dir() -> String {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("savestates_dir=") {
+                let v = value.trim().to_string();
+                if !v.is_empty() {
+                    return v;
+                }
+            }
+        }
+    }
+    exe_dir().join("savestates").to_string_lossy().into_owned()
+}
+
+pub fn save_savestates_dir(dir: &str) {
+    upsert_config("savestates_dir", dir);
+}
+
+pub fn load_screenshots_dir() -> String {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("screenshots_dir=") {
+                let v = value.trim().to_string();
+                if !v.is_empty() {
+                    return v;
+                }
+            }
+        }
+    }
+    String::new()
+}
+
+pub fn save_screenshots_dir(dir: &str) {
+    upsert_config("screenshots_dir", dir);
 }
 
 pub fn load_region() -> Region {
@@ -585,6 +685,7 @@ pub enum VideoFilter {
     LcdGrid,
     NtscBlargg,
     NtscBisqwit,
+    Pal3x,
     Prescale2x,
     Prescale3x,
     Prescale4x,
@@ -617,6 +718,7 @@ pub fn load_video_filter() -> VideoFilter {
                     "lcd_grid" => return VideoFilter::LcdGrid,
                     "ntsc_blargg" => return VideoFilter::NtscBlargg,
                     "ntsc_bisqwit" => return VideoFilter::NtscBisqwit,
+                    "pal_3x" => return VideoFilter::Pal3x,
                     "prescale_2x" => return VideoFilter::Prescale2x,
                     "prescale_3x" => return VideoFilter::Prescale3x,
                     "prescale_4x" => return VideoFilter::Prescale4x,
@@ -651,6 +753,7 @@ pub fn save_video_filter(filter: VideoFilter) {
         VideoFilter::LcdGrid => "lcd_grid",
         VideoFilter::NtscBlargg => "ntsc_blargg",
         VideoFilter::NtscBisqwit => "ntsc_bisqwit",
+        VideoFilter::Pal3x => "pal_3x",
         VideoFilter::Prescale2x => "prescale_2x",
         VideoFilter::Prescale3x => "prescale_3x",
         VideoFilter::Prescale4x => "prescale_4x",
@@ -681,7 +784,8 @@ impl VideoFilter {
             VideoFilter::Scanlines => VideoFilter::LcdGrid,
             VideoFilter::LcdGrid => VideoFilter::NtscBlargg,
             VideoFilter::NtscBlargg => VideoFilter::NtscBisqwit,
-            VideoFilter::NtscBisqwit => VideoFilter::Prescale2x,
+            VideoFilter::NtscBisqwit => VideoFilter::Pal3x,
+            VideoFilter::Pal3x => VideoFilter::Prescale2x,
             VideoFilter::Prescale2x => VideoFilter::Prescale3x,
             VideoFilter::Prescale3x => VideoFilter::Prescale4x,
             VideoFilter::Prescale4x => VideoFilter::Prescale6x,
@@ -711,6 +815,7 @@ impl VideoFilter {
             VideoFilter::LcdGrid => "LCD Grid",
             VideoFilter::NtscBlargg => "NTSC (Blargg)",
             VideoFilter::NtscBisqwit => "NTSC (Bisqwit)",
+            VideoFilter::Pal3x => "PAL 3x",
             VideoFilter::Prescale2x => "Prescale 2x",
             VideoFilter::Prescale3x => "Prescale 3x",
             VideoFilter::Prescale4x => "Prescale 4x",
@@ -738,7 +843,7 @@ impl VideoFilter {
             VideoFilter::Prescale2x | VideoFilter::Scale2x | VideoFilter::TwoXSaI
             | VideoFilter::SuperTwoXSaI | VideoFilter::SuperEagle | VideoFilter::Hq2x
             | VideoFilter::Xbrz2x => Some(2),
-            VideoFilter::NtscBlargg | VideoFilter::NtscBisqwit => None,
+            VideoFilter::NtscBlargg | VideoFilter::NtscBisqwit | VideoFilter::Pal3x => None,
             VideoFilter::Prescale3x | VideoFilter::Scale3x | VideoFilter::Hq3x | VideoFilter::Xbrz3x => Some(3),
             VideoFilter::Prescale4x | VideoFilter::Hq4x | VideoFilter::Xbrz4x => Some(4),
             VideoFilter::Prescale6x | VideoFilter::Xbrz6x => Some(6),

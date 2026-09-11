@@ -50,6 +50,14 @@ pub struct Cartridge {
 
     pub tv_system: TvSystem,
 }
+
+impl Cartridge {
+    pub fn reset_mapper(&mut self) {
+        let mut mapper = std::mem::replace(&mut self.mapper_chip, Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default())));
+        mapper.reset_with_cart(self);
+        self.mapper_chip = mapper;
+    }
+}
 fn convert_mfc_to_ines(rom: &[u8]) -> Result<Vec<u8>, String> {
     if rom.len() < 16 || &rom[0..4] != b"mfc\0" {
         return Err("Not a valid MFC ROM file".to_string());
@@ -96,6 +104,64 @@ impl Cartridge {
 
     pub fn from_file(filepath: &str) -> Result<Cartridge, String> {
         let mut rom = fs::read(filepath).map_err(|e| format!("Failed to read file: {}", e))?;
+
+        let is_nsf = (rom.len() >= 0x80 && &rom[0..5] == b"NESM\x1a")
+            || filepath.to_lowercase().ends_with(".nsf");
+        let is_nsfe = (rom.len() >= 4 && &rom[0..4] == b"NSFE")
+            || filepath.to_lowercase().ends_with(".nsfe");
+
+        if is_nsf || is_nsfe {
+            let nsf_rom = if is_nsfe {
+                crate::nsf::parse_nsfe(&rom)?
+            } else {
+                crate::nsf::parse_nsf(&rom)?
+            };
+
+            let tv_system = if nsf_rom.info.is_pal() {
+                TvSystem::Pal
+            } else {
+                TvSystem::Ntsc
+            };
+
+            let prg_crc = crc32(&nsf_rom.prg_rom);
+            let overall_crc = crc32(&rom);
+            let prg_len = nsf_rom.prg_rom.len();
+            let prg_size = (prg_len / 0x4000).min(255) as u8;
+            let prg_size_minus_1 = if prg_size > 0 { prg_size - 1 } else { 0 };
+            let total_songs = nsf_rom.info.total_songs;
+
+            let cartridge = Cartridge {
+                name: filepath.to_string(),
+                prg_rom: nsf_rom.prg_rom,
+                chr_rom: Vec::new(),
+                memory_mapper: 0x1000,
+                sub_mapper: 0,
+                prg_size,
+                chr_size: 0,
+                prg_size_minus_1,
+                chr_ram: vec![0u8; 0x2000],
+                using_chr_ram: true,
+                prg_ram: vec![0u8; 0x8000],
+                has_battery: false,
+                alternative_nametable_arrangement: false,
+                prg_vram: Vec::new(),
+                nametable_horizontal_mirroring: true,
+                fds_disks: Vec::new(),
+                trainer: Vec::new(),
+                misc_rom: Vec::new(),
+                mapper_chip: Box::new(crate::mappers::nsf::NsfMapper::new(nsf_rom.info)),
+                mapper_cpu_cycle: 0,
+                prg_rom_crc32: prg_crc,
+                chr_rom_crc32: 0,
+                overall_crc32: overall_crc,
+                prg_chr_crc32: overall_crc,
+                is_vs_system: false,
+                tv_system,
+            };
+
+            println!("Loaded NSF Audio: {} ({} songs)", cartridge.name, total_songs);
+            return Ok(cartridge);
+        }
 
         if rom.len() < 16 {
             return Err("File too small to contain iNES header".to_string());
@@ -806,8 +872,15 @@ impl Cartridge {
             vec![0u8; cfg.chr_ram_size]
         } else if let Some(ref cfg) = mmc3_cfg {
             vec![0u8; cfg.chr_ram_size]
-        } else if memory_mapper == 6 || memory_mapper == 17 {
-            vec![0u8; 32 * 1024]
+        } else if memory_mapper == 6 || memory_mapper == 8 || memory_mapper == 17 || (memory_mapper == 12 && sub_mapper == 1) {
+            let size = (32 * 1024).max(chr_rom.len());
+            let mut ram = vec![0u8; size];
+            if !chr_rom.is_empty() {
+                for i in 0..size {
+                    ram[i] = chr_rom[i % chr_rom.len()];
+                }
+            }
+            ram
         } else if memory_mapper == 77 {
             vec![0u8; 6 * 1024]
         } else if memory_mapper == 34 {
@@ -862,6 +935,9 @@ impl Cartridge {
         if memory_mapper == 77 {
             using_chr_ram = true;
         }
+        if memory_mapper == 6 || memory_mapper == 8 || memory_mapper == 17 || (memory_mapper == 12 && sub_mapper == 1) {
+            using_chr_ram = true;
+        }
         if memory_mapper == 286 || matches!(memory_mapper, 74 | 119 | 111 | 124 | 191 | 192 | 194 | 195 | 233 | 235 | 237 | 241 | 242 | 245 | 247 | 252 | 253 | 262 | 306 | 307 | 309 | 310 | 312 | 342 | 355 | 372 | 375 | 381 | 382 | 393 | 396 | 399 | 400 | 402 | 403 | 442 | 448 | 452 | 453 | 454 | 460 | 462 | 466 | 470 | 481 | 482 | 485 | 491 | 500 | 501 | 502 | 508 | 512 | 513 | 515 | 517 | 518 | 520 | 522 | 536 | 541 | 544 | 547 | 555 | 573 | 574 | 581 | 583 | 587 | 589 | 595 | 598 | 599 | 605 | 606 | 607 | 608 | 609 | 612 | 613 | 614 | 615 | 616 | 617 | 761 | 764 | 767) || crate::mappers::one_bus::is_onebus_mapper(memory_mapper) {
             using_chr_ram = true;
         }
@@ -901,11 +977,21 @@ impl Cartridge {
             None
         };
 
-        let ffe_cfg = if memory_mapper == 6 || memory_mapper == 17 {
-            Some(if memory_mapper == 17 {
-                crate::mappers::ffe::FfeConfig::mapper17(&rom[0..16], has_battery)
-            } else {
-                crate::mappers::ffe::FfeConfig::mapper6(&rom[0..16], sub_mapper, has_battery)
+        let has_trainer_any = (rom.len() > 6 && (rom[6] & 4) != 0) || (!misc_rom.is_empty() && misc_rom.len() <= 512);
+        let trainer_data_any = if !trainer.is_empty() {
+            &trainer[..]
+        } else if !misc_rom.is_empty() && misc_rom.len() <= 512 {
+            &misc_rom[..]
+        } else {
+            &[]
+        };
+
+        let ffe_cfg = if memory_mapper == 6 || memory_mapper == 8 || memory_mapper == 12 || memory_mapper == 17 {
+            Some(match memory_mapper {
+                8 => crate::mappers::ffe::FfeConfig::mapper8(&rom[0..16], has_battery, has_trainer_any, trainer_data_any),
+                12 => crate::mappers::ffe::FfeConfig::mapper12(&rom[0..16], has_battery, has_trainer_any, trainer_data_any),
+                17 => crate::mappers::ffe::FfeConfig::mapper17(&rom[0..16], sub_mapper, has_battery, has_trainer_any, trainer_data_any),
+                _ => crate::mappers::ffe::FfeConfig::mapper6(&rom[0..16], sub_mapper, has_battery, has_trainer_any, trainer_data_any),
             })
         } else {
             None
@@ -1018,8 +1104,8 @@ impl Cartridge {
             &misc_rom,
         ).map_err(|e| format!("Error: {}", e))?;
 
-        if (memory_mapper == 6 || memory_mapper == 17) && !trainer.is_empty() {
-            crate::mappers::ffe::install_trainer(&trainer, &mut prg_ram);
+        if matches!(memory_mapper, 6 | 8 | 12 | 17) && !trainer_data_any.is_empty() {
+            crate::mappers::ffe::install_trainer(trainer_data_any, &mut prg_ram);
         }
 
         let ines_overall_crc = crc32(&rom);
@@ -1054,6 +1140,8 @@ impl Cartridge {
             is_vs_system,
             tv_system,
         };
+
+        cartridge.reset_mapper();
 
         if memory_mapper == 100 {
             crate::mappers::mapper100::install_mapper100_trainer(&mut cartridge);

@@ -2068,13 +2068,8 @@ pub fn hq2x(src: &[u32], width: usize, height: usize) -> Vec<u32> {
     dst
 }
 
-// ---------------------------------------------------------------------------
-// HQ3x
-// ---------------------------------------------------------------------------
+// hq3x
 
-// PIXEL helpers. Each returns the colour for one of the nine 3x3 block
-// positions, mirroring the reference macros (00=top-left .. 22=bottom-right,
-// PIXEL11 is always the centre colour w[5]).
 
 #[inline]
 fn p00_1m(w: &[u32; 10]) -> u32 {
@@ -2265,7 +2260,6 @@ fn p22_c(w: &[u32; 10]) -> u32 {
     w[5]
 }
 
-/// Scale a row-major 0xAARRGGBB image by 3x using the HQ3x algorithm.
 pub fn hq3x(src: &[u32], width: usize, height: usize) -> Vec<u32> {
     let out_w = width * 3;
     let mut dst = vec![0u32; out_w * height * 3];

@@ -1336,6 +1336,9 @@ impl Emulator {
                     self.program_counter = (self.program_counter & 0xFF) | ((self.fetch(0xFFFB) as u16) << 8);
                 } else if self.do_reset {
                     self.program_counter = (self.program_counter & 0xFF) | ((self.fetch(0xFFFD) as u16) << 8);
+                    if let Some(pc) = self.cart.as_ref().and_then(|c| c.mapper_chip.initial_pc()) {
+                        self.program_counter = pc;
+                    }
                 } else {
                     self.program_counter = (self.program_counter & 0xFF) | ((self.fetch(0xFFFF) as u16) << 8);
                 }
