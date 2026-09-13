@@ -10,7 +10,7 @@ pub struct Mapper617 {
 impl Mapper617 {
     pub fn new() -> Self {
         Self {
-            vrc4: Vrc2And4::new(VrcVariant::Mapper617),
+            vrc4: Vrc2And4::new(VrcVariant::Mapper617, 0),
             reg: 0,
         }
     }

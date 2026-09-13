@@ -54,38 +54,22 @@ impl Mapper82 {
     }
 
     fn get_chr_bank(&self, chr_rom_len: usize, address: u16) -> (usize, bool) {
-        let flip = self.chr_flip();
-        let ppu_bank = match address {
-            0x0000..=0x07FF => 0,
-            0x0800..=0x0FFF => 2,
-            0x1000..=0x13FF => 4,
-            0x1400..=0x17FF => 5,
-            0x1800..=0x1BFF => 6,
-            0x1C00..=0x1FFF => 7,
-            _ => 0,
+        let flip = self.chr_flip() != 0;
+        let (reg_idx, is_2k) = match (flip, address) {
+            (false, 0x0000..=0x07FF) => (0, true),
+            (false, 0x0800..=0x0FFF) => (1, true),
+            (false, 0x1000..=0x13FF) => (2, false),
+            (false, 0x1400..=0x17FF) => (3, false),
+            (false, 0x1800..=0x1BFF) => (4, false),
+            (false, 0x1C00..=0x1FFF) => (5, false),
+            (true, 0x0000..=0x03FF) => (2, false),
+            (true, 0x0400..=0x07FF) => (3, false),
+            (true, 0x0800..=0x0BFF) => (4, false),
+            (true, 0x0C00..=0x0FFF) => (5, false),
+            (true, 0x1000..=0x17FF) => (0, true),
+            (true, 0x1800..=0x1FFF) => (1, true),
+            _ => (0, true),
         };
-        let reg_idx = if flip == 0 {
-            match ppu_bank {
-                0 => 0,  
-                2 => 1,  
-                4 => 2,  
-                5 => 3,  
-                6 => 4,  
-                7 => 5,  
-                _ => 0,
-            }
-        } else {
-            match ppu_bank {
-                0 => 2,  
-                2 => 4,  
-                4 => 0,  
-                5 => 3,  
-                6 => 1,  
-                7 => 5,  
-                _ => 0,
-            }
-        };
-        let is_2k = ppu_bank == 0 || ppu_bank == 2;
         let bank = if is_2k {
             self.chr_bank_2k(chr_rom_len, reg_idx)
         } else {
@@ -148,6 +132,8 @@ impl Mapper for Mapper82 {
                     let latch_idx = (address >> 10) & 7;
                     FetchResult { data: self.latch[latch_idx as usize], driven: true }
                 } else {
+                    let latch_idx = (address >> 10) & 7;
+                    self.latch[latch_idx as usize] = cart.prg_ram[offset];
                     FetchResult { data: cart.prg_ram[offset], driven: true }
                 }
             } else {

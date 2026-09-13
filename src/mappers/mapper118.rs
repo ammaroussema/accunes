@@ -17,11 +17,8 @@ impl Mapper118 {
 
     fn vram_addr(&self, address: u16) -> u16 {
         let nt = ((address >> 10) & 3) as usize;
-        if self.tk_nametables[nt] == 0 {
-            (address & 0x03FF) | 0x2000
-        } else {
-            (address & 0x03FF) | 0x2400
-        }
+        let bit7 = (self.mmc3.chr_bank((nt as u16) * 0x400) >> 7) & 1;
+        (address & 0x03FF) | 0x2000 | ((bit7 as u16) << 10)
     }
 }
 
@@ -36,33 +33,8 @@ impl Mapper for Mapper118 {
     }
 
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
-        if address >= 0x8000 {
-            match address & 0xE001 {
-                0x8001 => {
-                    let bit7 = ((data >> 7) & 1) as u8;
-                    let invert = (self.mmc3.r8000 & 0x80) != 0;
-                    let reg = self.mmc3.r8000 & 0x07;
-                    if !invert {
-                        match reg {
-                            0 => { self.tk_nametables[0] = bit7; self.tk_nametables[1] = bit7; }
-                            1 => { self.tk_nametables[2] = bit7; self.tk_nametables[3] = bit7; }
-                            _ => {}
-                        }
-                    } else {
-                        match reg {
-                            2 => self.tk_nametables[0] = bit7,
-                            3 => self.tk_nametables[1] = bit7,
-                            4 => self.tk_nametables[2] = bit7,
-                            5 => self.tk_nametables[3] = bit7,
-                            _ => {}
-                        }
-                    }
-                }
-                0xA000 => {
-                    return;
-                }
-                _ => {}
-            }
+        if address >= 0x8000 && (address & 0xE001) == 0xA000 {
+            return;
         }
         self.mmc3.store_prg(cart, address, data);
     }

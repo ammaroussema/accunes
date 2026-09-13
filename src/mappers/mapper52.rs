@@ -5,7 +5,6 @@ use crate::mappers::mmc3::{MapperMMC3, Mmc3Config};
 pub struct Mapper52 {
     mmc3: MapperMMC3,
     extra_reg: u8,
-    locked: bool,
 }
 
 impl Mapper52 {
@@ -15,7 +14,6 @@ impl Mapper52 {
         Self {
             mmc3: MapperMMC3::new(config),
             extra_reg: 0,
-            locked: false,
         }
     }
 
@@ -28,9 +26,14 @@ impl Mapper52 {
 
     fn remap_chr(&self, bank: usize) -> usize {
         let r = self.extra_reg as usize;
-        let base = (((r >> 3) & 0x04) | ((r >> 1) & 0x02) | (((r >> 6) & (r >> 4)) & 0x01)) << 7;
-        let mask = ((r & 0x40) << 1) ^ 0xFF;
-        base | (bank & mask)
+        let chr_and = if r & 0x40 != 0 { 0x7F } else { 0xFF };
+        let chr_or = ((r & 0x20) << 3) | ((r & 0x04) << 7);
+        let chr_or = if r & 0x40 != 0 {
+            chr_or | ((r & 0x10) << 3)
+        } else {
+            chr_or
+        };
+        chr_or | (bank & chr_and)
     }
 
     fn prg_rom_read(cart: &Cartridge, bank_8k: usize, offset_in_bank: usize) -> u8 {
@@ -60,7 +63,6 @@ impl Mapper for Mapper52 {
     fn reset(&mut self) {
         self.mmc3.reset();
         self.extra_reg = 0;
-        self.locked = false;
     }
 
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
@@ -104,10 +106,7 @@ impl Mapper for Mapper52 {
 
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x6000 && address < 0x8000 {
-            if self.locked {
-                self.mmc3.store_prg(cart, address, data);
-            } else {
-                self.locked = true;
+            if self.extra_reg & 0x80 == 0 {
                 self.extra_reg = data;
             }
         } else {
@@ -186,14 +185,12 @@ impl Mapper for Mapper52 {
     fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8> {
         let mut state = self.mmc3.save_mapper_registers(cart);
         state.push(self.extra_reg);
-        state.push(if self.locked { 1 } else { 0 });
         state
     }
 
     fn load_mapper_registers(&mut self, cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let mut idx = self.mmc3.load_mapper_registers(cart, state, start);
         if idx < state.len() { self.extra_reg = state[idx]; idx += 1; }
-        if idx < state.len() { self.locked = state[idx] != 0; idx += 1; }
         idx
     }
 }

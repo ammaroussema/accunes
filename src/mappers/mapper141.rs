@@ -26,7 +26,7 @@ impl Mapper for Mapper141 {
     }
 
     fn store_prg(&mut self, _cart: &mut Cartridge, address: u16, data: u8) {
-        if address >= 0x4000 && address <= 0x5FFF {
+        if address >= 0x4000 && address < 0x8000 {
             if (address & 0x100) != 0 {
                 if (address & 1) != 0 {
                     self.reg[(self.index & 7) as usize] = data;
@@ -39,9 +39,9 @@ impl Mapper for Mapper141 {
 
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
         match self.reg[7] & 7 {
-            0 => (address & 0x33FF) | ((address & 0x0400) >> 1),
+            0 => address & 0x37FF,
             2 => (address & 0x33FF) | ((address & 0x0800) >> 1),
-            6 => address & 0x37FF,
+            4 | 6 => (address & 0x23FF) | 0x400,
             _ => address & 0x37FF,
         }
     }
@@ -52,35 +52,61 @@ impl Mapper for Mapper141 {
         if address < 0x2000 {
             let page = (address >> 11) as usize;
             let chrmode = (self.reg[7] & 1) != 0;
-            let reg_idx = if chrmode { 0 } else { page >> 1 };
+            let reg_idx = if chrmode { 0 } else { page };
             let base_bank = ((self.reg[reg_idx] as usize) & 0x07) | ((self.reg[4] as usize) << 3);
             let bank = (base_bank << 1) | (page & 1);
             let offset = bank * 0x800 + (address as usize & 0x7FF);
             let data = if using_chr_ram && !chr_ram.is_empty() { chr_ram[offset % chr_ram.len()] } else { chr_rom[offset % chr_rom.len()] };
             new_addr_bus |= data as u16;
         } else {
-            let mirrored = match self.reg[7] & 7 {
-                0 => (address & 0x33FF) | ((address & 0x0400) >> 1),
-                2 => (address & 0x33FF) | ((address & 0x0800) >> 1),
-                6 => address & 0x37FF,
-                _ => address & 0x37FF,
+            let dummy = Cartridge {
+                name: String::new(),
+                prg_rom: vec![],
+                prg_ram: vec![],
+                chr_rom: vec![],
+                chr_ram: vec![],
+                prg_vram: vec![],
+                memory_mapper: 141,
+                sub_mapper: 0,
+                prg_size: 0,
+                chr_size: 0,
+                prg_size_minus_1: 0,
+                using_chr_ram: false,
+                has_battery: false,
+                alternative_nametable_arrangement: false,
+                nametable_horizontal_mirroring: false,
+                fds_disks: vec![],
+                trainer: vec![],
+                misc_rom: vec![],
+                mapper_cpu_cycle: 0,
+                prg_rom_crc32: 0,
+                chr_rom_crc32: 0,
+                overall_crc32: 0,
+                prg_chr_crc32: 0,
+                is_vs_system: false,
+                mapper_chip: Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default())),
+                tv_system: crate::region::TvSystem::Unknown,
             };
+            let mirrored = self.mirror_nametable(&dummy, address);
             new_addr_bus |= vram[mirrored as usize & 0x7FF] as u16;
         }
         (new_addr_bus as u8, new_addr_bus)
     }
 
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
-        if address < 0x2000 { if cart.using_chr_ram && !cart.chr_ram.is_empty() { let len = cart.chr_ram.len(); cart.chr_ram[address as usize % len] = data; } }
-        else if address >= 0x2000 && address < 0x3F00 {
-            let mirrored = match self.reg[7] & 7 {
-                0 => (address & 0x33FF) | ((address & 0x0400) >> 1),
-                2 => (address & 0x33FF) | ((address & 0x0800) >> 1),
-                6 => address & 0x37FF,
-                _ => address & 0x37FF,
-            };
-            if cart.alternative_nametable_arrangement && (mirrored & 0x0800) != 0 { let idx = (mirrored & 0x7FF) as usize; if idx < cart.prg_vram.len() { cart.prg_vram[idx] = data; } }
-            else { vram[mirrored as usize & 0x7FF] = data; }
+        if address < 0x2000 {
+            if cart.using_chr_ram && !cart.chr_ram.is_empty() {
+                let len = cart.chr_ram.len();
+                cart.chr_ram[address as usize % len] = data;
+            }
+        } else if address >= 0x2000 && address < 0x3F00 {
+            let mirrored = self.mirror_nametable(cart, address);
+            if cart.alternative_nametable_arrangement && (mirrored & 0x0800) != 0 {
+                let idx = (mirrored & 0x7FF) as usize;
+                if idx < cart.prg_vram.len() { cart.prg_vram[idx] = data; }
+            } else {
+                vram[mirrored as usize & 0x7FF] = data;
+            }
         }
     }
 

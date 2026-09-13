@@ -55,72 +55,74 @@ impl Mapper for Mapper164 {
     }
 
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
-        if address >= 0x5000 && address < 0x5800 {
-            let data = if (address & 0x800) == 0 && (address & 0x400) != 0 {
-                if let Some(ref eeprom) = self.eeprom {
+        if address >= 0x5000 && address < 0x6000 {
+            if (address & 0x800) == 0 && (address & 0x400) != 0 {
+                let data = if let Some(ref eeprom) = self.eeprom {
                     if eeprom.read() { 0x00 } else { 0x04 }
                 } else {
                     0
-                }
+                };
+                return FetchResult { data, driven: true };
             } else {
-                0
-            };
-            return FetchResult { data, driven: true };
+                return FetchResult { data: 0, driven: false };
+            }
         }
         if address < 0x6000 {
-            return FetchResult { data: 0, driven: true };
+            return FetchResult { data: 0, driven: false };
         }
         if address >= 0x6000 && address < 0x8000 {
             return FetchResult { data: self.prg_ram[(address & 0x1FFF) as usize], driven: true };
         }
-        let num_32k = cart.prg_rom.len() / 0x8000;
-        if num_32k == 0 {
+        let num_16k = cart.prg_rom.len() / 0x4000;
+        if num_16k == 0 {
             return FetchResult { data: 0, driven: true };
         }
         let prg_low = self.prg_low() as usize;
         let prg_high = self.prg_high() as usize;
-        match self.mode() {
+        let bank = match self.mode() {
             0 => {
-                let bank = (prg_high | prg_low) % num_32k;
-                let bank2 = (prg_high | 0x1F) % num_32k;
                 if address >= 0xC000 {
-                    let offset = bank2 * 0x8000 + (address as usize & 0x7FFF);
-                    FetchResult { data: cart.prg_rom[offset % cart.prg_rom.len()], driven: true }
+                    (prg_high | 0x1F) % num_16k
                 } else {
-                    let offset = bank * 0x8000 + (address as usize & 0x7FFF);
-                    FetchResult { data: cart.prg_rom[offset % cart.prg_rom.len()], driven: true }
+                    (prg_high | prg_low) % num_16k
                 }
             }
+            1 => {
+                return FetchResult { data: 0, driven: false };
+            }
             2 => {
-                let bank = (prg_high | prg_low) % num_32k;
-                let fixed = if prg_low >= 0x1C { 0x1C } else { 0x1E };
-                let bank2 = (prg_high | fixed) % num_32k;
                 if address >= 0xC000 {
-                    let offset = bank2 * 0x8000 + (address as usize & 0x7FFF);
-                    FetchResult { data: cart.prg_rom[offset % cart.prg_rom.len()], driven: true }
+                    (prg_high | if prg_low >= 0x1C { 0x1C } else { 0x1E }) % num_16k
                 } else {
-                    let offset = bank * 0x8000 + (address as usize & 0x7FFF);
-                    FetchResult { data: cart.prg_rom[offset % cart.prg_rom.len()], driven: true }
+                    (prg_high | prg_low) % num_16k
                 }
             }
             3 => {
                 if (prg_low & 0x10) != 0 {
-                    let bank_a = (prg_high | (prg_low & 0x0F) | ((prg_low << 1) & 0x10)) % num_32k;
-                    let bank_c = (prg_high | 0x0F | ((prg_low << 1) & 0x10)) % num_32k;
                     if address >= 0xC000 {
-                        let offset = bank_c * 0x8000 + (address as usize & 0x7FFF);
-                        FetchResult { data: cart.prg_rom[offset % cart.prg_rom.len()], driven: true }
+                        (prg_high | 0x0F | ((prg_low << 1) & 0x10)) % num_16k
                     } else {
-                        let offset = bank_a * 0x8000 + (address as usize & 0x7FFF);
-                        FetchResult { data: cart.prg_rom[offset % cart.prg_rom.len()], driven: true }
+                        (prg_high | (prg_low & 0x0F) | ((prg_low << 1) & 0x10)) % num_16k
                     }
                 } else {
-                    let bank_prg = ((prg_high >> 1) | prg_low) % num_32k;
-                    let offset = bank_prg * 0x8000 + (address as usize & 0x7FFF);
-                    FetchResult { data: cart.prg_rom[offset % cart.prg_rom.len()], driven: true }
+                    let num_32k = cart.prg_rom.len() / 0x8000;
+                    if num_32k == 0 {
+                        return FetchResult { data: 0, driven: true };
+                    }
+                    let bank_32k = ((prg_high >> 1) | prg_low) % num_32k;
+                    let offset = bank_32k * 0x8000 + (address as usize & 0x7FFF);
+                    return FetchResult {
+                        data: cart.prg_rom[offset % cart.prg_rom.len()],
+                        driven: true,
+                    };
                 }
             }
-            _ => FetchResult { data: 0, driven: true },
+            _ => 0,
+        };
+        let offset = bank * 0x4000 + (address as usize & 0x3FFF);
+        FetchResult {
+            data: cart.prg_rom[offset % cart.prg_rom.len()],
+            driven: true,
         }
     }
 

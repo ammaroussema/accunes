@@ -59,6 +59,7 @@ impl Emulator {
         // --- pulse 1 ---
         let p1_current_period = (self.apu_register[2] as u16) | (((self.apu_register[3] & 0x7) as u16) << 8);
         let p1_target_period = self.pulse_target_period(1, p1_current_period, self.apu_register[1]);
+        let p1_negate = (self.apu_register[1] & 0x08) != 0;
         let mut p1_duty = (self.apu_register[0] >> 6) as usize;
         if self.swap_duty_cycles {
             p1_duty = ((p1_duty & 2) >> 1) | ((p1_duty & 1) << 1);
@@ -66,7 +67,7 @@ impl Emulator {
         let p1_active = self.apu_status_pulse1
             && self.apu_length_counter_pulse1 > 0
             && p1_current_period >= 8
-            && p1_target_period <= 0x7FF
+            && (p1_negate || p1_target_period <= 0x7FF)
             && PULSE_DUTY_TABLE[p1_duty][self.pulse1_sequencer_step as usize] == 1;
 
         let p1_val = if p1_active {
@@ -82,6 +83,7 @@ impl Emulator {
         // --- pulse 2 ---
         let p2_current_period = (self.apu_register[6] as u16) | (((self.apu_register[7] & 0x7) as u16) << 8);
         let p2_target_period = self.pulse_target_period(2, p2_current_period, self.apu_register[5]);
+        let p2_negate = (self.apu_register[5] & 0x08) != 0;
         let mut p2_duty = (self.apu_register[4] >> 6) as usize;
         if self.swap_duty_cycles {
             p2_duty = ((p2_duty & 2) >> 1) | ((p2_duty & 1) << 1);
@@ -89,7 +91,7 @@ impl Emulator {
         let p2_active = self.apu_status_pulse2
             && self.apu_length_counter_pulse2 > 0
             && p2_current_period >= 8
-            && p2_target_period <= 0x7FF
+            && (p2_negate || p2_target_period <= 0x7FF)
             && PULSE_DUTY_TABLE[p2_duty][self.pulse2_sequencer_step as usize] == 1;
 
         let p2_val = if p2_active {
@@ -309,17 +311,6 @@ impl Emulator {
                 self.pulse2_timer = self.pulse2_timer.saturating_sub(1);
             }
 
-            // noise
-            if self.noise_timer == 0 {
-                let rate_index = (self.apu_register[0xE] & 0xF) as usize;
-                self.noise_timer = if self.is_pal() { NOISE_PERIOD_LUT_PAL[rate_index] } else { NOISE_PERIOD_LUT_NTSC[rate_index] };
-                let mode = (self.apu_register[0xE] & 0x80) != 0;
-                let feedback = (self.noise_shift_register & 1) ^ ((self.noise_shift_register >> (if mode { 6 } else { 1 })) & 1);
-                self.noise_shift_register = (self.noise_shift_register >> 1) | (feedback << 14);
-            } else {
-                self.noise_timer = self.noise_timer.saturating_sub(1);
-            }
-
             // dmc timer (table is in cpu cycles, count is in apu half-cycles)
             self.apu_channel_timer_dmc = self.apu_channel_timer_dmc.wrapping_sub(2);
             if self.apu_channel_timer_dmc == 0 {
@@ -394,6 +385,18 @@ impl Emulator {
             }
         } else {
             self.triangle_timer = self.triangle_timer.saturating_sub(1);
+        }
+
+        // noise
+        if self.noise_timer == 0 {
+            let rate_index = (self.apu_register[0xE] & 0xF) as usize;
+            let period = if self.is_pal() { NOISE_PERIOD_LUT_PAL[rate_index] } else { NOISE_PERIOD_LUT_NTSC[rate_index] };
+            self.noise_timer = period.saturating_sub(1);
+            let mode = (self.apu_register[0xE] & 0x80) != 0;
+            let feedback = (self.noise_shift_register & 1) ^ ((self.noise_shift_register >> (if mode { 6 } else { 1 })) & 1);
+            self.noise_shift_register = (self.noise_shift_register >> 1) | (feedback << 14);
+        } else {
+            self.noise_timer = self.noise_timer.saturating_sub(1);
         }
 
 
@@ -643,20 +646,14 @@ impl Emulator {
             let p1_current_period = (self.apu_register[2] as u16) | (((self.apu_register[3] & 0x7) as u16) << 8);
             let p1_target_period = self.pulse_target_period(1, p1_current_period, p1_sweep_reg);
 
-            let p1_sweep_clock = if self.pulse1_sweep_divider == 0 {
-                self.pulse1_sweep_divider = p1_sweep_period;
-                true
-            } else {
-                self.pulse1_sweep_divider = self.pulse1_sweep_divider.saturating_sub(1);
-                false
-            };
-
-            if p1_sweep_clock {
+            self.pulse1_sweep_divider = self.pulse1_sweep_divider.wrapping_sub(1);
+            if self.pulse1_sweep_divider == 0 {
                 if p1_sweep_enabled && p1_sweep_shift > 0 && p1_current_period >= 8 && p1_target_period <= 0x7FF {
                     self.apu_register[2] = (p1_target_period & 0xFF) as u8;
                     self.apu_register[3] = (self.apu_register[3] & !0x7) | ((p1_target_period >> 8) & 0x7) as u8;
                     self.apu_channel_timer_pulse1 = (self.apu_channel_timer_pulse1 & !0x700) | (p1_target_period & 0x700);
                 }
+                self.pulse1_sweep_divider = p1_sweep_period;
             }
 
             if self.pulse1_sweep_reload {
@@ -672,20 +669,14 @@ impl Emulator {
             let p2_current_period = (self.apu_register[6] as u16) | (((self.apu_register[7] & 0x7) as u16) << 8);
             let p2_target_period = self.pulse_target_period(2, p2_current_period, p2_sweep_reg);
 
-            let p2_sweep_clock = if self.pulse2_sweep_divider == 0 {
-                self.pulse2_sweep_divider = p2_sweep_period;
-                true
-            } else {
-                self.pulse2_sweep_divider = self.pulse2_sweep_divider.saturating_sub(1);
-                false
-            };
-
-            if p2_sweep_clock {
+            self.pulse2_sweep_divider = self.pulse2_sweep_divider.wrapping_sub(1);
+            if self.pulse2_sweep_divider == 0 {
                 if p2_sweep_enabled && p2_sweep_shift > 0 && p2_current_period >= 8 && p2_target_period <= 0x7FF {
                     self.apu_register[6] = (p2_target_period & 0xFF) as u8;
                     self.apu_register[7] = (self.apu_register[7] & !0x7) | ((p2_target_period >> 8) & 0x7) as u8;
                     self.apu_channel_timer_pulse2 = (self.apu_channel_timer_pulse2 & !0x700) | (p2_target_period & 0x700);
                 }
+                self.pulse2_sweep_divider = p2_sweep_period;
             }
 
             if self.pulse2_sweep_reload {
@@ -793,7 +784,7 @@ impl Emulator {
         }
     }
 
-    fn apu_channel_pulse1_sub(&self) -> u16 {
+fn apu_channel_pulse1_sub(&self) -> u16 {
         self.apu_channel_timer_pulse1.wrapping_sub(1)
     }
 

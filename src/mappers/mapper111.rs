@@ -15,7 +15,7 @@ impl Mapper111 {
     pub fn new(prg_16k_count: u8, chr_rom_non_empty: bool) -> Self {
         Self {
             variant: if chr_rom_non_empty { V111::ChineseMmc1 } else { V111::Gtrom },
-            gtrom_reg: 0,
+            gtrom_reg: 0xFF,
             mmc1_regs: [0x0C, 0, 0, 0],
             num_prg_16k: (prg_16k_count as usize).max(1),
             wram_enabled: true,
@@ -77,7 +77,7 @@ impl Mapper111 {
 
 impl Mapper for Mapper111 {
     fn reset(&mut self) {
-        self.gtrom_reg = 0;
+        self.gtrom_reg = 0xFF;
         self.mmc1_regs = [0x0C, 0, 0, 0];
         self.wram_enabled = true;
     }
@@ -95,15 +95,6 @@ impl Mapper for Mapper111 {
                     let b = if num_32k > 0 { bank % num_32k } else { 0 };
                     let offset = b * 0x8000 + (address as usize & 0x7FFF);
                     FetchResult { data: cart.prg_rom[offset % len], driven: true }
-                } else if address >= 0x5000 && address < 0x6000 {
-                    FetchResult { data: 0, driven: false }
-                } else if address >= 0x6000 && address < 0x8000 {
-                    if !cart.prg_ram.is_empty() {
-                        let offset = (address as usize - 0x6000) % cart.prg_ram.len();
-                        FetchResult { data: cart.prg_ram[offset], driven: true }
-                    } else {
-                        FetchResult { data: 0, driven: false }
-                    }
                 } else {
                     FetchResult { data: 0, driven: false }
                 }
@@ -135,13 +126,8 @@ impl Mapper for Mapper111 {
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         match self.variant {
             V111::Gtrom => {
-                if address >= 0x5000 && address < 0x8000 {
+                if (address >= 0x5000 && address < 0x6000) || (address >= 0x7000 && address < 0x8000) {
                     self.gtrom_reg = data;
-                } else if address >= 0x6000 && address < 0x8000 {
-                    if !cart.prg_ram.is_empty() {
-                        let offset = (address as usize - 0x6000) % cart.prg_ram.len();
-                        cart.prg_ram[offset] = data;
-                    }
                 }
             }
             V111::ChineseMmc1 => {
@@ -163,15 +149,9 @@ impl Mapper for Mapper111 {
         }
     }
 
-    fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
+    fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
         match self.variant {
-            V111::Gtrom => {
-                if cart.nametable_horizontal_mirroring {
-                    (address & 0x33FF) | ((address & 0x0800) >> 1)
-                } else {
-                    address & 0x37FF
-                }
-            }
+            V111::Gtrom => address,
             V111::ChineseMmc1 => self.mmc1_mirror_addr(address),
         }
     }
@@ -184,27 +164,33 @@ impl Mapper for Mapper111 {
         chr_ram: &[u8],
         _prg_vram: &[u8],
         using_chr_ram: bool,
-        nametable_horizontal_mirroring: bool,
+        _nametable_horizontal_mirroring: bool,
         _alternative_nametable_arrangement: bool,
         ppu_address_bus: u16,
         ppu_octal_latch: u8,
         vram: &[u8],
     ) -> (u8, u16) {
         let address = (ppu_address_bus & 0x3F00) | ppu_octal_latch as u16;
-        let ciram = address >= 0x2000;
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
-        if !ciram {
-            match self.variant {
-                V111::Gtrom => {
-                    let bank_lo = ((self.gtrom_reg >> 4) & 1) as usize;
-                    let bank_hi = (((self.gtrom_reg >> 5) & 1) | 2) as usize;
-                    let bank = if address < 0x2000 { bank_lo } else { bank_hi };
-                    let offset = bank * 0x2000 + (address as usize & 0x1FFF);
-                    if !chr_ram.is_empty() {
-                        new_addr_bus |= chr_ram[offset % chr_ram.len()] as u16;
-                    }
+        match self.variant {
+            V111::Gtrom => {
+                if !chr_ram.is_empty() {
+                    let (bank, offset_within_bank) = if address < 0x2000 {
+                        let b = ((self.gtrom_reg >> 4) & 1) as usize;
+                        (b, address as usize & 0x1FFF)
+                    } else if address < 0x3F00 {
+                        let b = (((self.gtrom_reg >> 5) & 1) | 2) as usize;
+                        (b, address as usize & 0x1FFF)
+                    } else {
+                        (0, 0)
+                    };
+                    let offset = bank * 0x2000 + offset_within_bank;
+                    new_addr_bus |= chr_ram[offset % chr_ram.len()] as u16;
                 }
-                V111::ChineseMmc1 => {
+            }
+            V111::ChineseMmc1 => {
+                let ciram = address >= 0x2000;
+                if !ciram {
                     let bank_num = (address >> 12) as usize & 1;
                     let bank = self.mmc1_chr_bank(bank_num);
                     let offset = bank * 0x1000 + (address as usize & 0x0FFF);
@@ -215,48 +201,47 @@ impl Mapper for Mapper111 {
                     } else if using_chr_ram && !chr_ram.is_empty() {
                         new_addr_bus |= chr_ram[offset % chr_ram.len()] as u16;
                     }
+                } else {
+                    let mirrored = self.mmc1_mirror_addr(address);
+                    new_addr_bus |= vram[(mirrored & 0x7FF) as usize] as u16;
                 }
             }
-        } else {
-            let mirrored = match self.variant {
-                V111::Gtrom => {
-                    if nametable_horizontal_mirroring {
-                        (address & 0x33FF) | ((address & 0x0800) >> 1)
-                    } else {
-                        address & 0x37FF
-                    }
-                }
-                V111::ChineseMmc1 => self.mmc1_mirror_addr(address),
-            };
-            new_addr_bus |= vram[(mirrored & 0x7FF) as usize] as u16;
         }
         (new_addr_bus as u8, new_addr_bus)
     }
 
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
-        if address < 0x2000 {
-            if cart.using_chr_ram && !cart.chr_ram.is_empty() {
-                match self.variant {
-                    V111::Gtrom => {
-                        let bank_lo = ((self.gtrom_reg >> 4) & 1) as usize;
-                        let bank_hi = (((self.gtrom_reg >> 5) & 1) | 2) as usize;
-                        let bank = if address < 0x2000 { bank_lo } else { bank_hi };
-                        let offset = bank * 0x2000 + (address as usize & 0x1FFF);
-                        let len = cart.chr_ram.len();
-                        cart.chr_ram[offset % len] = data;
-                    }
-                    V111::ChineseMmc1 => {
+        match self.variant {
+            V111::Gtrom => {
+                if cart.using_chr_ram && !cart.chr_ram.is_empty() {
+                    let (bank, offset_within_bank) = if address < 0x2000 {
+                        let b = ((self.gtrom_reg >> 4) & 1) as usize;
+                        (b, address as usize & 0x1FFF)
+                    } else if address < 0x3F00 {
+                        let b = (((self.gtrom_reg >> 5) & 1) | 2) as usize;
+                        (b, address as usize & 0x1FFF)
+                    } else {
+                        (0, 0)
+                    };
+                    let offset = bank * 0x2000 + offset_within_bank;
+                    let len = cart.chr_ram.len();
+                    cart.chr_ram[offset % len] = data;
+                }
+            }
+            V111::ChineseMmc1 => {
+                if address < 0x2000 {
+                    if cart.using_chr_ram && !cart.chr_ram.is_empty() {
                         let bank_num = (address >> 12) as usize & 1;
                         let bank = self.mmc1_chr_bank(bank_num);
                         let offset = bank * 0x1000 + (address as usize & 0x0FFF);
                         let len = cart.chr_ram.len();
                         cart.chr_ram[offset % len] = data;
                     }
+                } else if address >= 0x2000 && address < 0x3F00 {
+                    let mirrored = self.mmc1_mirror_addr(address);
+                    vram[(mirrored & 0x7FF) as usize] = data;
                 }
             }
-        } else if address >= 0x2000 && address < 0x3F00 {
-            let mirrored = self.mirror_nametable(cart, address);
-            vram[(mirrored & 0x7FF) as usize] = data;
         }
     }
 

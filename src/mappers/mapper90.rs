@@ -348,6 +348,9 @@ impl Mapper for Mapper90 {
     }
 
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
+        if (self.irq_control & 0x03) == 0x03 {
+            self.clock_irq();
+        }
         if address >= 0x5000 && address < 0x6000 {
             match address & 3 {
                 0 => self.mul1 = data,

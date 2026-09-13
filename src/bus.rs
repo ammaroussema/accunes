@@ -2534,8 +2534,7 @@ impl Emulator {
             } else if matches!(cart.memory_mapper, 35 | 90 | 209 | 211 | 281 | 282 | 295 | 358 | 359 | 386 | 387 | 388 | 397 | 540) && address >= 0xC000 && address < 0xD000 {
                 self.irq_level_detector = false;
             } else if cart.memory_mapper == 91 && address >= 0x7000 && address < 0x8000 {
-                let reg = if cart.sub_mapper == 1 { address & 7 } else { address & 3 };
-                if reg == 2 {
+                if (address & 3) == 2 {
                     self.irq_level_detector = false;
                 }
             } else if matches!(cart.memory_mapper, 102 | 284) && address >= 0x8000 && address < 0xC000 && (address & 0xF) == 0x9 {

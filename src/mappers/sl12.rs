@@ -2,6 +2,7 @@ use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
 
 pub struct MapperSL12 {
+    submapper: u8,
     mode: u8,
     vrc2_chr: [u8; 8],
     vrc2_prg: [u8; 2],
@@ -19,10 +20,11 @@ pub struct MapperSL12 {
 }
 
 impl MapperSL12 {
-    pub fn new() -> Self {
+    pub fn new(submapper: u8) -> Self {
         Self {
-            mode: 0,
-            vrc2_chr: [0xFF, 0xFF, 0xFF, 0xFF, 4, 5, 6, 7],
+            submapper,
+            mode: 1,
+            vrc2_chr: [0xFF; 8],
             vrc2_prg: [0, 1],
             vrc2_mirr: 0,
             mmc3_regs: [0, 2, 4, 5, 6, 7, 0xFC, 0xFD, 0xFE, 0xFF],
@@ -176,10 +178,16 @@ impl MapperSL12 {
 }
 
 impl Mapper for MapperSL12 {
-        fn reset(&mut self) {}
+    fn reset(&mut self) {
+        self.mode = 1;
+        self.vrc2_chr = [0xFF; 8];
+        self.mmc1_regs = [0x0C, 0, 0, 0];
+        self.mmc1_buffer = 0;
+        self.mmc1_shift = 0;
+    }
 
     fn reset_power_cycle(&mut self) {
-        *self = Self::new();
+        *self = Self::new(self.submapper);
     }
 
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
@@ -210,22 +218,48 @@ impl Mapper for MapperSL12 {
                     }
                 }
                 _ => {
-                    let bank_16k = (self.mmc1_regs[3] & 0x0F) as usize;
-                    if (self.mmc1_regs[0] & 8) != 0 {
-                        if (self.mmc1_regs[0] & 4) != 0 {
-                            if address < 0xC000 {
-                                bank_16k * 2 + ((address as usize & 0x3FFF) / 8192)
+                    if self.submapper == 2 {
+                        let prg = self.mmc1_regs[3] as usize;
+                        let bank_16k = if address < 0xC000 {
+                            let mut res = if (self.mmc1_regs[0] & 0x08) != 0 {
+                                if (self.mmc1_regs[0] & 0x04) != 0 { prg } else { 0 }
                             } else {
-                                0x0F * 2 + ((address as usize & 0x3FFF) / 8192)
+                                prg & !1
+                            };
+                            if (self.mmc1_regs[3] & 0x10) != 0 {
+                                res = (res & 0x07) | (prg & 0x08);
                             }
-                        } else if address < 0xC000 {
-                            (address as usize & 0x3FFF) / 8192
+                            res >> 1
                         } else {
-                            bank_16k * 2 + ((address as usize & 0x3FFF) / 8192)
-                        }
+                            let mut res = if (self.mmc1_regs[0] & 0x08) != 0 {
+                                if (self.mmc1_regs[0] & 0x04) != 0 { prg | 0x0F } else { prg & 0x0F }
+                            } else {
+                                (prg & !1) | 1
+                            };
+                            if (self.mmc1_regs[3] & 0x10) != 0 {
+                                res = (res & 0x07) | (prg & 0x08);
+                            }
+                            res >> 1
+                        };
+                        bank_16k * 2 + ((address as usize & 0x3FFF) / 8192)
                     } else {
-                        let bank_32k = bank_16k >> 1;
-                        bank_32k * 4 + ((address as usize & 0x7FFF) / 8192)
+                        let bank_16k = (self.mmc1_regs[3] & 0x0F) as usize;
+                        if (self.mmc1_regs[0] & 8) != 0 {
+                            if (self.mmc1_regs[0] & 4) != 0 {
+                                if address < 0xC000 {
+                                    bank_16k * 2 + ((address as usize & 0x3FFF) / 8192)
+                                } else {
+                                    0x0F * 2 + ((address as usize & 0x3FFF) / 8192)
+                                }
+                            } else if address < 0xC000 {
+                                (address as usize & 0x3FFF) / 8192
+                            } else {
+                                bank_16k * 2 + ((address as usize & 0x3FFF) / 8192)
+                            }
+                        } else {
+                            let bank_32k = bank_16k >> 1;
+                            bank_32k * 4 + ((address as usize & 0x7FFF) / 8192)
+                        }
                     }
                 }
             };
@@ -318,7 +352,7 @@ impl Mapper for MapperSL12 {
         } else if address >= 0x4100 && address < 0x8000 {
             if (address & 0x4100) == 0x4100 {
                 self.mode = data;
-                if (address & 1) != 0 {
+                if (self.mode & 2) != 0 && self.submapper != 1 {
                     self.mmc1_regs[0] = 0x0C;
                     self.mmc1_regs[3] = 0;
                     self.mmc1_buffer = 0;

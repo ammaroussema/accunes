@@ -541,6 +541,12 @@ pub fn save_hide_mouse_cursor(enabled: bool) { save_bool_config("hide_mouse_curs
 pub fn load_crop_overscan() -> bool { load_bool_config("crop_overscan", false) }
 pub fn save_crop_overscan(enabled: bool) { save_bool_config("crop_overscan", enabled); }
 
+pub fn load_render_background() -> bool { load_bool_config("render_background", true) }
+pub fn save_render_background(enabled: bool) { save_bool_config("render_background", enabled); }
+
+pub fn load_render_sprites() -> bool { load_bool_config("render_sprites", true) }
+pub fn save_render_sprites(enabled: bool) { save_bool_config("render_sprites", enabled); }
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum AspectRatio {
     Auto,
@@ -1437,6 +1443,24 @@ pub fn load_auto_detect_game_controller() -> bool {
 
 pub fn save_auto_detect_game_controller(enabled: bool) {
     upsert_config("auto_detect_game_controller", if enabled { "on" } else { "off" });
+}
+
+pub fn load_auto_hold() -> bool {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("auto_hold=") {
+                let v = value.trim().to_lowercase();
+                return v == "yes" || v == "1" || v == "true" || v == "on";
+            }
+        }
+    }
+    false
+}
+
+pub fn save_auto_hold(enabled: bool) {
+    upsert_config("auto_hold", if enabled { "on" } else { "off" });
 }
 
 pub const GAMEPAD_BUTTONS: &[&str] = &["A","B","TurboA","TurboB","Select","Start","Up","Down","Left","Right"];
@@ -2897,7 +2921,7 @@ pub fn clear_vb_bindings(prefix: &str) {
     }
 }
 
-pub const HOTKEY_COUNT: usize = 17;
+pub const HOTKEY_COUNT: usize = 27;
 
 pub const HOTKEY_LABELS: [&str; HOTKEY_COUNT] = [
     "Open ROM",
@@ -2917,6 +2941,16 @@ pub const HOTKEY_LABELS: [&str; HOTKEY_COUNT] = [
     "Input Barcode",
     "Reset",
     "Power Cycle",
+    "Screenshot",
+    "Play Tape",
+    "Record Tape",
+    "Stop Tape",
+    "Enable Audio",
+    "Master Volume Up",
+    "Master Volume Down",
+    "Show FPS",
+    "Region Cycle",
+    "Toggle Auto Hold",
 ];
 
 pub const HOTKEY_CONFIG_KEYS: [&str; HOTKEY_COUNT] = [
@@ -2937,6 +2971,16 @@ pub const HOTKEY_CONFIG_KEYS: [&str; HOTKEY_COUNT] = [
     "hotkey_input_barcode",
     "hotkey_reset",
     "hotkey_power_cycle",
+    "hotkey_screenshot",
+    "hotkey_tape_play",
+    "hotkey_tape_record",
+    "hotkey_tape_stop",
+    "hotkey_enable_audio",
+    "hotkey_master_volume_up",
+    "hotkey_master_volume_down",
+    "hotkey_show_fps",
+    "hotkey_region_cycle",
+    "hotkey_auto_hold",
 ];
 
 pub const DEFAULT_HOTKEYS: [&str; HOTKEY_COUNT] = [
@@ -2957,6 +3001,16 @@ pub const DEFAULT_HOTKEYS: [&str; HOTKEY_COUNT] = [
     "Ctrl + B",
     "Ctrl + R",
     "Ctrl + Shift + R",
+    "Ctrl + G",
+    "Ctrl + T",
+    "Ctrl + Shift + T",
+    "Ctrl + Shift + S",
+    "Ctrl + M",
+    "Ctrl + \"+\"",
+    "Ctrl + \"-\"",
+    "F3",
+    "F5",
+    "Ctrl + H",
 ];
 
 pub fn load_hotkeys() -> [String; HOTKEY_COUNT] {

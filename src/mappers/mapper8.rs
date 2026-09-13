@@ -7,14 +7,14 @@ pub struct Mapper8 {
 }
 
 impl Mapper8 {
-    pub fn new(header: &[u8], has_battery: bool, has_trainer: bool, trainer: &[u8]) -> Self {
+    pub fn new(header: &[u8], prg_size: u8, has_battery: bool, has_trainer: bool, trainer: &[u8]) -> Self {
         Self {
-            inner: MapperFfe::new(FfeConfig::mapper8(header, has_battery, has_trainer, trainer)),
+            inner: MapperFfe::new(FfeConfig::mapper8(header, prg_size, has_battery, has_trainer, trainer)),
         }
     }
 
     pub fn default_new() -> Self {
-        Self::new(&[], false, false, &[])
+        Self::new(&[], 0, false, false, &[])
     }
 }
 

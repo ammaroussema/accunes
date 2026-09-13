@@ -36,7 +36,7 @@ pub use crate::mappers::mapper30::Mapper30;
 pub use crate::mappers::mapper31::Mapper31;
 pub use crate::mappers::mapper32::Mapper32;
 pub use crate::mappers::mapper33::Mapper33;
-pub use crate::mappers::mapper34::Mapper34;
+pub use crate::mappers::mapper34::{Mapper34, Mapper34Kind};
 pub use crate::mappers::mapper36::Mapper36;
 pub use crate::mappers::mapper37::Mapper37;
 pub use crate::mappers::mapper38::Mapper38;
@@ -884,6 +884,7 @@ pub fn create_mapper(
             Box::new(MapperFfe::new(FfeConfig::mapper6(
                 header,
                 submapper_id,
+                prg_size,
                 has_battery,
                 has_trainer,
                 trainer_data,
@@ -899,7 +900,7 @@ pub fn create_mapper(
             } else {
                 &[]
             };
-            Box::new(Mapper8::new(header, has_battery, has_trainer, trainer_data))
+            Box::new(Mapper8::new(header, prg_size, has_battery, has_trainer, trainer_data))
         }
         9 => Box::new(MapperMMC2::new()),
         10 => Box::new(MapperMMC4::new()),
@@ -919,6 +920,7 @@ pub fn create_mapper(
                 if using_chr_ram { 0 } else { header[5] },
                 rom,
                 rom_name,
+                prg_size,
                 has_battery,
                 has_trainer,
                 trainer_data,
@@ -937,16 +939,16 @@ pub fn create_mapper(
             } else {
                 &[]
             };
-            Box::new(MapperFfe::new(FfeConfig::mapper17(header, submapper_id, has_battery, has_trainer, trainer_data)))
+            Box::new(MapperFfe::new(FfeConfig::mapper17(header, submapper_id, prg_size, has_battery, has_trainer, trainer_data)))
         }
         18 => Box::new(Mapper18::new()),
         19 => Box::new(Mapper19::with_submapper(submapper_id)),
     //  20 => Box::new(MapperFDS::new()),  (FDS assignment)
-        21 => Box::new(Vrc2And4::new(VrcVariant::Mapper21)),
-        22 => Box::new(Vrc2And4::new(VrcVariant::Mapper22)),
-        23 => Box::new(Vrc2And4::new(VrcVariant::Mapper23)),
+        21 => Box::new(Vrc2And4::new(VrcVariant::Mapper21, submapper_id)),
+        22 => Box::new(Vrc2And4::new(VrcVariant::Mapper22, submapper_id)),
+        23 => Box::new(Vrc2And4::new(VrcVariant::Mapper23, submapper_id)),
         24 => Box::new(Vrc6::new(Vrc6Variant::Mapper24)),
-        25 => Box::new(Vrc2And4::new(VrcVariant::Mapper25)),
+        25 => Box::new(Vrc2And4::new(VrcVariant::Mapper25, submapper_id)),
         26 => Box::new(Vrc6::new(Vrc6Variant::Mapper26)),
         27 => Box::new(Mapper27::new()),
         28 => {
@@ -956,9 +958,19 @@ pub fn create_mapper(
         29 => Box::new(Mapper29::new()),
         30 => Box::new(Mapper30::new(submapper_id, has_battery, header)),
         31 => Box::new(Mapper31::new()),
-        32 => Box::new(Mapper32::new()),
+        32 => Box::new(Mapper32::new(submapper_id)),
         33 => Box::new(Mapper33::new()),
-        34 => Box::new(Mapper34::new()),
+        34 => {
+            let chr_size = if using_chr_ram { 0 } else { header[5] };
+            let kind = if !misc_rom.is_empty() {
+                Mapper34Kind::Nesticle34
+            } else if submapper_id == 1 || (submapper_id != 2 && chr_size > 1) {
+                Mapper34Kind::NINA001
+            } else {
+                Mapper34Kind::BNROM
+            };
+            Box::new(Mapper34::new(kind))
+        }
         35 => Box::new(Mapper90::new(Mapper90Variant::Mapper35)),
         36 => Box::new(Mapper36::new()),
         37 => Box::new(Mapper37::new(header, rom, rom_name)),
@@ -1033,7 +1045,18 @@ pub fn create_mapper(
         80 => Box::new(Mapper80::mapper80()),
         81 => Box::new(Mapper81::new()),
         82 => Box::new(Mapper82::new()),
-        83 => Box::new(Mapper83::new(83, submapper_id)),
+        83 => {
+            let mut sub = submapper_id;
+            if sub == 0 && (header[7] & 0x0C) != 0x08 {
+                let chr_bytes = if using_chr_ram { 0 } else { header[5] as usize * 8192 };
+                if chr_bytes >= 1024 * 1024 {
+                    sub = 2;
+                } else if chr_bytes >= 512 * 1024 {
+                    sub = 1;
+                }
+            }
+            Box::new(Mapper83::new(83, sub))
+        }
     //  84 => Box::new(Mapper40::new()), (no public references found)
         85 => Box::new(Vrc7::new(submapper_id)),
         86 => {
@@ -1100,7 +1123,7 @@ pub fn create_mapper(
         113 => Box::new(Mapper113::new()),
         114 => Box::new(Mapper114::new(prg_size, submapper_id)),
         115 => Box::new(Mapper115::new(prg_size)),
-        116 => Box::new(MapperSL12::new()),
+        116 => Box::new(MapperSL12::new(submapper_id)),
         117 => Box::new(Mapper117::new()),
         118 => Box::new(Mapper118::new(Mmc3Config::for_ines(
             header,

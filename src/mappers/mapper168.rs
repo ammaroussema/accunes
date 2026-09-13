@@ -22,6 +22,10 @@ impl Mapper168 {
         }
     }
 
+    fn is_chr_protected(&self) -> bool {
+        self.protect_chr && (self.reg & 8) != 0
+    }
+
     fn second_half_bank(&self) -> usize {
         ((self.reg & 0x0F) ^ 8) as usize
     }
@@ -64,10 +68,11 @@ impl Mapper for Mapper168 {
             if self.disable_irq && !new_disable_irq {
                 self.protect_chr = false;
             }
-            if !self.disable_irq && new_disable_irq {
+            self.disable_irq = new_disable_irq;
+            if self.disable_irq {
+                self.counter = 0;
                 self.pending_ack = true;
             }
-            self.disable_irq = new_disable_irq;
         }
     }
 
@@ -96,14 +101,14 @@ impl Mapper for Mapper168 {
         let address = (ppu_address_bus & 0x3F00) | ppu_octal_latch as u16;
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
         if address < 0x2000 {
-            let offset = if address < 0x1000 {
-                address as usize & 0x0FFF
-            } else {
-                self.second_half_bank() * 0x1000 + (address as usize & 0x0FFF)
-            };
-            if self.protect_chr {
+            if self.is_chr_protected() {
                 new_addr_bus |= 0xFF;
             } else {
+                let offset = if address < 0x1000 {
+                    address as usize & 0x0FFF
+                } else {
+                    self.second_half_bank() * 0x1000 + (address as usize & 0x0FFF)
+                };
                 let byte = if !self.chr_ram.is_empty() {
                     self.chr_ram[offset % self.chr_ram.len()]
                 } else if using_chr_ram && !chr_ram.is_empty() {
@@ -125,19 +130,21 @@ impl Mapper for Mapper168 {
     }
 
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
-        if address < 0x2000 && !self.protect_chr {
-            let offset = if address < 0x1000 {
-                address as usize & 0x0FFF
-            } else {
-                self.second_half_bank() * 0x1000 + (address as usize & 0x0FFF)
-            };
-            if !self.chr_ram.is_empty() {
-                let len = self.chr_ram.len();
-                self.chr_ram[offset % len] = data;
-            } else if cart.using_chr_ram {
-                let len = cart.chr_ram.len();
-                if len > 0 {
-                    cart.chr_ram[offset % len] = data;
+        if address < 0x2000 {
+            if !self.is_chr_protected() {
+                let offset = if address < 0x1000 {
+                    address as usize & 0x0FFF
+                } else {
+                    self.second_half_bank() * 0x1000 + (address as usize & 0x0FFF)
+                };
+                if !self.chr_ram.is_empty() {
+                    let len = self.chr_ram.len();
+                    self.chr_ram[offset % len] = data;
+                } else if cart.using_chr_ram {
+                    let len = cart.chr_ram.len();
+                    if len > 0 {
+                        cart.chr_ram[offset % len] = data;
+                    }
                 }
             }
         } else if address >= 0x2000 && address < 0x3F00 {
@@ -146,14 +153,18 @@ impl Mapper for Mapper168 {
         }
     }
 
-    fn cpu_clock(&mut self, _cycles: u8) -> bool {
+    fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.disable_irq {
             self.counter = 0;
             false
         } else {
-            self.counter += 1;
+            self.counter = self.counter.wrapping_add(cycles as u16);
             (self.counter & 1024) != 0
         }
+    }
+
+    fn cpu_clock_irq_level(&self) -> bool {
+        true
     }
 
     fn take_irq_ack(&mut self) -> bool {

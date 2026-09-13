@@ -287,12 +287,13 @@ pub struct FfeConfig {
     pub has_battery: bool,
     pub has_trainer: bool,
     pub trainer: Vec<u8>,
+    pub prg_8k_banks: usize,
     pub wram_size: usize,
     pub battery_save_size: usize,
 }
 
 impl FfeConfig {
-    pub fn mapper6(header: &[u8], submapper: u8, has_battery: bool, has_trainer: bool, trainer: &[u8]) -> Self {
+    pub fn mapper6(header: &[u8], submapper: u8, prg_size: u8, has_battery: bool, has_trainer: bool, trainer: &[u8]) -> Self {
         let vertical = header.len() >= 16 && (header[6] & 1) != 0;
         let sub = if submapper == 0 { 1 } else { submapper };
         Self {
@@ -301,12 +302,13 @@ impl FfeConfig {
             has_battery,
             has_trainer,
             trainer: trainer.to_vec(),
+            prg_8k_banks: prg_size as usize * 2,
             wram_size: FFE_WRAM_SIZE,
             battery_save_size: if has_battery { FFE_WRAM_SIZE } else { 0 },
         }
     }
 
-    pub fn mapper8(header: &[u8], has_battery: bool, has_trainer: bool, trainer: &[u8]) -> Self {
+    pub fn mapper8(header: &[u8], prg_size: u8, has_battery: bool, has_trainer: bool, trainer: &[u8]) -> Self {
         let vertical = header.len() >= 16 && (header[6] & 1) != 0;
         Self {
             variant: FfeVariant::Mapper8,
@@ -314,12 +316,13 @@ impl FfeConfig {
             has_battery,
             has_trainer,
             trainer: trainer.to_vec(),
+            prg_8k_banks: prg_size as usize * 2,
             wram_size: FFE_WRAM_SIZE,
             battery_save_size: if has_battery { FFE_WRAM_SIZE } else { 0 },
         }
     }
 
-    pub fn mapper12(header: &[u8], has_battery: bool, has_trainer: bool, trainer: &[u8]) -> Self {
+    pub fn mapper12(header: &[u8], prg_size: u8, has_battery: bool, has_trainer: bool, trainer: &[u8]) -> Self {
         let vertical = header.len() >= 16 && (header[6] & 1) != 0;
         Self {
             variant: FfeVariant::Mapper12,
@@ -327,12 +330,13 @@ impl FfeConfig {
             has_battery,
             has_trainer,
             trainer: trainer.to_vec(),
+            prg_8k_banks: prg_size as usize * 2,
             wram_size: FFE_WRAM_SIZE,
             battery_save_size: if has_battery { FFE_WRAM_SIZE } else { 0 },
         }
     }
 
-    pub fn mapper17(header: &[u8], submapper: u8, has_battery: bool, has_trainer: bool, trainer: &[u8]) -> Self {
+    pub fn mapper17(header: &[u8], submapper: u8, prg_size: u8, has_battery: bool, has_trainer: bool, trainer: &[u8]) -> Self {
         let vertical = header.len() >= 16 && (header[6] & 1) != 0;
         Self {
             variant: FfeVariant::Mapper17(submapper),
@@ -340,6 +344,7 @@ impl FfeConfig {
             has_battery,
             has_trainer,
             trainer: trainer.to_vec(),
+            prg_8k_banks: prg_size as usize * 2,
             wram_size: FFE_WRAM_SIZE,
             battery_save_size: if has_battery { FFE_WRAM_SIZE } else { 0 },
         }
@@ -425,7 +430,7 @@ impl MapperFfe {
             irq_ack: false,
             initialized: false,
         };
-        s.init_banks(16);
+        s.init_banks(s.cfg.prg_8k_banks.max(4));
         s
     }
 
@@ -490,7 +495,7 @@ impl MapperFfe {
             cart.chr_ram.resize(0x2000, 0);
         }
 
-        let num_prg_8k = (cart.prg_rom.len() / 0x2000).max(4);
+        let num_prg_8k = self.cfg.prg_8k_banks.max(4);
         self.init_banks(num_prg_8k);
 
         self.scratch_ram.copy_from_slice(&SMC5000);
@@ -666,7 +671,7 @@ impl Mapper for MapperFfe {
         self.smc_mode = Self::default_smc_mode(&self.cfg);
         self.latch = 0;
         self.lock_chr = false;
-        self.init_banks(16);
+        self.init_banks(self.cfg.prg_8k_banks.max(4));
         self.scratch_ram.copy_from_slice(&SMC5000);
         self.latch_mmc4 = [0; 2];
         self.smc_irq = false;
@@ -679,8 +684,6 @@ impl Mapper for MapperFfe {
     }
 
     fn reset_power_cycle(&mut self) {
-        self.reset();
-        self.initialized = false;
     }
 
     fn reset_with_cart(&mut self, cart: &mut Cartridge) {

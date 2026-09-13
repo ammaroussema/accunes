@@ -60,13 +60,14 @@ impl Mapper12 {
         chr_size: u8,
         rom: &[u8],
         rom_name: &str,
+        prg_size: u8,
         has_battery: bool,
         has_trainer: bool,
         trainer: &[u8],
     ) -> Self {
         if submapper_id == 1 {
             Self {
-                inner: Mapper12Inner::Ffe(MapperFfe::new(FfeConfig::mapper12(header, has_battery, has_trainer, trainer))),
+                inner: Mapper12Inner::Ffe(MapperFfe::new(FfeConfig::mapper12(header, prg_size, has_battery, has_trainer, trainer))),
             }
         } else {
             Self {

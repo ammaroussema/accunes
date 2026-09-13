@@ -692,6 +692,13 @@ impl Cartridge {
             return Err("Not a valid iNES ROM file".to_string());
         }
 
+        if rom.len() >= 16 && &rom[7..16] == b"DiskDude!" {
+            println!("Detected DiskDude!-corrupted header, cleaning bytes 7-15");
+            for byte in rom.iter_mut().skip(7).take(9) {
+                *byte = 0;
+            }
+        }
+
         let is_nes20 = (rom[7] & 0x0C) == 0x08;
         let is_wxn = !is_nes20 && rom.len() > 11 && rom[11] == 1;
         let mut memory_mapper = ((rom[6] >> 4) as u16) | ((rom[7] & 0xF0) as u16)
@@ -852,7 +859,7 @@ impl Cartridge {
             None
         };
 
-        let mmc3_cfg = if memory_mapper == 4 || memory_mapper == 12 {
+        let mmc3_cfg = if memory_mapper == 4 || (memory_mapper == 12 && sub_mapper != 1) {
             Some(crate::mappers::mmc3::Mmc3Config::for_ines(
                 &rom[0..16],
                 sub_mapper,
@@ -884,8 +891,27 @@ impl Cartridge {
         } else if memory_mapper == 77 {
             vec![0u8; 6 * 1024]
         } else if memory_mapper == 34 {
-            vec![0u8; 8 * 1024]
-        } else if memory_mapper == 74 || memory_mapper == 191 || memory_mapper == 194 || memory_mapper == 252 || memory_mapper == 253 {
+            let chr_8k_count = chr_rom.len() / (8 * 1024);
+            let is_nina_or_nesticle = !misc_rom.is_empty()
+                || sub_mapper == 1
+                || (sub_mapper != 2 && chr_8k_count > 1);
+            if is_nina_or_nesticle {
+                Vec::new()
+            } else {
+                vec![0u8; 8 * 1024]
+            }
+        } else if memory_mapper == 74 {
+            if is_nes20 {
+                vec![0u8; 2 * 1024]
+            } else {
+                let mut ram = vec![0u8; chr_rom.len().max(0x2000)];
+                if !chr_rom.is_empty() {
+                    let len = chr_rom.len().min(ram.len());
+                    ram[..len].copy_from_slice(&chr_rom[..len]);
+                }
+                ram
+            }
+        } else if memory_mapper == 191 || memory_mapper == 194 || memory_mapper == 252 || memory_mapper == 253 {
             vec![0u8; 2 * 1024]
         } else if memory_mapper == 192 || memory_mapper == 195 {
             vec![0u8; 4 * 1024]
@@ -988,10 +1014,10 @@ impl Cartridge {
 
         let ffe_cfg = if memory_mapper == 6 || memory_mapper == 8 || memory_mapper == 12 || memory_mapper == 17 {
             Some(match memory_mapper {
-                8 => crate::mappers::ffe::FfeConfig::mapper8(&rom[0..16], has_battery, has_trainer_any, trainer_data_any),
-                12 => crate::mappers::ffe::FfeConfig::mapper12(&rom[0..16], has_battery, has_trainer_any, trainer_data_any),
-                17 => crate::mappers::ffe::FfeConfig::mapper17(&rom[0..16], sub_mapper, has_battery, has_trainer_any, trainer_data_any),
-                _ => crate::mappers::ffe::FfeConfig::mapper6(&rom[0..16], sub_mapper, has_battery, has_trainer_any, trainer_data_any),
+                8 => crate::mappers::ffe::FfeConfig::mapper8(&rom[0..16], prg_size, has_battery, has_trainer_any, trainer_data_any),
+                12 => crate::mappers::ffe::FfeConfig::mapper12(&rom[0..16], prg_size, has_battery, has_trainer_any, trainer_data_any),
+                17 => crate::mappers::ffe::FfeConfig::mapper17(&rom[0..16], sub_mapper, prg_size, has_battery, has_trainer_any, trainer_data_any),
+                _ => crate::mappers::ffe::FfeConfig::mapper6(&rom[0..16], sub_mapper, prg_size, has_battery, has_trainer_any, trainer_data_any),
             })
         } else {
             None
@@ -1021,8 +1047,10 @@ impl Cartridge {
             vec![0u8; crate::mappers::fme7::wram_size(&rom[0..16])]
         } else if memory_mapper == 153 {
             vec![0u8; crate::mappers::bandai::prg_ram_size(153)]
-        } else if memory_mapper == 16 || memory_mapper == 159 || memory_mapper == 157 {
-            Vec::new()
+        } else if memory_mapper == 83 && (sub_mapper == 2 || (chr_rom.len() >= 1024 * 1024 && !is_nes20)) {
+            vec![0u8; 32 * 1024]
+        } else if memory_mapper == 103 {
+            vec![0u8; 16 * 1024]
         } else if memory_mapper == 543 {
             vec![0u8; 0x10000]
         } else if memory_mapper == 1

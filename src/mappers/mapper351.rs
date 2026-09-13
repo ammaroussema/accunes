@@ -170,7 +170,7 @@ impl Mapper351 {
         mmc3.reset();
         let mut mmc1_core = Mmc1Core::new(mmc1_config);
         mmc1_core.reset();
-        let mut vrc4 = Vrc2And4::new(VrcVariant::Mapper21);
+        let mut vrc4 = Vrc2And4::new(VrcVariant::Mapper21, 0);
         vrc4.reset();
         let prg_size = if header.len() > 4 { header[4] } else { 0 };
         let prg_start = 16 + ((header.get(6).copied().unwrap_or(0) as usize >> 2) & 1) * 512;

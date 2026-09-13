@@ -162,6 +162,8 @@ pub struct Emulator {
     pub ppu_mask_show_sprites_instant: bool,
     pub ppu_mask_show_background_delayed: bool,
     pub ppu_mask_show_sprites_delayed: bool,
+    pub render_background_enabled: bool,
+    pub render_sprites_enabled: bool,
 
     pub ppu_bg_pattern_sr_l: u16,
     pub ppu_bg_pattern_sr_h: u16,
@@ -748,6 +750,8 @@ impl Emulator {
             ppu_mask_emphasize_blue: false,
             ppu_mask_show_background_instant: false, ppu_mask_show_sprites_instant: false,
             ppu_mask_show_background_delayed: false, ppu_mask_show_sprites_delayed: false,
+            render_background_enabled: config::load_render_background(),
+            render_sprites_enabled: config::load_render_sprites(),
             ppu_bg_pattern_sr_l: 0, ppu_bg_pattern_sr_h: 0,
             ppu_bg_pattern_sr_l2: 0, ppu_bg_pattern_sr_h2: 0,
             ppu_bg_attr_sr_l: 0, ppu_bg_attr_sr_h: 0,

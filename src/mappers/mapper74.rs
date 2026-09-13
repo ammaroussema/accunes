@@ -4,6 +4,7 @@ use crate::mappers::mmc3::{MapperMMC3, Mmc3Config};
 
 pub struct Mapper74 {
     mmc3: MapperMMC3,
+    nes20: bool,
 }
 
 impl Mapper74 {
@@ -15,8 +16,10 @@ impl Mapper74 {
             rom,
             rom_name,
         );
+        let nes20 = header.len() >= 16 && (header[7] & 0x0C) == 0x08;
         Self {
             mmc3: MapperMMC3::new(config),
+            nes20,
         }
     }
 }
@@ -60,17 +63,28 @@ impl Mapper for Mapper74 {
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
         if address < 0x2000 {
             let bank = self.mmc3.chr_bank(address);
-            let byte = if bank == 0x08 || bank == 0x09 {
-                let ram_bank = bank - 0x08;
-                let offset = (ram_bank as usize) * 0x0400 + (address as usize & 0x03FF);
-                if !chr_ram.is_empty() {
-                    chr_ram[offset % chr_ram.len()]
+            let byte = if self.nes20 {
+                if bank == 0x08 || bank == 0x09 {
+                    let ram_bank = bank - 0x08;
+                    let offset = (ram_bank as usize) * 0x0400 + (address as usize & 0x03FF);
+                    if !chr_ram.is_empty() {
+                        chr_ram[offset % chr_ram.len()]
+                    } else {
+                        0
+                    }
                 } else {
-                    0
+                    let offset = (bank as usize) * 0x0400 + (address as usize & 0x03FF);
+                    if !chr_rom.is_empty() {
+                        chr_rom[offset % chr_rom.len()]
+                    } else {
+                        0
+                    }
                 }
             } else {
                 let offset = (bank as usize) * 0x0400 + (address as usize & 0x03FF);
-                if !chr_rom.is_empty() {
+                if !chr_ram.is_empty() {
+                    chr_ram[offset % chr_ram.len()]
+                } else if !chr_rom.is_empty() {
                     chr_rom[offset % chr_rom.len()]
                 } else {
                     0
@@ -91,11 +105,16 @@ impl Mapper for Mapper74 {
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         if address < 0x2000 {
             let bank = self.mmc3.chr_bank(address);
-            if bank == 0x08 || bank == 0x09 {
-                let ram_bank = bank - 0x08;
-                let offset = (ram_bank as usize) * 0x0400 + (address as usize & 0x03FF);
-                let len = cart.chr_ram.len();
-                if len > 0 {
+            let len = cart.chr_ram.len();
+            if len > 0 {
+                if self.nes20 {
+                    if bank == 0x08 || bank == 0x09 {
+                        let ram_bank = bank - 0x08;
+                        let offset = (ram_bank as usize) * 0x0400 + (address as usize & 0x03FF);
+                        cart.chr_ram[offset % len] = data;
+                    }
+                } else {
+                    let offset = (bank as usize) * 0x0400 + (address as usize & 0x03FF);
                     cart.chr_ram[offset % len] = data;
                 }
             }

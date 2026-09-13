@@ -23,14 +23,9 @@ impl Mapper for Mapper174 {
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let bank = if self.prg_mode_32k {
-                (self.prg_bank & 0xFE) as usize
+                ((self.prg_bank >> 1) as usize) * 2 + if address >= 0xC000 { 1 } else { 0 }
             } else {
-                let bank = self.prg_bank as usize;
-                if address >= 0xC000 {
-                    bank
-                } else {
-                    bank
-                }
+                self.prg_bank as usize
             };
             let offset = bank * 0x4000 + (address as usize & 0x3FFF);
             FetchResult {
@@ -67,7 +62,7 @@ impl Mapper for Mapper174 {
         chr_ram: &[u8],
         _prg_vram: &[u8],
         using_chr_ram: bool,
-        nametable_horizontal_mirroring: bool,
+        _nametable_horizontal_mirroring: bool,
         _alternative_nametable_arrangement: bool,
         ppu_address_bus: u16,
         ppu_octal_latch: u8,
@@ -84,7 +79,7 @@ impl Mapper for Mapper174 {
                 new_addr_bus |= chr_rom[chr_offset % chr_rom.len()] as u16;
             }
         } else {
-            let mirrored = if nametable_horizontal_mirroring {
+            let mirrored = if self.horizontal_mirroring {
                 (address & 0x33FF) | ((address & 0x0800) >> 1)
             } else {
                 address & 0x37FF

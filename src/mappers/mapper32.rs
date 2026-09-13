@@ -5,14 +5,26 @@ pub struct Mapper32 {
     preg: [u8; 2],
     creg: [u8; 8],
     mirr: u8,
+    if13: bool,
 }
 
 impl Mapper32 {
-    pub fn new() -> Self {
+    pub fn new(submapper: u8) -> Self {
         Self {
-            preg: [0, 0],
-            creg: [0; 8],
+            preg: [0, 1],
+            creg: [0, 1, 2, 3, 4, 5, 6, 7],
             mirr: 0,
+            if13: submapper == 1,
+        }
+    }
+
+    fn mirror_address(&self, address: u16) -> u16 {
+        if self.if13 {
+            0x2000 | 0x0400 | (address & 0x3FF)
+        } else if (self.mirr & 1) == 0 {
+            address & 0x37FF
+        } else {
+            (address & 0x33FF) | ((address & 0x0800) >> 1)
         }
     }
 }
@@ -20,18 +32,25 @@ impl Mapper32 {
 impl Mapper for Mapper32 {
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
-            let swap = ((self.mirr & 2) as u16) << 13;
-            let effective_addr = address ^ swap;
-            let num_banks = cart.prg_rom.len() / 0x2000;
+            let num_banks = (cart.prg_rom.len() / 0x2000).max(1);
             let last_bank = num_banks - 1;
-            let actual_bank = match effective_addr {
-                0x8000..=0x9FFF => self.preg[0] as usize,
-                0xA000..=0xBFFF => self.preg[1] as usize,
-                0xC000..=0xDFFF => last_bank.saturating_sub(1),
-                0xE000..=0xFFFF => last_bank,
-                _ => 0,
+            let invert = !self.if13 && (self.mirr & 2) != 0;
+            let actual_bank = if invert {
+                match address & 0xE000 {
+                    0x8000 => last_bank.saturating_sub(1),
+                    0xA000 => self.preg[1] as usize,
+                    0xC000 => self.preg[0] as usize,
+                    _ => last_bank,
+                }
+            } else {
+                match address & 0xE000 {
+                    0x8000 => self.preg[0] as usize,
+                    0xA000 => self.preg[1] as usize,
+                    0xC000 => last_bank.saturating_sub(1),
+                    _ => last_bank,
+                }
             };
-            let offset = actual_bank * 0x2000 + (effective_addr as usize & 0x1FFF);
+            let offset = actual_bank * 0x2000 + (address as usize & 0x1FFF);
             FetchResult {
                 data: cart.prg_rom[offset % cart.prg_rom.len()],
                 driven: true,
@@ -69,11 +88,7 @@ impl Mapper for Mapper32 {
     }
 
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
-        if (self.mirr & 1) == 0 {
-            address & 0x37FF 
-        } else {
-            (address & 0x33FF) | ((address & 0x0800) >> 1) 
-        }
+        self.mirror_address(address)
     }
 
     fn fetch_ppu(
@@ -105,11 +120,7 @@ impl Mapper for Mapper32 {
                 new_addr_bus |= chr_rom[offset & mask] as u16;
             }
         } else {
-            let mirrored = if (self.mirr & 1) == 0 {
-                address & 0x37FF 
-            } else {
-                (address & 0x33FF) | ((address & 0x0800) >> 1) 
-            };
+            let mirrored = self.mirror_address(address);
             new_addr_bus |= vram[mirrored as usize & 0x7FF] as u16;
         }
         (new_addr_bus as u8, new_addr_bus)
@@ -152,8 +163,10 @@ impl Mapper for Mapper32 {
     }
 
     fn reset(&mut self) {
-        self.preg = [0, 0];
-        self.creg = [0; 8];
+        self.preg = [0, 1];
+        for i in 0..8 {
+            self.creg[i] = i as u8;
+        }
         self.mirr = 0;
     }
 }

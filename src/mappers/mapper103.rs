@@ -31,6 +31,15 @@ impl Mapper for Mapper103 {
     }
 
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
+        if !self.prg_ram_disabled && address >= 0xB800 && address < 0xD800 {
+            let offset = 0x2000 + (address - 0xB800) as usize;
+            if offset < cart.prg_ram.len() {
+                return FetchResult {
+                    data: cart.prg_ram[offset],
+                    driven: true,
+                };
+            }
+        }
         if address >= 0x8000 {
             let prg_len = cart.prg_rom.len();
             if prg_len == 0 {
@@ -72,45 +81,32 @@ impl Mapper for Mapper103 {
                     };
                 }
             }
-        } else if address >= 0xB800 && address < 0xD800 {
-            if !self.prg_ram_disabled {
-                let offset = 0x2000 + (address - 0xB800) as usize;
-                if offset < cart.prg_ram.len() {
-                    return FetchResult {
-                        data: cart.prg_ram[offset],
-                        driven: true,
-                    };
-                }
-            }
         }
         FetchResult { data: 0, driven: false }
     }
 
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
+        if address >= 0x6000 && address < 0x8000 {
+            let offset = (address - 0x6000) as usize;
+            if offset < cart.prg_ram.len() {
+                cart.prg_ram[offset] = data;
+            }
+        } else if address >= 0xB800 && address < 0xD800 {
+            let offset = 0x2000 + (address - 0xB800) as usize;
+            if offset < cart.prg_ram.len() {
+                cart.prg_ram[offset] = data;
+            }
+        }
         match address & 0xF000 {
-            0x6000 | 0x7000 => {
-                let offset = (address - 0x6000) as usize;
-                if offset < cart.prg_ram.len() {
-                    cart.prg_ram[offset] = data;
-                }
-            }
             0x8000 => {
-                self.prg_reg = data & 0x0F;
+                self.prg_reg = data;
                 self.update_state(cart);
-            }
-            0xB000 | 0xC000 | 0xD000 => {
-                if address >= 0xB800 && address < 0xD800 {
-                    let offset = 0x2000 + (address - 0xB800) as usize;
-                    if offset < cart.prg_ram.len() {
-                        cart.prg_ram[offset] = data;
-                    }
-                }
             }
             0xE000 => {
                 self.horizontal_mirroring = (data & 0x08) != 0;
             }
             0xF000 => {
-                self.prg_ram_disabled = (data & 0x10) == 0x10;
+                self.prg_ram_disabled = (data & 0x10) != 0;
                 self.update_state(cart);
             }
             _ => {}

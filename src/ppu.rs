@@ -1677,7 +1677,7 @@ impl Emulator {
             && (self.ppu_dot > 8 || self.ppu_mask_8px_show_sprites);
         let dot = self.ppu_dot.saturating_sub(1);
 
-        if show_bg {
+        if show_bg && self.render_background_enabled {
             if hires {
                 let idx = dot as usize + self.ppu_fine_x_scroll as usize;
                 let idx2 = idx * 2;
@@ -1711,7 +1711,7 @@ impl Emulator {
                     if sprite.sprite0 && dot < 255 {
                         self.ppu_status_sprite_zero_hit = true;
                     }
-                    if !(displayed_tc != 0 && false) {
+                    if self.render_sprites_enabled && !(displayed_tc != 0 && false) {
                         displayed_tc = sp_data as u16 | 0x100;
                     }
                 }
@@ -1734,7 +1734,7 @@ impl Emulator {
                     if sprite.sprite0 && dot < 255 {
                         self.ppu_status_sprite_zero_hit = true;
                     }
-                    if !(displayed_tc != 0 && sprite.priority) {
+                    if self.render_sprites_enabled && !(displayed_tc != 0 && sprite.priority) {
                         displayed_tc = sp_data as u16 | 0x100;
                     }
                 }
@@ -1846,12 +1846,23 @@ impl Emulator {
                 }
             }
 
-            if (color & bg_color_mask) == 0 && (sprite_color & sp_color_mask) != 0 {
+            let bg_opaque = (color & bg_color_mask) != 0;
+            let sp_opaque = (sprite_color & sp_color_mask) != 0;
+            let bg_color = color;
+            let bg_palette = palette;
+
+            color = 0;
+            palette = 0;
+
+            if sp_opaque
+                && self.render_sprites_enabled
+                && (!bg_opaque || !self.render_background_enabled || sprite_priority)
+            {
                 color = sprite_color;
                 palette = sprite_palette;
-            } else if (sprite_color & sp_color_mask) != 0 && sprite_priority {
-                color = sprite_color;
-                palette = sprite_palette;
+            } else if bg_opaque && self.render_background_enabled {
+                color = bg_color;
+                palette = bg_palette;
             }
         }
 
@@ -1957,6 +1968,7 @@ impl Emulator {
         let mut out_tc: u8 = 0;
         let mut bg_opaque = false;
         if self.ppu_mask_show_background
+            && self.render_background_enabled
             && (self.ppu_dot > 8 || self.ppu_mask_8px_show_background)
         {
             let c0 = ((self.ppu_bg_pattern_sr_l >> px) & 1) as u8;
@@ -1994,7 +2006,7 @@ impl Emulator {
                     continue;
                 }
                 let behind = (self.ppu_sprite_attribute[i] >> 5) & 1 == 1;
-                if !bg_opaque || !behind {
+                if self.render_sprites_enabled && (!bg_opaque || !behind) {
                     let palette = self.ppu_sprite_attribute[i] & 0x03;
                     out_tc = if four_sp {
                         ((palette & 0x3) << 4) | sc

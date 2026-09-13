@@ -3,137 +3,145 @@ use crate::mapper::{FetchResult, Mapper};
 
 pub struct Mapper83 {
     mapper_num: u16,
-    outer_bank: u8,
-    misc: u8,
-    prg_mask: u8,
-    prg: [u8; 4],
-    chr_mode: u8,
-    chr: [u8; 8],
-    dip_mask: u16,
-    dip_switches: u8,
+    submapper: u8,
+    reg: [u8; 16],
     scratch: [u8; 4],
-    counter: u16,
-    counting: bool,
+    flags: u8,
+    previous_pa: u16,
+    dip_switches: u8,
+    irq_pending: bool,
 }
 
 impl Mapper83 {
     pub fn new(mapper_num: u16, submapper: u8) -> Self {
-        let (prg_mask, chr_mode, dip_mask) = if mapper_num == 264 {
-            (0x0F, 1, 0x400)
-        } else {
-            let chr_mode = submapper;
-            (0x1F, chr_mode, 0x100)
-        };
         let mut m = Mapper83 {
             mapper_num,
-            outer_bank: 0,
-            misc: 2 << 3,
-            prg_mask,
-            prg: [0xFC, 0xFD, 0xFE, 0xFF],
-            chr_mode,
-            chr: [0, 1, 2, 3, 4, 5, 6, 7],
-            dip_mask,
-            dip_switches: 0,
+            submapper,
+            reg: [0; 16],
             scratch: [0; 4],
-            counter: 0,
-            counting: false,
+            flags: 0,
+            previous_pa: 0,
+            dip_switches: 0,
+            irq_pending: false,
         };
         m.reset();
         m
     }
 
-    fn mirroring(&self) -> u8 {
-        self.misc & 0x03
-    }
-
-    fn prg_mode(&self) -> u8 {
-        (self.misc >> 3) & 3
-    }
-
-    fn decreasing(&self) -> bool {
-        (self.misc & 0x40) != 0
-    }
-
-    fn counter_enabled(&self) -> bool {
-        (self.misc & 0x80) != 0
+    fn prg_and(&self) -> u8 {
+        if self.mapper_num == 264 || self.submapper == 3 {
+            0x0F
+        } else {
+            0x1F
+        }
     }
 
     fn decode_address(&self, address: u16) -> u16 {
+        let mut addr = address & 0x0FFF;
         if self.mapper_num == 264 {
-            (address >> 2 & 0x3FC0) | (address & 0x003F)
-        } else {
-            address
+            addr = ((addr >> 2) & !0x3F) | (addr & 0x3F);
         }
+        addr
+    }
+
+    fn clock_counter(&mut self) {
+        let mut counter = (self.reg[2] as u16) | ((self.reg[3] as u16) << 8);
+        if (self.flags & 0x80) != 0 && counter != 0 {
+            if (self.reg[1] & 0x40) != 0 {
+                counter = counter.wrapping_sub(1);
+            } else {
+                counter = counter.wrapping_add(1);
+            }
+            if counter == 0 {
+                self.irq_pending = true;
+                self.flags &= !0x80;
+            }
+        }
+        self.reg[2] = (counter & 0xFF) as u8;
+        self.reg[3] = (counter >> 8) as u8;
     }
 }
 
 impl Mapper for Mapper83 {
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
-            let prg_mode = self.prg_mode();
-            let bank = match prg_mode {
-                0 => {
-                    let bank_idx = if address < 0xC000 {
-                        self.outer_bank as usize
+            let prg_len = cart.prg_rom.len();
+            if prg_len == 0 {
+                return FetchResult { data: 0, driven: false };
+            }
+            let prg_and = self.prg_and() as usize;
+            let reg0 = self.reg[0] as usize;
+
+            let offset = match self.reg[1] & 0x18 {
+                0x00 => {
+                    let bank_16k = if address < 0xC000 {
+                        reg0
                     } else {
-                        (self.outer_bank | (self.prg_mask >> 1)) as usize
+                        reg0 | (prg_and >> 1)
                     };
-                    let bank_count = (cart.prg_rom.len() / 0x4000).max(1);
-                    let bank = bank_idx % bank_count;
-                    let offset = bank * 0x4000 + (address as usize & 0x3FFF);
-                    FetchResult {
-                        data: cart.prg_rom[offset % cart.prg_rom.len()],
-                        driven: true,
-                    }
+                    (bank_16k * 0x4000 + (address as usize & 0x3FFF)) % prg_len
                 }
-                1 => {
-                    let bank_idx = (self.outer_bank >> 1) as usize;
-                    let bank_count = (cart.prg_rom.len() / 0x8000).max(1);
-                    let bank = bank_idx % bank_count;
-                    let offset = bank * 0x8000 + (address as usize & 0x7FFF);
-                    FetchResult {
-                        data: cart.prg_rom[offset % cart.prg_rom.len()],
-                        driven: true,
-                    }
+                0x08 => {
+                    let bank_16k = reg0;
+                    (bank_16k * 0x4000 + (address as usize & 0x3FFF)) % prg_len
                 }
-                2 | 3 => {
-                    let bank_idx = match address {
+                0x10 | 0x18 => {
+                    let slot = match address {
                         0x8000..=0x9FFF => 0,
                         0xA000..=0xBFFF => 1,
                         0xC000..=0xDFFF => 2,
-                        0xE000..=0xFFFF => 3,
-                        _ => return FetchResult { data: 0, driven: false },
+                        _ => 3,
                     };
-                    let base = (self.outer_bank << 1) & !self.prg_mask;
-                    let val = if bank_idx == 3 {
-                        0x1F
-                    } else {
-                        self.prg[bank_idx]
-                    };
-                    let bank_idx = (base | (val & self.prg_mask)) as usize;
-                    let bank_count = (cart.prg_rom.len() / 0x2000).max(1);
-                    let bank = bank_idx % bank_count;
-                    let offset = bank * 0x2000 + (address as usize & 0x1FFF);
+                    let reg_val = if slot == 3 { 0xFF } else { self.reg[4 + slot] as usize };
+                    let bank_8k = ((reg0 << 1) & !prg_and) | (reg_val & prg_and);
+                    (bank_8k * 0x2000 + (address as usize & 0x1FFF)) % prg_len
+                }
+                _ => 0,
+            };
+            FetchResult {
+                data: cart.prg_rom[offset],
+                driven: true,
+            }
+        } else if address >= 0x6000 {
+            if self.submapper == 2 {
+                let ram_len = cart.prg_ram.len();
+                if ram_len > 0 {
+                    let bank = (self.reg[0] >> 6) as usize;
+                    let offset = (bank * 0x2000 + (address as usize & 0x1FFF)) % ram_len;
                     FetchResult {
-                        data: cart.prg_rom[offset % cart.prg_rom.len()],
+                        data: cart.prg_ram[offset],
                         driven: true,
                     }
+                } else {
+                    FetchResult { data: 0, driven: false }
                 }
-                _ => FetchResult { data: 0, driven: false },
-            };
-            bank
-        } else if address >= 0x6000 {
-            let offset = (address - 0x6000) as usize;
-            if offset < cart.prg_ram.len() {
-                FetchResult {
-                    data: cart.prg_ram[offset],
-                    driven: true,
+            } else if (self.reg[1] & 0x20) != 0 {
+                let prg_len = cart.prg_rom.len();
+                if prg_len > 0 {
+                    let bank = self.reg[7] as usize;
+                    let offset = (bank * 0x2000 + (address as usize & 0x1FFF)) % prg_len;
+                    FetchResult {
+                        data: cart.prg_rom[offset],
+                        driven: true,
+                    }
+                } else {
+                    FetchResult { data: 0, driven: false }
                 }
             } else {
-                FetchResult { data: 0, driven: false }
+                let ram_len = cart.prg_ram.len();
+                let offset = (address - 0x6000) as usize;
+                if ram_len > 0 && offset < ram_len {
+                    FetchResult {
+                        data: cart.prg_ram[offset],
+                        driven: true,
+                    }
+                } else {
+                    FetchResult { data: 0, driven: false }
+                }
             }
         } else if address >= 0x5000 {
-            if address & self.dip_mask != 0 {
+            let dip_mask = if self.mapper_num == 264 { 0x400 } else { 0x100 };
+            if (address & dip_mask) != 0 {
                 FetchResult {
                     data: self.scratch[address as usize & 3],
                     driven: true,
@@ -152,36 +160,43 @@ impl Mapper for Mapper83 {
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x8000 {
             let addr = self.decode_address(address);
-            let reg = ((addr >> 8) & 3) as usize;
-            let index = (addr & 0x1F) as usize;
-            match reg {
-                0 => {
-                    self.outer_bank = data;
+            match addr & 0x318 {
+                0x000 | 0x008 | 0x010 | 0x018 | 0x100 | 0x108 | 0x110 | 0x118 => {
+                    self.reg[((addr >> 8) & 1) as usize] = data;
                 }
-                1 => {
-                    self.misc = data;
-                }
-                2 => {
-                    if index & 1 != 0 {
-                        self.counter = (self.counter & 0x00FF) | ((data as u16) << 8);
-                        self.counting = self.counter_enabled();
+                0x200 | 0x208 | 0x210 | 0x218 => {
+                    self.reg[2 | (addr as usize & 1)] = data;
+                    if (addr & 1) != 0 {
+                        self.flags = (self.flags & !0x80) | (self.reg[1] & 0x80);
                     } else {
-                        self.counter = (self.counter & 0xFF00) | (data as u16);
+                        self.irq_pending = false;
                     }
                 }
-                3 => {
-                    if index < 0x10 {
-                        self.prg[index & 3] = data;
-                    } else if index < 0x18 {
-                        self.chr[index & 7] = data;
-                    }
+                0x300 | 0x308 => {
+                    self.reg[4 | (addr as usize & 3)] = data;
+                }
+                0x310 => {
+                    self.reg[8 | (addr as usize & 7)] = data;
+                }
+                0x318 => {
+                    self.flags = (self.flags & !0x40) | (data & 0x40);
                 }
                 _ => {}
             }
         } else if address >= 0x6000 {
-            let offset = (address - 0x6000) as usize;
-            if offset < cart.prg_ram.len() {
-                cart.prg_ram[offset] = data;
+            if self.submapper == 2 {
+                let ram_len = cart.prg_ram.len();
+                if ram_len > 0 {
+                    let bank = (self.reg[0] >> 6) as usize;
+                    let offset = (bank * 0x2000 + (address as usize & 0x1FFF)) % ram_len;
+                    cart.prg_ram[offset] = data;
+                }
+            } else {
+                let ram_len = cart.prg_ram.len();
+                let offset = (address - 0x6000) as usize;
+                if ram_len > 0 && offset < ram_len {
+                    cart.prg_ram[offset] = data;
+                }
             }
         } else if address >= 0x5000 {
             self.scratch[address as usize & 3] = data;
@@ -192,11 +207,11 @@ impl Mapper for Mapper83 {
         if cart.alternative_nametable_arrangement {
             address
         } else {
-            match self.mirroring() {
-                0 => address & 0x2FFF, 
-                1 => (address & 0x33FF) | ((address & 0x0800) >> 1), 
-                2 => address & 0x3FFF, 
-                3 => address | 0x400, 
+            match self.reg[1] & 0x03 {
+                0 => address & 0x37FF,
+                1 => (address & 0x33FF) | ((address & 0x0800) >> 1),
+                2 => address & 0x23FF,
+                3 => (address & 0x23FF) | 0x400,
                 _ => address,
             }
         }
@@ -219,55 +234,54 @@ impl Mapper for Mapper83 {
         let address = (ppu_address_bus & 0x3F00) | ppu_octal_latch as u16;
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
         if address < 0x2000 {
-            let chr_data = if using_chr_ram {
-                if chr_ram.is_empty() { 0 } else { chr_ram[address as usize & 0x1FFF] }
+            let chr_len = if using_chr_ram { chr_ram.len() } else { chr_rom.len() };
+            let chr_data = if chr_len == 0 {
+                0
             } else {
-                let bank = match self.chr_mode {
+                let sub = if self.mapper_num == 264 { 1 } else { self.submapper };
+                let offset = match sub {
                     0 => {
-                        let bank_idx = (address >> 10) as usize;
-                        let bank = self.chr[bank_idx & 7] as usize;
-                        let bank_count = (chr_rom.len() / 0x400).max(1);
-                        let bank = bank % bank_count;
-                        let offset = bank * 0x400 + (address as usize & 0x3FF);
-                        if chr_rom.is_empty() { 0 } else { chr_rom[offset % chr_rom.len()] }
+                        let bank = self.reg[8 | ((address >> 10) as usize & 7)] as usize;
+                        (bank * 0x400 + (address as usize & 0x3FF)) % chr_len
                     }
                     1 => {
-                        let bank_idx = match address {
-                            0x0000..=0x07FF => 0,
-                            0x0800..=0x0FFF => 1,
-                            0x1000..=0x17FF => 6,
-                            0x1800..=0x1FFF => 7,
-                            _ => 0,
-                        };
-                        let bank = self.chr[bank_idx] as usize;
-                        let bank_count = (chr_rom.len() / 0x800).max(1);
-                        let bank = bank % bank_count;
-                        let offset = bank * 0x800 + (address as usize & 0x7FF);
-                        if chr_rom.is_empty() { 0 } else { chr_rom[offset % chr_rom.len()] }
+                        let bank = match address {
+                            0x0000..=0x07FF => self.reg[8],
+                            0x0800..=0x0FFF => self.reg[9],
+                            0x1000..=0x17FF => self.reg[14],
+                            _ => self.reg[15],
+                        } as usize;
+                        (bank * 0x800 + (address as usize & 0x7FF)) % chr_len
                     }
                     2 => {
-                        let bank_idx = (address >> 10) as usize;
-                        let bank = (self.chr[bank_idx & 7] | ((self.outer_bank << 4) & 0x30)) as usize;
-                        let bank_count = (chr_rom.len() / 0x400).max(1);
-                        let bank = bank % bank_count;
-                        let offset = bank * 0x400 + (address as usize & 0x3FF);
-                        if chr_rom.is_empty() { 0 } else { chr_rom[offset % chr_rom.len()] }
+                        let base = ((self.reg[0] as usize) << 4) & !0xFF;
+                        let bank = base | (self.reg[8 | ((address >> 10) as usize & 7)] as usize);
+                        (bank * 0x400 + (address as usize & 0x3FF)) % chr_len
+                    }
+                    3 => {
+                        let base = ((self.reg[0] as usize) << 2) & !0xFF;
+                        let bank = base | (self.reg[8 | ((address >> 10) as usize & 7)] as usize);
+                        (bank * 0x400 + (address as usize & 0x3FF)) % chr_len
                     }
                     _ => 0,
                 };
-                bank
+                if using_chr_ram {
+                    chr_ram[offset % chr_ram.len()]
+                } else {
+                    chr_rom[offset % chr_rom.len()]
+                }
             };
             new_addr_bus |= chr_data as u16;
         } else if address < 0x3F00 {
-            let mirrored = self.mirror_nametable(&crate::cartridge::Cartridge {
+            let dummy = Cartridge {
                 name: String::new(),
                 prg_rom: vec![],
                 prg_ram: vec![],
                 chr_rom: vec![],
                 chr_ram: vec![],
                 prg_vram: vec![],
-                memory_mapper: 0,
-                sub_mapper: 0,
+                memory_mapper: 83,
+                sub_mapper: self.submapper,
                 prg_size: 0,
                 chr_size: 0,
                 prg_size_minus_1: 0,
@@ -286,45 +300,43 @@ impl Mapper for Mapper83 {
                 is_vs_system: false,
                 mapper_chip: Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default())),
                 tv_system: crate::region::TvSystem::Unknown,
-            }, address);
+            };
+            let mirrored = self.mirror_nametable(&dummy, address);
             new_addr_bus |= vram[(mirrored & 0x7FF) as usize] as u16;
         }
         (new_addr_bus as u8, new_addr_bus)
     }
 
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
-        if self.counting && self.counter != 0 {
-            if self.decreasing() {
-                self.counter -= 1;
-            } else {
-                self.counter += 1;
-            }
-            if self.counter == 0 {
-                self.counting = false;
-                true 
-            } else {
-                false
-            }
-        } else {
-            false
+        if (self.flags & 0x40) == 0 {
+            self.clock_counter();
         }
+        self.irq_pending
+    }
+
+    fn ppu_clock(
+        &mut self,
+        ppu_address_bus: u16,
+        _ppu_a12_prev: bool,
+        _scanline: u16,
+        _dot: u16,
+        _ppu_sprite_x16: bool,
+        _rendering_on: bool,
+    ) -> bool {
+        if (self.flags & 0x40) != 0 && (ppu_address_bus & 0x1000) != 0 && (self.previous_pa & 0x1000) != 0 {
+            self.clock_counter();
+        }
+        self.previous_pa = ppu_address_bus;
+        self.irq_pending
     }
 
     fn reset(&mut self) {
-        self.outer_bank = 0;
-        self.misc = 2 << 3;
-        for i in 0..4 {
-            self.prg[i] = 0xFC | i as u8;
-        }
-        for i in 0..8 {
-            self.chr[i] = i as u8;
-        }
-        for i in 0..4 {
-            self.scratch[i] = 0;
-        }
-        self.counter = 0;
-        self.counting = false;
+        self.reg = [0; 16];
+        self.scratch = [0; 4];
+        self.flags = 0;
+        self.previous_pa = 0;
         self.dip_switches = 0;
+        self.irq_pending = false;
     }
 
     fn get_dip_switches(&self) -> u8 {
@@ -339,14 +351,12 @@ impl Mapper for Mapper83 {
         let mut state = Vec::new();
         state.extend_from_slice(&cart.prg_ram);
         state.extend_from_slice(&cart.chr_ram);
-        state.push(self.outer_bank);
-        state.push(self.misc);
-        state.extend_from_slice(&self.prg);
-        state.extend_from_slice(&self.chr);
+        state.extend_from_slice(&self.reg);
         state.extend_from_slice(&self.scratch);
-        state.extend_from_slice(&self.counter.to_le_bytes());
-        state.push(self.counting as u8);
+        state.push(self.flags);
+        state.extend_from_slice(&self.previous_pa.to_le_bytes());
         state.push(self.dip_switches);
+        state.push(self.irq_pending as u8);
         state
     }
 
@@ -361,36 +371,28 @@ impl Mapper for Mapper83 {
             cart.chr_ram.copy_from_slice(&state[start..start + chr_len]);
             start += chr_len;
         }
-        if start < state.len() {
-            self.outer_bank = state[start];
-            start += 1;
-        }
-        if start < state.len() {
-            self.misc = state[start];
-            start += 1;
-        }
-        if start + 4 <= state.len() {
-            self.prg.copy_from_slice(&state[start..start + 4]);
-            start += 4;
-        }
-        if start + 8 <= state.len() {
-            self.chr.copy_from_slice(&state[start..start + 8]);
-            start += 8;
+        if start + 16 <= state.len() {
+            self.reg.copy_from_slice(&state[start..start + 16]);
+            start += 16;
         }
         if start + 4 <= state.len() {
             self.scratch.copy_from_slice(&state[start..start + 4]);
             start += 4;
         }
+        if start < state.len() {
+            self.flags = state[start];
+            start += 1;
+        }
         if start + 2 <= state.len() {
-            self.counter = u16::from_le_bytes([state[start], state[start + 1]]);
+            self.previous_pa = u16::from_le_bytes([state[start], state[start + 1]]);
             start += 2;
         }
         if start < state.len() {
-            self.counting = state[start] != 0;
+            self.dip_switches = state[start];
             start += 1;
         }
         if start < state.len() {
-            self.dip_switches = state[start];
+            self.irq_pending = state[start] != 0;
             start += 1;
         }
         start

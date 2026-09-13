@@ -3,11 +3,9 @@ use crate::mapper::{FetchResult, Mapper};
 
 pub struct Mapper73 {
     prg_bank: u8,
-    irq_enable_on_ack: bool,
-    irq_enabled: bool,
-    small_counter: bool,
-    irq_reload: u16,
-    irq_counter: u16,
+    irq: u8,
+    counter: u16,
+    latch: u16,
     irq_pending: bool,
 }
 
@@ -15,11 +13,9 @@ impl Mapper73 {
     pub fn new() -> Self {
         Self {
             prg_bank: 0,
-            irq_enable_on_ack: false,
-            irq_enabled: false,
-            small_counter: false,
-            irq_reload: 0,
-            irq_counter: 0,
+            irq: 0,
+            counter: 0,
+            latch: 0,
             irq_pending: false,
         }
     }
@@ -28,11 +24,9 @@ impl Mapper73 {
 impl Mapper for Mapper73 {
     fn reset(&mut self) {
         self.prg_bank = 0;
-        self.irq_enable_on_ack = false;
-        self.irq_enabled = false;
-        self.small_counter = false;
-        self.irq_reload = 0;
-        self.irq_counter = 0;
+        self.irq = 0;
+        self.counter = 0;
+        self.latch = 0;
         self.irq_pending = false;
     }
 
@@ -78,25 +72,24 @@ impl Mapper for Mapper73 {
             return;
         }
         match address & 0xF000 {
-            0x8000 => self.irq_reload = (self.irq_reload & 0xFFF0) | (data as u16 & 0x0F),
-            0x9000 => self.irq_reload = (self.irq_reload & 0xFF0F) | ((data as u16 & 0x0F) << 4),
-            0xA000 => self.irq_reload = (self.irq_reload & 0xF0FF) | ((data as u16 & 0x0F) << 8),
-            0xB000 => self.irq_reload = (self.irq_reload & 0x0FFF) | ((data as u16 & 0x0F) << 12),
+            0x8000 | 0x9000 | 0xA000 | 0xB000 => {
+                let shift = (((address >> 12) & 0x3) as u16) << 2;
+                let nibble = (data as u16 & 0x0F) << shift;
+                self.latch = (self.latch & !(0xF << shift)) | nibble;
+            }
             0xC000 => {
-                self.irq_enabled = (data & 0x02) == 0x02;
-                if self.irq_enabled {
-                    self.irq_counter = self.irq_reload;
+                self.irq = data;
+                if self.irq & 0x02 != 0 {
+                    self.counter = self.latch;
                 }
-                self.small_counter = (data & 0x04) == 0x04;
-                self.irq_enable_on_ack = (data & 0x01) == 0x01;
                 self.irq_pending = false;
             }
             0xD000 => {
+                self.irq = (self.irq & !0x02) | ((self.irq << 1) & 0x01);
                 self.irq_pending = false;
-                self.irq_enabled = self.irq_enable_on_ack;
             }
             0xF000 => {
-                self.prg_bank = data & 0x07;
+                self.prg_bank = data;
             }
             _ => {}
         }
@@ -161,42 +154,31 @@ impl Mapper for Mapper73 {
     }
 
     fn cpu_clock(&mut self, cycles: u8) -> bool {
-        if self.irq_enabled {
-            for _ in 0..cycles {
-                if self.small_counter {
-                    let mut low = (self.irq_counter & 0xFF) as u8;
-                    low = low.wrapping_add(1);
-                    if low == 0 {
-                        low = (self.irq_reload & 0xFF) as u8;
-                        self.irq_pending = true;
-                    }
-                    self.irq_counter = (self.irq_counter & 0xFF00) | low as u16;
+        for _ in 0..cycles as u16 {
+            if self.irq & 0x02 != 0 {
+                let mask: u16 = if self.irq & 0x04 != 0 { 0x00FF } else { 0xFFFF };
+                if self.counter & mask == mask {
+                    self.counter = self.latch;
+                    self.irq_pending = true;
                 } else {
-                    self.irq_counter = self.irq_counter.wrapping_add(1);
-                    if self.irq_counter == 0 {
-                        self.irq_counter = self.irq_reload;
-                        self.irq_pending = true;
-                    }
+                    self.counter = self.counter.wrapping_add(1);
                 }
             }
         }
-        let fired = self.irq_pending;
-        if fired {
-            self.irq_pending = false;
-        }
-        fired
+        self.irq_pending
+    }
+
+    fn cpu_clock_irq_level(&self) -> bool {
+        self.irq_pending
     }
 
     fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8> {
         let mut state = Vec::new();
         state.push(self.prg_bank);
-        state.push(if self.irq_enable_on_ack { 1 } else { 0 });
-        state.push(if self.irq_enabled { 1 } else { 0 });
-        state.push(if self.small_counter { 1 } else { 0 });
-        state.push((self.irq_reload >> 8) as u8);
-        state.push(self.irq_reload as u8);
-        state.push((self.irq_counter >> 8) as u8);
-        state.push(self.irq_counter as u8);
+        state.push(self.irq);
+        state.extend_from_slice(&self.counter.to_le_bytes());
+        state.extend_from_slice(&self.latch.to_le_bytes());
+        state.push(self.irq_pending as u8);
         state.extend_from_slice(&cart.prg_ram);
         state
     }
@@ -204,15 +186,14 @@ impl Mapper for Mapper73 {
     fn load_mapper_registers(&mut self, cart: &mut Cartridge, state: &[u8], start: usize) -> usize {
         let mut i = start;
         self.prg_bank = state[i]; i += 1;
-        self.irq_enable_on_ack = state[i] != 0; i += 1;
-        self.irq_enabled = state[i] != 0; i += 1;
-        self.small_counter = state[i] != 0; i += 1;
-        self.irq_reload = ((state[i] as u16) << 8) | state[i + 1] as u16; i += 2;
-        self.irq_counter = ((state[i] as u16) << 8) | state[i + 1] as u16; i += 2;
+        self.irq = state[i]; i += 1;
+        self.counter = u16::from_le_bytes([state[i], state[i + 1]]); i += 2;
+        self.latch = u16::from_le_bytes([state[i], state[i + 1]]); i += 2;
+        self.irq_pending = state[i] != 0; i += 1;
         let prg_ram_len = cart.prg_ram.len();
         if prg_ram_len > 0 {
             let copy_len = prg_ram_len.min(state.len() - i);
-            cart.prg_ram[..copy_len].copy_from_slice(&state[i..i+copy_len]);
+            cart.prg_ram[..copy_len].copy_from_slice(&state[i..i + copy_len]);
             i += copy_len;
         }
         i - start

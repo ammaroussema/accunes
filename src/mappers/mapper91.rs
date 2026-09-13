@@ -35,12 +35,12 @@ impl Mapper91 {
     fn prg_bank_offset(&self, prg_len: usize, slot: usize) -> usize {
         if prg_len == 0 { return 0; }
         let num_banks_8k = prg_len / 0x2000;
-        let outer_prg = ((self.outer_bank as usize >> 1) & 0x3) << 4;
+        let outer_prg = ((self.outer_bank as usize) << 3) & !0xF;
         let bank = match slot {
             0 => (self.prg[0] as usize & 0xF) | outer_prg,
             1 => (self.prg[1] as usize & 0xF) | outer_prg,
-            2 => (num_banks_8k.saturating_sub(2) & 0xF) | outer_prg,
-            _ => (num_banks_8k.saturating_sub(1) & 0xF) | outer_prg,
+            2 => 0x0E | outer_prg,
+            _ => 0x0F | outer_prg,
         };
         (bank % num_banks_8k) * 0x2000
     }
@@ -100,9 +100,8 @@ impl Mapper for Mapper91 {
                 _ => {}
             }
         } else if address >= 0x7000 && address < 0x8000 {
-            let reg = if self.submapper == 1 { address & 7 } else { address & 3 };
-            match reg {
-                0 | 1 => self.prg[reg as usize] = data,
+            match address & 3 {
+                0 | 1 => self.prg[(address & 1) as usize] = data,
                 2 => {
                     self.irq_enabled = false;
                     self.pa12_counter = 0;
@@ -114,7 +113,7 @@ impl Mapper for Mapper91 {
                 }
                 _ => {}
             }
-        } else if address >= 0x8000 && address < 0xA000 && self.submapper == 0 {
+        } else if address >= 0x8000 && address < 0xA000 {
             self.outer_bank = (address & 0xFF) as u8;
         }
     }
@@ -227,7 +226,7 @@ impl Mapper for Mapper91 {
             for _ in 0..cycles {
                 self.m2_prescaler = self.m2_prescaler.wrapping_add(1);
                 if (self.m2_prescaler & 3) == 0 {
-                    self.m2_counter -= 5;
+                    self.m2_counter = self.m2_counter.wrapping_sub(5);
                     if self.m2_counter <= 0 && self.irq_enabled {
                         self.irq_pending = true;
                     }

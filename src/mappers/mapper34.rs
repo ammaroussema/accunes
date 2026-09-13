@@ -1,14 +1,25 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Mapper34Kind {
+    NINA001,
+    BNROM,
+    Nesticle34,
+}
+
 pub struct Mapper34 {
+    kind: Mapper34Kind,
     regs: [u8; 3],
+    latch: u8,
 }
 
 impl Mapper34 {
-    pub fn new() -> Self {
+    pub fn new(kind: Mapper34Kind) -> Self {
         Self {
-            regs: [0, 0, 1], 
+            kind,
+            regs: [0; 3],
+            latch: 0,
         }
     }
 }
@@ -16,13 +27,17 @@ impl Mapper34 {
 impl Mapper for Mapper34 {
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
-            let bank = self.regs[0] as usize;
+            let bank = if self.kind == Mapper34Kind::BNROM {
+                self.latch as usize
+            } else {
+                self.regs[0] as usize
+            };
             let offset = bank * 0x8000 + (address as usize & 0x7FFF);
             FetchResult {
                 data: cart.prg_rom[offset % cart.prg_rom.len()],
                 driven: true,
             }
-        } else if address >= 0x6000 && address <= 0x7ffc {
+        } else if (0x6000..0x8000).contains(&address) {
             let offset = (address - 0x6000) as usize;
             if offset < cart.prg_ram.len() {
                 FetchResult {
@@ -38,19 +53,35 @@ impl Mapper for Mapper34 {
     }
 
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
+        if self.kind == Mapper34Kind::BNROM {
+            if address >= 0x8000 {
+                let bank = self.latch as usize;
+                let offset = bank * 0x8000 + (address as usize & 0x7FFF);
+                let rom_byte = if !cart.prg_rom.is_empty() {
+                    cart.prg_rom[offset % cart.prg_rom.len()]
+                } else {
+                    0xFF
+                };
+                self.latch = data & rom_byte;
+            } else if address >= 0x6000 {
+                let offset = (address - 0x6000) as usize;
+                if offset < cart.prg_ram.len() {
+                    cart.prg_ram[offset] = data;
+                }
+            }
+            return;
+        }
         if address >= 0x8000 {
-            self.regs[0] = data;
-        } else if address >= 0x6000 && address <= 0x7ffc {
+            if self.kind == Mapper34Kind::Nesticle34 {
+                self.regs[0] = data;
+            }
+        } else if address >= 0x6000 {
             let offset = (address - 0x6000) as usize;
             if offset < cart.prg_ram.len() {
                 cart.prg_ram[offset] = data;
             }
-        } else {
-            match address {
-                0x7ffd => self.regs[0] = data,
-                0x7ffe => self.regs[1] = data,
-                0x7fff => self.regs[2] = data,
-                _ => {}
+            if address >= 0x7FFD {
+                self.regs[(address - 0x7FFD) as usize] = data;
             }
         }
     }
@@ -80,20 +111,22 @@ impl Mapper for Mapper34 {
         let address = (ppu_address_bus & 0x3F00) | ppu_octal_latch as u16;
         let mut new_addr_bus = ppu_address_bus & 0xFF00;
         if address < 0x2000 {
-            let bank = if address < 0x1000 {
-                self.regs[1] as usize
+            let offset = if self.kind == Mapper34Kind::BNROM {
+                address as usize & 0x1FFF
             } else {
-                self.regs[2] as usize
+                let bank = if address < 0x1000 {
+                    self.regs[1] as usize
+                } else {
+                    self.regs[2] as usize
+                };
+                bank * 0x1000 + (address as usize & 0x0FFF)
             };
-            let offset = bank * 0x1000 + (address as usize & 0x0FFF);
             if using_chr_ram {
                 if !chr_ram.is_empty() {
-                    let mask = chr_ram.len() - 1;
-                    new_addr_bus |= chr_ram[offset & mask] as u16;
+                    new_addr_bus |= chr_ram[offset % chr_ram.len()] as u16;
                 }
             } else if !chr_rom.is_empty() {
-                let mask = chr_rom.len() - 1;
-                new_addr_bus |= chr_rom[offset & mask] as u16;
+                new_addr_bus |= chr_rom[offset % chr_rom.len()] as u16;
             }
         } else {
             let mirrored = if !nametable_horizontal_mirroring {
@@ -110,6 +143,7 @@ impl Mapper for Mapper34 {
         let mut state = Vec::new();
         state.extend_from_slice(&cart.prg_ram);
         state.extend_from_slice(&self.regs);
+        state.push(self.latch);
         state
     }
 
@@ -127,10 +161,27 @@ impl Mapper for Mapper34 {
                 p += 1;
             }
         }
+        if p < state.len() {
+            self.latch = state[p];
+            p += 1;
+        }
         p
     }
 
     fn reset(&mut self) {
-        self.regs = [0, 0, 1];
+        self.regs = [0; 3];
+        self.latch = 0;
+    }
+
+    fn reset_with_cart(&mut self, cart: &mut Cartridge) {
+        self.reset();
+        if self.kind == Mapper34Kind::Nesticle34 {
+            for (i, &byte) in cart.misc_rom.iter().enumerate() {
+                let target = 0x1000 + i;
+                if target < cart.prg_ram.len() {
+                    cart.prg_ram[target] = byte;
+                }
+            }
+        }
     }
 }

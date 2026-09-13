@@ -128,7 +128,6 @@ const CRC_OVERRIDES: &[CrcOverride] = &[
     CrcOverride { crc32: 0xa7b0536c, mapper: 48, mirror: 8 },
     CrcOverride { crc32: 0x40c0ad47, mapper: 48, mirror: 8 },
     CrcOverride { crc32: 0x1500e835, mapper: 48, mirror: 8 },
-    CrcOverride { crc32: 0xa912b064, mapper: 0x851, mirror: 8 },
     CrcOverride { crc32: 0xb19a55dd, mapper: 64, mirror: 8 },
     CrcOverride { crc32: 0xf92be3ec, mapper: 64, mirror: -1 },
     CrcOverride { crc32: 0xe84274c5, mapper: 66, mirror: 1 },
