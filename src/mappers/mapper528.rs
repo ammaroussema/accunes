@@ -255,6 +255,8 @@ impl Mapper for Mapper528 {
         }
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         let mut fire = false;
         for _ in 0..cycles {

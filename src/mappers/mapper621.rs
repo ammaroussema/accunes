@@ -97,9 +97,13 @@ impl Mapper for Mapper621 {
         self.mmc1.store_ppu(cart, address, data, vram);
     }
 
+    fn needs_cpu_clock_rise(&self) -> bool { true }
+
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         self.mmc1.cpu_clock_rise(ppu_address_bus)
     }
+
+    fn needs_cpu_clock(&self) -> bool { true }
 
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         self.mmc1.cpu_clock(cycles)

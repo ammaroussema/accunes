@@ -235,6 +235,8 @@ impl Mapper for Mapper552 {
         (new_addr_bus as u8, new_addr_bus)
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if self.reg[IRQ] & IRQ_COUNTING != 0 && self.reg[IRQ] & IRQ_SOURCE == 0 {
             if self.counter > 0 {

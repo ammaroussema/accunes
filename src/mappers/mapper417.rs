@@ -152,6 +152,8 @@ impl Mapper for Mapper417 {
         }
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         self.counter = self.counter.wrapping_add(1);
         let mask = if self.submapper == 1 { 0x1000 } else { 0x0400 };

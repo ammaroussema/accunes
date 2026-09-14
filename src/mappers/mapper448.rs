@@ -279,6 +279,8 @@ impl Mapper for Mapper448 {
         }
     }
 
+    fn needs_cpu_clock_rise(&self) -> bool { true }
+
     fn cpu_clock_rise(&mut self, _ppu_address_bus: u16) -> bool {
         self.vrc4_cpu_clock()
     }

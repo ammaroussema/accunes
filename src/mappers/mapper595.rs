@@ -208,6 +208,8 @@ impl Mapper for Mapper595 {
         }
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.time_out > 0 {
             self.time_out = self.time_out.saturating_sub(cycles as u32);

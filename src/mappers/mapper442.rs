@@ -82,6 +82,8 @@ impl Mapper for Mapper442 {
         }
     }
 
+    fn handles_cpu_write(&self) -> bool { true }
+
     fn handle_cpu_write(&mut self, address: u16, data: u8) {
         if (0x5000..0x6000).contains(&address) {
             self.reg[((address >> 8) & 7) as usize] = data;

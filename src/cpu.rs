@@ -95,8 +95,10 @@ impl Emulator {
         if self.operation_cycle == 0 {
             self.address_bus = self.program_counter;
             let mut opcode = self.fetch(self.address_bus);
-            if let Some(cart) = self.cart.as_ref() {
-                opcode = cart.mapper_chip.unscramble_opcode(opcode);
+            if self.mapper_unscramble_enabled {
+                if let Some(cart) = self.cart.as_ref() {
+                    opcode = cart.mapper_chip.unscramble_opcode(opcode);
+                }
             }
 
             self.op_code = opcode;
@@ -1807,6 +1809,7 @@ impl Emulator {
         self.nmi_pins_signal = self.nmi_line;
         if self.nmi_pins_signal && !self.nmi_previous_pins_signal {
             self.do_nmi = true;
+            self.frame_had_nmi = true;
         }
         self.do_irq = self.irq_line && !self.flag_interrupt;
     }
@@ -1816,6 +1819,7 @@ impl Emulator {
         self.nmi_pins_signal = self.nmi_line;
         if self.nmi_pins_signal && !self.nmi_previous_pins_signal {
             self.do_nmi = true;
+            self.frame_had_nmi = true;
         }
         if !self.do_irq {
             self.do_irq = self.irq_line && !self.flag_interrupt;

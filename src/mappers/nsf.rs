@@ -437,6 +437,8 @@ impl Mapper for NsfMapper {
         (0, ppu_address_bus)
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.irq_counter > 0 {
             self.irq_counter = self.irq_counter.saturating_sub(cycles as u32);

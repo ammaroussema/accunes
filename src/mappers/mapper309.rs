@@ -63,6 +63,7 @@ impl Mapper for Mapper309 {
             }
         }
     }
+    fn handles_cpu_write(&self) -> bool { true }
     fn handle_cpu_write(&mut self, address: u16, _data: u8) {
         if (0x4020..=0x40FF).contains(&address) {
         }

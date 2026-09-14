@@ -423,6 +423,8 @@ impl Mapper for MapperSL12 {
         }
     }
 
+    fn needs_ppu_clock(&self) -> bool { true }
+
     fn ppu_clock(
         &mut self,
         _ppu_address_bus: u16,

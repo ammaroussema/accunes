@@ -156,6 +156,8 @@ impl Mapper for Mapper563 {
         (new_addr_bus as u8, new_addr_bus)
     }
 
+    fn needs_ppu_clock(&self) -> bool { true }
+
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,

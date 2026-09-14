@@ -1,6 +1,6 @@
 [package]
 name = "accunes"
-version = "1.7.0"
+version = "1.7.1"
 edition = "2021"
 description = "Accurate NES/Famicom Emulator"
 
@@ -19,8 +19,8 @@ arboard = "3"
 
 [build-dependencies]
 embed-resource = "2.4"
+cc = "1"
 
 [profile.dev]
 opt-level = 3
 codegen-units = 1
-

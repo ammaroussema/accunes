@@ -224,6 +224,8 @@ impl Mapper for Mapper266 {
         }
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.pcm != self.prev_pcm {
             let diff = (self.pcm as f64 - 7.0) * 4096.0 + 1e-15;

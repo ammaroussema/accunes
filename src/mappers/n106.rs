@@ -383,6 +383,8 @@ impl Mapper for Mapper19 {
         }
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         for _ in 0..cycles {
             if self.counter < -1 {

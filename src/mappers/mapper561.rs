@@ -368,6 +368,8 @@ impl Mapper for Mapper561 {
         }
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         self.fds_counter = self.fds_counter.wrapping_add(3);
         while self.fds_counter >= 448 && (self.fds_io & 0x80) != 0 {
@@ -386,6 +388,8 @@ impl Mapper for Mapper561 {
     fn cpu_clock_irq_level(&self) -> bool {
         true
     }
+
+    fn handles_cpu_write(&self) -> bool { true }
 
     fn handle_cpu_write(&mut self, address: u16, data: u8) {
         match address {
@@ -421,6 +425,10 @@ impl Mapper for Mapper561 {
             }
             _ => {}
         }
+    }
+
+    fn has_cpu_ram_override(&self) -> bool {
+        true
     }
 
     fn cpu_ram_override(&self, address: u16) -> Option<u8> {

@@ -149,6 +149,8 @@ impl Mapper for Mapper50 {
         }
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         let mut irq = false;
         for _ in 0..cycles {
@@ -163,6 +165,8 @@ impl Mapper for Mapper50 {
         }
         irq
     }
+
+    fn needs_cpu_clock_rise(&self) -> bool { true }
 
     fn cpu_clock_rise(&mut self, _ppu_address_bus: u16) -> bool {
         self.irq_pending

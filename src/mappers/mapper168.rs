@@ -153,6 +153,8 @@ impl Mapper for Mapper168 {
         }
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.disable_irq {
             self.counter = 0;

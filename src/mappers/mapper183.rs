@@ -145,6 +145,8 @@ impl Mapper for Mapper183 {
         }
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if self.irq_enabled {
             self.irq_scaler += 1;

@@ -48,6 +48,8 @@ impl Mapper for Mapper368 {
         FetchResult { data: 0, driven: false }
     }
 
+    fn handles_cpu_write(&self) -> bool { true }
+
     fn handle_cpu_write(&mut self, address: u16, val: u8) {
         if address >= 0x4000 && address < 0x6000 {
             match address & 0x1FF {
@@ -111,6 +113,8 @@ impl Mapper for Mapper368 {
             vram[(mir & 0x7FF) as usize] = data;
         }
     }
+
+    fn needs_cpu_clock(&self) -> bool { true }
 
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.counting {

@@ -159,7 +159,7 @@ impl Mapper for Mapper210 {
                 fds_disks: Vec::new(),
                 trainer: Vec::new(),
                 misc_rom: Vec::new(),
-                mapper_chip: Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default())),
+                mapper_chip: crate::cartridge::MapperSlot::new(Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default()))),
                 mapper_cpu_cycle: 0,
                 prg_rom_crc32: 0,
                 chr_rom_crc32: 0,

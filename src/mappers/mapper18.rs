@@ -208,6 +208,8 @@ impl Mapper for Mapper18 {
         }
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if self.clock_irq_counter() {
             self.irq_pending = true;

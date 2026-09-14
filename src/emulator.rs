@@ -117,6 +117,7 @@ pub struct Emulator {
 
     pub ppu_bus: u8,
     pub ppu_bus_decay: [i32; 8],
+    pub ppu_bus_decay_countdown: i32,
     pub ppu_oam_address: u8,
     pub ppu_status_vblank: bool,
     pub ppu_status_sprite_zero_hit: bool,
@@ -417,6 +418,8 @@ pub struct Emulator {
     pub apu_controller_ports_strobed: bool,
     pub controller_port1: Arc<AtomicU8>,
     pub controller_port2: Arc<AtomicU8>,
+    pub autofire_enabled: Arc<AtomicBool>,
+    pub rapid_alternator: bool,
     pub controller_shift_register1: u8,
     pub controller_shift_register2: u8,
     pub controller1_shift_counter: u8,
@@ -623,6 +626,9 @@ pub struct Emulator {
     pub ppu_dot_count: u64,
     pub video_phase: u32,
     pub completed_frames: u64,
+    pub lag_frames: u64,
+    pub frame_had_nmi: bool,
+    pub last_frame_was_lag: bool,
 
     pub region_preference: Region,
     pub resolved_region: Region,
@@ -638,7 +644,34 @@ pub struct Emulator {
     pub is_vs_system_cart: bool,
     pub vt03_4bpp_bg_cart: bool,
     pub vt03_4bpp_sp_cart: bool,
+    pub is_onebus_cart: bool,
     pub is_nsf_cart: bool,
+    pub mapper_handles_cpu_read: bool,
+    pub mapper_cpu_ram_override: bool,
+    pub mapper_handles_cpu_write: bool,
+    pub mapper_needs_ppu_clock: bool,
+    pub mapper_needs_cpu_clock: bool,
+    pub mapper_needs_cpu_clock_rise: bool,
+    pub mapper_unscrambles_opcode: bool,
+    pub mapper_unscramble_enabled: bool,
+    pub mapper_um6578_probe: bool,
+    pub mapper_onebus_vt03_probe: bool,
+    pub mapper_vt369_enhanced_probe: bool,
+    pub nrom_fast_path: bool,
+    pub prg_addr_mask: usize,
+    pub chr_addr_mask: usize,
+    pub chr_len: usize,
+    pub using_chr_ram_cart: bool,
+    pub nt_horizontal: bool,
+    pub nt_alternative: bool,
+    pub onebus_chr_routing_cart: bool,
+    pub pal_region: bool,
+    pub dendy_region: bool,
+    pub pal_or_dendy: bool,
+    pub total_sl: u16,
+    pub pre_render_sl: u16,
+    pub nmi_sl: u16,
+    pub palette_lut: [u32; 512],
     pub nsf_player: Option<crate::nsf_player::NsfPlayer>,
     pub current_theme: String,
     pub cheats: crate::cheats::CheatManager,
@@ -726,7 +759,7 @@ impl Emulator {
             nmi_pins_signal: false, nmi_previous_pins_signal: false,
             irq_level_detector: false, nmi_line: false, irq_line: false,
             ram, cpu_ram_mask: 0x7FF, um6578_extra_ram: [0u8; 0x800], um6578_vram: [[0u8; 0x400]; 0xA], um6578_chr_ram: [0u8; 0x8000], um6578_reg2008: 0, um6578_color_mask: 0x3, um6578_dma_control: 0, um6578_dma_page: 0, um6578_dma_source: 0, um6578_dma_target: 0, um6578_dma_length: 0, um6578_dma_busy: 0, um6578_nt_tile_byte: 0, um6578_nt_attr_byte: 0, um6578_bg_palette: 0, um6578_bg_palette_lo: 0, vram, oam: [0u8; 0x100], oam2, palette_ram,
-            ppu_bus: 0, ppu_bus_decay: [0i32; 8], ppu_oam_address: 0,
+            ppu_bus: 0, ppu_bus_decay: [0i32; 8], ppu_bus_decay_countdown: 0, ppu_oam_address: 0,
             ppu_status_vblank: false, ppu_status_sprite_zero_hit: false,
             ppu_status_sprite_zero_hit_delayed: false,
             ppu_status_sprite_overflow: false, ppu_status_sprite_overflow_delayed: false,
@@ -919,6 +952,7 @@ impl Emulator {
 
             apu_controller_ports_strobing: false, apu_controller_ports_strobed: false,
             controller_port1: Arc::new(AtomicU8::new(0)), controller_port2: Arc::new(AtomicU8::new(0)),
+            autofire_enabled: Arc::new(AtomicBool::new(false)), rapid_alternator: false,
             controller_shift_register1: 0, controller_shift_register2: 0,
             controller1_shift_counter: 0, controller2_shift_counter: 0,
             data_pins_are_not_floating: false,
@@ -1006,6 +1040,9 @@ impl Emulator {
             ppu_dot_count: 0,
             video_phase: 0,
             completed_frames: 0,
+            lag_frames: 0,
+            frame_had_nmi: false,
+            last_frame_was_lag: false,
             region_preference: Region::Auto,
             resolved_region: Region::Ntsc,
             palette_mode: config::load_palette_mode(),
@@ -1019,7 +1056,34 @@ impl Emulator {
             is_vs_system_cart: false,
             vt03_4bpp_bg_cart: false,
             vt03_4bpp_sp_cart: false,
+            is_onebus_cart: false,
             is_nsf_cart: false,
+            mapper_handles_cpu_read: false,
+            mapper_cpu_ram_override: false,
+            mapper_handles_cpu_write: false,
+            mapper_needs_ppu_clock: false,
+            mapper_needs_cpu_clock: false,
+            mapper_needs_cpu_clock_rise: false,
+            mapper_unscrambles_opcode: false,
+            mapper_unscramble_enabled: false,
+            mapper_um6578_probe: false,
+            mapper_onebus_vt03_probe: false,
+            mapper_vt369_enhanced_probe: false,
+            nrom_fast_path: false,
+            prg_addr_mask: 0,
+            chr_addr_mask: 0,
+            chr_len: 0,
+            using_chr_ram_cart: false,
+            nt_horizontal: false,
+            nt_alternative: false,
+            onebus_chr_routing_cart: false,
+            pal_region: false,
+            dendy_region: false,
+            pal_or_dendy: false,
+            total_sl: 262,
+            pre_render_sl: 261,
+            nmi_sl: 241,
+            palette_lut: crate::ppu::NES_PALETTE,
             nsf_player: None,
             current_theme: config::load_theme(),
             cheats: crate::cheats::CheatManager::new(),
@@ -1027,7 +1091,11 @@ impl Emulator {
     }
 
     pub fn load_cartridge(&mut self, cart: Cartridge) {
+        self.lag_frames = 0;
+        self.frame_had_nmi = false;
+        self.last_frame_was_lag = false;
         self.resolved_region = self.compute_region(&cart.tv_system, &cart.name);
+        self.refresh_region_timing();
         let cpu_clock = self.cpu_clock();
         self.is_um6578_cart = cart.mapper_chip.is_um6578();
         self.is_vt32_cart = cart.mapper_chip.is_vt32();
@@ -1036,7 +1104,35 @@ impl Emulator {
         self.is_vs_system_cart = cart.is_vs_system;
         self.vt03_4bpp_bg_cart = cart.mapper_chip.vt03_4bpp_bg();
         self.vt03_4bpp_sp_cart = cart.mapper_chip.vt03_4bpp_sp();
+        self.is_onebus_cart = crate::mappers::one_bus::is_onebus_mapper(cart.memory_mapper);
         self.is_nsf_cart = cart.mapper_chip.is_nsf();
+        self.mapper_handles_cpu_read = cart.mapper_chip.handles_cpu_read();
+        self.mapper_cpu_ram_override = cart.mapper_chip.has_cpu_ram_override();
+        self.mapper_handles_cpu_write = cart.mapper_chip.handles_cpu_write();
+        self.mapper_needs_ppu_clock = cart.mapper_chip.needs_ppu_clock();
+        self.mapper_needs_cpu_clock = cart.mapper_chip.needs_cpu_clock();
+        self.mapper_needs_cpu_clock_rise = cart.mapper_chip.needs_cpu_clock_rise();
+        self.mapper_unscrambles_opcode = matches!(cart.memory_mapper, 256 | 296);
+        self.mapper_unscramble_enabled = self.mapper_unscrambles_opcode
+            && cart.mapper_chip.unscramble_opcode(0xA9) != 0xA9;
+        self.mapper_um6578_probe = cart.mapper_chip.is_um6578();
+        self.mapper_onebus_vt03_probe = cart.mapper_chip.onebus_vt03_ppu();
+        self.mapper_vt369_enhanced_probe = cart.mapper_chip.onebus_vt369_enhanced_ppu();
+        self.using_chr_ram_cart = cart.using_chr_ram;
+        self.nt_horizontal = cart.nametable_horizontal_mirroring;
+        self.nt_alternative = cart.alternative_nametable_arrangement;
+        self.onebus_chr_routing_cart = cart.mapper_chip.onebus_chr_routing_ppu();
+        let chr = if cart.using_chr_ram { cart.chr_ram.len() } else { cart.chr_rom.len() };
+        self.chr_len = chr;
+        self.chr_addr_mask = if chr > 0 && chr.is_power_of_two() { chr - 1 } else { 0 };
+        self.prg_addr_mask = cart.prg_rom.len().wrapping_sub(1);
+        self.nrom_fast_path = cart.memory_mapper == 0
+            && !cart.is_vs_system
+            && !cart.prg_rom.is_empty()
+            && cart.prg_rom.len().is_power_of_two()
+            && (chr == 0 || chr.is_power_of_two());
+        self.refresh_region_timing();
+        self.refresh_palette_lut();
         if self.is_nsf_cart {
             if let Some(info) = cart.mapper_chip.nsf_info().cloned() {
                 let mut player = crate::nsf_player::NsfPlayer::new(info);
@@ -1083,6 +1179,9 @@ impl Emulator {
         }
     }
     pub fn clear_cart(&mut self) {
+        self.lag_frames = 0;
+        self.frame_had_nmi = false;
+        self.last_frame_was_lag = false;
         if let Some(old) = self.cart.take() {
             std::thread::spawn(move || drop(old));
         }
@@ -1093,7 +1192,22 @@ impl Emulator {
         self.is_vs_system_cart = false;
         self.vt03_4bpp_bg_cart = false;
         self.vt03_4bpp_sp_cart = false;
+        self.is_onebus_cart = false;
         self.is_nsf_cart = false;
+        self.mapper_handles_cpu_read = false;
+        self.mapper_cpu_ram_override = false;
+        self.mapper_handles_cpu_write = false;
+        self.mapper_needs_ppu_clock = false;
+        self.mapper_needs_cpu_clock = false;
+        self.mapper_needs_cpu_clock_rise = false;
+        self.mapper_unscrambles_opcode = false;
+        self.mapper_unscramble_enabled = false;
+        self.mapper_um6578_probe = false;
+        self.mapper_onebus_vt03_probe = false;
+        self.mapper_vt369_enhanced_probe = false;
+        self.ppu_bus_decay_countdown = 0;
+        self.nrom_fast_path = false;
+        self.onebus_chr_routing_cart = false;
         self.nsf_player = None;
         self.reset_audio();
     }
@@ -1103,10 +1217,12 @@ impl Emulator {
         if let Some(ref cart) = self.cart {
             self.resolved_region = self.compute_region(&cart.tv_system, &cart.name);
         }
+        self.refresh_region_timing();
         let cpu_clock = self.cpu_clock();
         if let Some(ref mut cart) = self.cart {
             cart.mapper_chip.set_cpu_clock(cpu_clock);
         }
+        self.refresh_palette_lut();
         self.reset();
     }
 
@@ -1133,47 +1249,74 @@ impl Emulator {
     }
 
     pub fn is_pal(&self) -> bool {
-        self.resolved_region == Region::Pal
+        self.pal_region
     }
 
     pub fn is_dendy(&self) -> bool {
-        self.resolved_region == Region::Dendy
+        self.dendy_region
     }
 
     pub fn cpu_clock(&self) -> f64 {
-        if self.is_pal() {
+        if self.pal_region {
             1_662_607.0
-        } else if self.is_dendy() {
+        } else if self.dendy_region {
             1_773_448.0
         } else {
             1_789_773.0
         }
     }
 
+    #[inline(always)]
     pub fn total_scanlines(&self) -> u16 {
-        if self.is_pal() || self.is_dendy() { 312 } else { 262 }
+        self.total_sl
     }
 
+    #[inline(always)]
     pub fn pre_render_scanline(&self) -> u16 {
-        self.total_scanlines() - 1
+        self.pre_render_sl
     }
 
+    #[inline(always)]
     pub fn nmi_scanline(&self) -> u16 {
-        if self.is_dendy() { 291 } else { 241 }
+        self.nmi_sl
     }
 
+    #[inline(always)]
     pub fn mapper_scanline(&self) -> u16 {
-        if (self.is_pal() || self.is_dendy()) && self.ppu_scanline == self.pre_render_scanline() {
+        if self.pal_or_dendy && self.ppu_scanline == self.pre_render_sl {
             261
         } else {
             self.ppu_scanline
         }
     }
 
+    pub fn refresh_region_timing(&mut self) {
+        self.pal_region = self.resolved_region == Region::Pal;
+        self.dendy_region = self.resolved_region == Region::Dendy;
+        self.pal_or_dendy = self.pal_region || self.dendy_region;
+        self.total_sl = if self.pal_or_dendy { 312 } else { 262 };
+        self.pre_render_sl = self.total_sl - 1;
+        self.nmi_sl = if self.dendy_region { 291 } else { 241 };
+    }
+
+    pub fn refresh_palette_lut(&mut self) {
+        for i in 0..512 {
+            self.palette_lut[i] = self.compute_palette_rgb(i);
+        }
+    }
+
+    #[inline]
+    fn compute_palette_rgb(&self, i: usize) -> u32 {
+        self.palette_rgb(i)
+    }
+
     pub fn power_cycle(&mut self, mode: config::InitialRam) {
         Self::init_ram(&mut self.ram, &mut self.vram, mode);
         self.oam2 = [0xFFu8; 32];
         self.reset();
+        self.lag_frames = 0;
+        self.frame_had_nmi = false;
+        self.last_frame_was_lag = false;
         if let Some(ref mut cart) = self.cart {
             let saved_dip = cart.mapper_chip.get_dip_switches();
             cart.mapper_chip.reset_power_cycle();
@@ -1384,6 +1527,12 @@ impl Emulator {
     }
 
     pub fn expansion_tick(&mut self) {
+        if matches!(self.expansion_type, config::ExpansionType::None)
+            && self.controller1_type != config::ControllerType::PS2Mouse
+            && self.controller2_type != config::ControllerType::PS2Mouse
+        {
+            return;
+        }
         if self.expansion_type.is_city_patrolman() {
             self.city_patrolman_time_out = self.city_patrolman_time_out.wrapping_add(1);
         }
@@ -1998,6 +2147,7 @@ impl Emulator {
 
     pub fn set_vs_ppu_variant(&mut self, variant: u8) {
         self.vs_ppu_variant = variant;
+        self.refresh_palette_lut();
     }
 
     pub fn has_dip_switches(&self) -> bool {
@@ -2044,6 +2194,15 @@ impl Emulator {
     }
 
 
+    // autofire gating
+    pub fn controller_sampled(&self, raw: u8) -> u8 {
+        if self.autofire_enabled.load(Ordering::Relaxed) && !self.rapid_alternator {
+            raw & !0x03
+        } else {
+            raw
+        }
+    }
+
     // run one frame!
     pub fn core_frame_advance(&mut self) {
         let mut bogo = self.zapper_bogo.load(Ordering::Relaxed);
@@ -2054,6 +2213,10 @@ impl Emulator {
             }
         }
         self.frame_advance_reached_vblank = false;
+        self.frame_had_nmi = false;
+        if !self.last_frame_was_lag {
+            self.rapid_alternator = !self.rapid_alternator;
+        }
         let nsf_paused = self.is_nsf_cart && self.nsf_player.as_ref().map_or(false, |p| p.is_paused);
         if !nsf_paused {
             if self.is_pal() {
@@ -2080,6 +2243,10 @@ impl Emulator {
             }
         }
         self.completed_frames = self.completed_frames.wrapping_add(1);
+        self.last_frame_was_lag = !self.frame_had_nmi;
+        if self.last_frame_was_lag {
+            self.lag_frames = self.lag_frames.wrapping_add(1);
+        }
         self.video_phase = if self.is_pal() || self.is_dendy() {
             (self.completed_frames & 1) as u32
         } else {
@@ -2169,6 +2336,33 @@ impl Emulator {
         }
     }
 
+    #[inline(always)]
+    fn tick_mapper_cpu_clock(&mut self) {
+        if !(self.mapper_needs_cpu_clock || self.is_vs_system_cart) {
+            return;
+        }
+        if let Some(cart) = self.cart.as_mut() {
+            let irq = cart.mapper_chip.cpu_clock(1);
+            if cart.mapper_chip.cpu_clock_irq_level() {
+                self.irq_level_detector = irq;
+            } else if irq {
+                self.irq_level_detector = true;
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn tick_mapper_cpu_clock_rise(&mut self) {
+        if !self.mapper_needs_cpu_clock_rise {
+            return;
+        }
+        if let Some(cart) = self.cart.as_mut() {
+            if cart.mapper_chip.cpu_clock_rise(self.ppu_address_bus) {
+                self.irq_level_detector = true;
+            }
+        }
+    }
+
     pub fn emulator_core(&mut self) {
         if self.is_pal() {
             self.emulator_core_pal();
@@ -2184,14 +2378,7 @@ impl Emulator {
         self.master_cycle_counter += 1;
         if self.cpu_clock == 12 {
             self.cpu_clock = 0;
-            if let Some(cart) = self.cart.as_mut() {
-                let irq = cart.mapper_chip.cpu_clock(1);
-                if cart.mapper_chip.cpu_clock_irq_level() {
-                    self.irq_level_detector = irq;
-                } else if irq {
-                    self.irq_level_detector = true;
-                }
-            }
+            self.tick_mapper_cpu_clock();
             self.cpu_tick();
             self.total_cycles += 1;
         }
@@ -2208,11 +2395,7 @@ impl Emulator {
             if self.apu_status_frame_interrupt && !self.apu_frame_counter_inhibit_irq {
                 self.irq_level_detector = true;
             }
-            if let Some(cart) = self.cart.as_mut() {
-                if cart.mapper_chip.cpu_clock_rise(self.ppu_address_bus) {
-                    self.irq_level_detector = true;
-                }
-            }
+            self.tick_mapper_cpu_clock_rise();
         }
 
         if self.ppu_clock == 4 {
@@ -2238,14 +2421,7 @@ impl Emulator {
         self.master_cycle_counter += 1;
         if self.cpu_clock == 16 {
             self.cpu_clock = 0;
-            if let Some(cart) = self.cart.as_mut() {
-                let irq = cart.mapper_chip.cpu_clock(1);
-                if cart.mapper_chip.cpu_clock_irq_level() {
-                    self.irq_level_detector = irq;
-                } else if irq {
-                    self.irq_level_detector = true;
-                }
-            }
+            self.tick_mapper_cpu_clock();
             self.cpu_tick();
             self.total_cycles += 1;
         }
@@ -2262,11 +2438,7 @@ impl Emulator {
             if self.apu_status_frame_interrupt && !self.apu_frame_counter_inhibit_irq {
                 self.irq_level_detector = true;
             }
-            if let Some(cart) = self.cart.as_mut() {
-                if cart.mapper_chip.cpu_clock_rise(self.ppu_address_bus) {
-                    self.irq_level_detector = true;
-                }
-            }
+            self.tick_mapper_cpu_clock_rise();
         }
 
         if self.ppu_clock == 5 {
@@ -2292,14 +2464,7 @@ impl Emulator {
         self.master_cycle_counter += 1;
         if self.cpu_clock == 15 {
             self.cpu_clock = 0;
-            if let Some(cart) = self.cart.as_mut() {
-                let irq = cart.mapper_chip.cpu_clock(1);
-                if cart.mapper_chip.cpu_clock_irq_level() {
-                    self.irq_level_detector = irq;
-                } else if irq {
-                    self.irq_level_detector = true;
-                }
-            }
+            self.tick_mapper_cpu_clock();
             self.cpu_tick();
             self.total_cycles += 1;
         }
@@ -2316,9 +2481,11 @@ impl Emulator {
             if self.apu_status_frame_interrupt && !self.apu_frame_counter_inhibit_irq {
                 self.irq_level_detector = true;
             }
-            if let Some(cart) = self.cart.as_mut() {
-                if cart.mapper_chip.cpu_clock_rise(self.ppu_address_bus) {
-                    self.irq_level_detector = true;
+            if self.mapper_needs_cpu_clock_rise {
+                if let Some(cart) = self.cart.as_mut() {
+                    if cart.mapper_chip.cpu_clock_rise(self.ppu_address_bus) {
+                        self.irq_level_detector = true;
+                    }
                 }
             }
         }
@@ -2863,6 +3030,9 @@ impl Emulator {
     }
 
     pub fn load_state_from_bytes(&mut self, data: &[u8]) -> Result<(), String> {
+        if crate::ra::hardcore_active() {
+            return Err("Save state loading is disabled in RetroAchievements Hardcore mode".to_string());
+        }
         let mut p = 0;
         let mut read_u8 = || -> Result<u8, String> { if p < data.len() { let v = data[p]; p+=1; Ok(v) } else { Err("EOF".to_string()) } };
         self.ppu_clock = read_u8()?;
@@ -2928,6 +3098,7 @@ impl Emulator {
         for i in 0..self.palette_ram.len() { self.palette_ram[i] = read_u8()?; }
         self.ppu_bus = read_u8()?;
         for i in 0..self.ppu_bus_decay.len() { self.ppu_bus_decay[i] = i32::from_le_bytes([read_u8()?, read_u8()?, read_u8()?, read_u8()?]); }
+        self.ppu_bus_decay_countdown = self.ppu_bus_decay.iter().copied().max().unwrap_or(0);
         self.ppu_oam_address = read_u8()?;
         self.ppu_status_vblank = read_u8()? != 0;
         self.ppu_status_sprite_zero_hit = read_u8()? != 0;
@@ -3349,14 +3520,11 @@ impl Emulator {
             for i in 0..mapper_len {
                 mapper_state[i] = read_u8()?;
             }
-            if let Some(cart) = &mut self.cart {
-                let mut real_mapper = std::mem::replace(
-                    &mut cart.mapper_chip,
-                    crate::mapper::create_mapper(0, 0, &[0; 16], &[], 0, false, false, "", &[]).unwrap(),
-                );
-                real_mapper.load_mapper_registers(cart, &mapper_state, 0);
-                cart.mapper_chip = real_mapper;
-            }
+        if let Some(cart) = &mut self.cart {
+            cart.with_mapper(|mapper, cart| {
+                mapper.load_mapper_registers(cart, &mapper_state, 0);
+            });
+        }
         }
         if p < data.len() {
             for i in 0..self.um6578_extra_ram.len() {
@@ -3564,4 +3732,3 @@ impl Emulator {
         Ok(())
     }
 }
-

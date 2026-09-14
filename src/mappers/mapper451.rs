@@ -323,6 +323,8 @@ impl Mapper for Mapper451 {
         }
     }
 
+    fn needs_ppu_clock(&self) -> bool { true }
+
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -352,6 +354,8 @@ impl Mapper for Mapper451 {
         irq
     }
 
+    fn needs_cpu_clock_rise(&self) -> bool { true }
+
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         let a12 = (ppu_address_bus & 0x1000) != 0;
         if !a12 && self.m2_filter < 3 {
@@ -359,6 +363,8 @@ impl Mapper for Mapper451 {
         }
         false
     }
+
+    fn needs_cpu_clock(&self) -> bool { true }
 
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if self.flash_time_out > 0 {

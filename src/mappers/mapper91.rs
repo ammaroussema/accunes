@@ -178,9 +178,9 @@ impl Mapper for Mapper91 {
                 fds_disks: Vec::new(),
                 trainer: Vec::new(),
                 misc_rom: Vec::new(),
-                mapper_chip: Box::new(crate::mapper::MapperNROM::new(
+                mapper_chip: crate::cartridge::MapperSlot::new(Box::new(crate::mapper::MapperNROM::new(
                     crate::mapper::NromConfig::default(),
-                )),
+                ))),
                                 mapper_cpu_cycle: 0,
                 prg_rom_crc32: 0,
                 chr_rom_crc32: 0,
@@ -207,6 +207,8 @@ impl Mapper for Mapper91 {
         }
     }
 
+    fn needs_cpu_clock_rise(&self) -> bool { true }
+
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         if self.submapper == 0 {
             let a12 = (ppu_address_bus & 0x1000) != 0;
@@ -220,6 +222,8 @@ impl Mapper for Mapper91 {
         }
         self.irq_pending
     }
+
+    fn needs_cpu_clock(&self) -> bool { true }
 
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.submapper == 1 {

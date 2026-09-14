@@ -59,6 +59,7 @@ impl Mapper for Mapper602 {
         let a = (p & 0x7FFF) | o as u16;
         (a as u8, a)
     }
+    fn needs_cpu_clock(&self) -> bool { true }
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if self.hw.timer_control & 0x20 == 0 {
             self.hw.clock_timer();
@@ -66,6 +67,7 @@ impl Mapper for Mapper602 {
         self.hw.irq_pending()
     }
     fn cpu_clock_irq_level(&self) -> bool { true }
+    fn needs_ppu_clock(&self) -> bool { true }
     fn ppu_clock(&mut self, _ppu_address_bus: u16, _ppu_a12_prev: bool, scanline: u16, dot: u16, _ppu_sprite_x16: bool, _rendering_on: bool) -> bool {
         if self.hw.timer_control & 0x20 != 0 && dot >= 330 {
             let sl = scanline as i32;

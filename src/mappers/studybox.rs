@@ -361,6 +361,8 @@ impl Mapper for MapperStudyBox {
         }
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         self.process_cpu_clock();
         self.irq_pending

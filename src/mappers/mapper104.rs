@@ -110,6 +110,8 @@ impl Mapper for Mapper104 {
         (new_addr_bus as u8, new_addr_bus)
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if self.cycles < 120_000 {
             self.cycles += 1;

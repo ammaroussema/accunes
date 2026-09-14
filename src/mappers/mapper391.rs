@@ -156,6 +156,8 @@ impl Mapper for Mapper391 {
         }
     }
 
+    fn needs_ppu_clock(&self) -> bool { true }
+
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -167,6 +169,8 @@ impl Mapper for Mapper391 {
     ) -> bool {
         self.mmc3.ppu_clock(ppu_address_bus, ppu_a12_prev, scanline, dot, ppu_sprite_x16, rendering_on)
     }
+
+    fn needs_cpu_clock_rise(&self) -> bool { true }
 
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         self.mmc3.cpu_clock_rise(ppu_address_bus)

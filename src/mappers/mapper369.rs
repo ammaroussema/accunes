@@ -62,6 +62,8 @@ impl Mapper for Mapper369 {
         self.mmc3.set_nametable_horizontal(false);
     }
 
+    fn handles_cpu_write(&self) -> bool { true }
+
     fn handle_cpu_write(&mut self, address: u16, val: u8) {
         if (0x4000..=0x4FFF).contains(&address) && (address & 0x0100) != 0 {
             self.outer_bank = val;
@@ -311,6 +313,8 @@ impl Mapper for Mapper369 {
         self.mmc3.mirror_nametable(cart, address)
     }
 
+    fn needs_ppu_clock(&self) -> bool { true }
+
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -334,6 +338,8 @@ impl Mapper for Mapper369 {
         }
     }
 
+    fn needs_cpu_clock_rise(&self) -> bool { true }
+
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         if self.outer_bank == 0x13 {
             false
@@ -341,6 +347,8 @@ impl Mapper for Mapper369 {
             self.mmc3.cpu_clock_rise(ppu_address_bus)
         }
     }
+
+    fn needs_cpu_clock(&self) -> bool { true }
 
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if self.outer_bank == 0x13 {

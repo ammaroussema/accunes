@@ -145,6 +145,8 @@ impl Mapper for Mapper617 {
         }
     }
 
+    fn needs_ppu_clock(&self) -> bool { true }
+
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -157,6 +159,8 @@ impl Mapper for Mapper617 {
         self.vrc4
             .ppu_clock(ppu_address_bus, ppu_a12_prev, scanline, dot, ppu_sprite_x16, rendering_on)
     }
+
+    fn needs_cpu_clock(&self) -> bool { true }
 
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         self.vrc4.cpu_clock(cycles)

@@ -893,6 +893,8 @@ impl Mapper for Mapper761 {
         }
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         self.fdc.run();
         if self.enable_irq {

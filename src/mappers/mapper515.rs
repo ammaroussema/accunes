@@ -190,6 +190,8 @@ impl Mapper for Mapper515 {
         }
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         self.vrc7.clock_audio(cycles);
         false

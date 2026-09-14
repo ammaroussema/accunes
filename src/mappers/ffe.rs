@@ -923,6 +923,8 @@ impl Mapper for MapperFfe {
         }
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         for _ in 0..cycles {
             if (self.fds_io & 0x80) != 0 {
@@ -944,6 +946,8 @@ impl Mapper for MapperFfe {
     fn cpu_clock_irq_level(&self) -> bool {
         self.irq_pending
     }
+
+    fn needs_ppu_clock(&self) -> bool { true }
 
     fn ppu_clock(
         &mut self,

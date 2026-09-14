@@ -502,6 +502,8 @@ impl Mapper for Mapper800 {
         self.write_ppu_bus(cart, address, data, vram);
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if self.enable_irq & 1 != 0 && self.reg[0x0C] & 0x02 != 0 {
             let bit0 = self.reg[0x0C] & 1;
@@ -528,6 +530,8 @@ impl Mapper for Mapper800 {
     fn cpu_clock_irq_level(&self) -> bool {
         self.irq_line
     }
+
+    fn needs_ppu_clock(&self) -> bool { true }
 
     fn ppu_clock(
         &mut self,

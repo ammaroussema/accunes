@@ -249,6 +249,8 @@ impl Mapper for Mapper86 {
         (new_addr_bus as u8, new_addr_bus)
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.playing {
             let sample = &self.samples[self.current_track];

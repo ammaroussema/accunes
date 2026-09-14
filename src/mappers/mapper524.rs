@@ -216,6 +216,8 @@ impl Mapper for Mapper524 {
         }
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.irq_enabled {
             let mut fire = false;

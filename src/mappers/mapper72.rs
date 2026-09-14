@@ -269,6 +269,8 @@ impl Mapper for Mapper72 {
         self.cpu_clock = clock;
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.playing {
             let sample = &self.samples[self.current_track];

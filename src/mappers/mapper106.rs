@@ -172,6 +172,8 @@ impl Mapper for Mapper106 {
         }
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if self.irq_counter != 0xFFFF {
             self.irq_counter = self.irq_counter.wrapping_add(1);

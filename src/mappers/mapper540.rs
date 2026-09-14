@@ -226,6 +226,8 @@ impl Mapper for Mapper540 {
         }
     }
 
+    fn needs_cpu_clock_rise(&self) -> bool { true }
+
     fn cpu_clock_rise(&mut self, _ppu_address_bus: u16) -> bool {
         if self.pa12_filter > 0 {
             self.pa12_filter -= 1;
@@ -238,6 +240,8 @@ impl Mapper for Mapper540 {
         }
         self.irq_pending
     }
+
+    fn needs_ppu_clock(&self) -> bool { true }
 
     fn ppu_clock(
         &mut self,

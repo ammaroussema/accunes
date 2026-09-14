@@ -209,6 +209,8 @@ impl Mapper for Mapper535 {
         (new_addr_bus as u8, new_addr_bus)
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.irq_enabled {
             self.irq_counter = self.irq_counter.saturating_add(cycles as u16);

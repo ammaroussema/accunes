@@ -219,6 +219,7 @@ impl Mapper for Mapper406 {
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
         self.mmc3.store_ppu(cart, address, data, vram);
     }
+    fn needs_ppu_clock(&self) -> bool { true }
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -230,9 +231,11 @@ impl Mapper for Mapper406 {
     ) -> bool {
         self.mmc3.ppu_clock(ppu_address_bus, ppu_a12_prev, scanline, dot, ppu_sprite_x16, rendering_on)
     }
+    fn needs_cpu_clock_rise(&self) -> bool { true }
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         self.mmc3.cpu_clock_rise(ppu_address_bus)
     }
+    fn needs_cpu_clock(&self) -> bool { true }
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.time_out > 0 {
             self.time_out = self.time_out.saturating_sub(cycles as u32);

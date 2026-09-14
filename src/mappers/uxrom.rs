@@ -305,6 +305,8 @@ impl Mapper for MapperUxROM {
         self.vsdip = value;
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         self.cycle_accum += _cycles as u64;
         if self.cycle_accum >= VS_FRAME_CYCLES {

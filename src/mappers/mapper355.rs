@@ -96,6 +96,8 @@ impl Mapper for Mapper355 {
         self.nrom.store_ppu(cart, address, data, vram);
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if let Some(pic) = &mut self.pic {
             pic.run(self.cpu_address, &mut self.irq);
@@ -107,9 +109,15 @@ impl Mapper for Mapper355 {
         true
     }
 
+    fn handles_cpu_read(&self) -> bool {
+        true
+    }
+
     fn handle_cpu_read(&mut self, address: u16) {
         self.cpu_address = address;
     }
+
+    fn handles_cpu_write(&self) -> bool { true }
 
     fn handle_cpu_write(&mut self, address: u16, _data: u8) {
         self.cpu_address = address;

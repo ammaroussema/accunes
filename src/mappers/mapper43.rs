@@ -127,6 +127,8 @@ impl Mapper for Mapper43 {
         (new_addr_bus as u8, new_addr_bus)
     }
 
+    fn needs_cpu_clock(&self) -> bool { true }
+
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if self.irq_enabled {
             self.irq_counter = self.irq_counter.wrapping_add(1);

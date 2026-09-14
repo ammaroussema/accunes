@@ -39,6 +39,8 @@ impl Mapper for Mapper292 {
         self.mmc3.reset();
     }
 
+    fn handles_cpu_write(&self) -> bool { true }
+
     fn handle_cpu_write(&mut self, address: u16, data: u8) {
         if address < 0x1000 {
             self.last_write = data;
@@ -180,9 +182,13 @@ impl Mapper for Mapper292 {
         }
     }
 
+    fn needs_ppu_clock(&self) -> bool { true }
+
     fn ppu_clock(&mut self, ppu_address_bus: u16, ppu_a12_prev: bool, scanline: u16, dot: u16, ppu_sprite_x16: bool, rendering_on: bool) -> bool {
         self.mmc3.ppu_clock(ppu_address_bus, ppu_a12_prev, scanline, dot, ppu_sprite_x16, rendering_on)
     }
+
+    fn needs_cpu_clock_rise(&self) -> bool { true }
 
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         self.mmc3.cpu_clock_rise(ppu_address_bus)
