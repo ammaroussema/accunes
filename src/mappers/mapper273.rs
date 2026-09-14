@@ -166,7 +166,6 @@ impl Mapper for Mapper273 {
             vram[(mirrored & 0x7FF) as usize] = data;
         }
     }
-    fn needs_cpu_clock(&self) -> bool { true }
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if (self.irq_enabled & 1) != 0 {
             let prev = self.irq_prescaler;

@@ -178,7 +178,7 @@ impl Mapper for Mapper531 {
                     fds_disks: Vec::new(),
                     trainer: Vec::new(),
                     misc_rom: Vec::new(),
-                    mapper_chip: crate::cartridge::MapperSlot::new(Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default()))),
+                    mapper_chip: Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default())),
                     mapper_cpu_cycle: 0,
                     prg_rom_crc32: 0,
                     chr_rom_crc32: 0,
@@ -194,8 +194,6 @@ impl Mapper for Mapper531 {
         (new_addr_bus as u8, new_addr_bus)
     }
 
-    fn needs_ppu_clock(&self) -> bool { true }
-
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -208,13 +206,9 @@ impl Mapper for Mapper531 {
         self.mmc3.ppu_clock(ppu_address_bus, ppu_a12_prev, scanline, dot, ppu_sprite_x16, rendering_on)
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         self.mmc3.cpu_clock(cycles)
     }
-
-    fn needs_cpu_clock_rise(&self) -> bool { true }
 
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         self.mmc3.cpu_clock_rise(ppu_address_bus)

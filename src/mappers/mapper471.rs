@@ -81,8 +81,6 @@ impl Mapper for Mapper471 {
         (new_addr_bus as u8, new_addr_bus)
     }
 
-    fn needs_ppu_clock(&self) -> bool { true }
-
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -116,8 +114,6 @@ impl Mapper for Mapper471 {
         }
         false
     }
-
-    fn needs_cpu_clock_rise(&self) -> bool { true }
 
     fn cpu_clock_rise(&mut self, _ppu_address_bus: u16) -> bool {
         let irq = self.irq_pending;

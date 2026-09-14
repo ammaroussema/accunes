@@ -596,8 +596,6 @@ impl Mapper for Mapper20 {
         }
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         let c = cycles as u32;
 

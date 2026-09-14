@@ -19,13 +19,10 @@ impl Mapper for Mapper131 {
         self.0.fetch_ppu(prg_rom, chr_rom, prg_ram, chr_ram, prg_vram, using_chr_ram, nametable_horizontal_mirroring, alternative_nametable_arrangement, ppu_address_bus, ppu_octal_latch, vram)
     }
     fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) { self.0.store_ppu(cart, address, data, vram); }
-    fn needs_cpu_clock(&self) -> bool { true }
     fn cpu_clock(&mut self, cycles: u8) -> bool { self.0.cpu_clock(cycles) }
-    fn needs_ppu_clock(&self) -> bool { true }
     fn ppu_clock(&mut self, ppu_address_bus: u16, ppu_a12_prev: bool, scanline: u16, dot: u16, ppu_sprite_x16: bool, rendering_on: bool) -> bool {
         self.0.ppu_clock(ppu_address_bus, ppu_a12_prev, scanline, dot, ppu_sprite_x16, rendering_on)
     }
-    fn needs_cpu_clock_rise(&self) -> bool { true }
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool { self.0.cpu_clock_rise(ppu_address_bus) }
     fn take_irq_ack(&mut self) -> bool { self.0.take_irq_ack() }
     fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8> { self.0.save_mapper_registers(cart) }

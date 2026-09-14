@@ -507,8 +507,6 @@ impl Mapper for Vrc7 {
         (new_addr_bus as u8, new_addr_bus)
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         self.audio_cycles += cycles as u32;
         while self.audio_cycles >= self.cycles_per_audio_step {

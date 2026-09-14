@@ -158,8 +158,6 @@ impl Mapper for Mapper163 {
         }
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         self.adpcm.run();
         self.audio_out = self.adpcm.get_audio() as f32 / 32768.0;

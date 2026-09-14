@@ -690,11 +690,6 @@ pub trait Mapper: Send {
     fn cpu_clock_irq_level(&self) -> bool { false }
     fn cpu_clock_rise(&mut self, _ppu_address_bus: u16) -> bool { false }
 
-    fn needs_ppu_clock(&self) -> bool { false }
-    fn needs_cpu_clock(&self) -> bool { false }
-    fn needs_cpu_clock_rise(&self) -> bool { false }
-    fn handles_cpu_write(&self) -> bool { false }
-
     // save state and load state
     #[allow(dead_code)]
     fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8>;
@@ -784,14 +779,6 @@ pub trait Mapper: Send {
     fn handle_cpu_write(&mut self, _address: u16, _data: u8) {}
 
     fn handle_cpu_read(&mut self, _address: u16) {}
-
-    fn handles_cpu_read(&self) -> bool {
-        false
-    }
-
-    fn has_cpu_ram_override(&self) -> bool {
-        false
-    }
 
     fn cpu_ram_override(&self, address: u16) -> Option<u8> {
         let _ = address;

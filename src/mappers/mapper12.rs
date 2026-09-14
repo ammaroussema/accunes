@@ -241,8 +241,6 @@ impl Mapper for Mapper12 {
         }
     }
 
-    fn needs_ppu_clock(&self) -> bool { true }
-
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -272,16 +270,12 @@ impl Mapper for Mapper12 {
         }
     }
 
-    fn needs_cpu_clock_rise(&self) -> bool { true }
-
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         match &mut self.inner {
             Mapper12Inner::Mmc3(m) => m.mmc3.cpu_clock_rise(ppu_address_bus),
             Mapper12Inner::Ffe(_) => false,
         }
     }
-
-    fn needs_cpu_clock(&self) -> bool { true }
 
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         match &mut self.inner {

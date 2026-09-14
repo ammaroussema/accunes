@@ -268,14 +268,14 @@ impl Mapper for Mapper30 {
                     fds_disks: Vec::new(),
                     trainer: Vec::new(),
                     misc_rom: Vec::new(),
-                    mapper_chip: crate::cartridge::MapperSlot::new(Box::new(Mapper30 {
+                    mapper_chip: Box::new(Mapper30 {
                         flash: FlashSST39SF040::new(),
                         enable_mirroring_bit: false,
                         prg_bank: 0,
                         sub_mapper: 0,
                         has_battery: false,
                         mirroring: 1,
-                    })),
+                    }),
                     mapper_cpu_cycle: 0,
                     prg_rom_crc32: 0,
                     chr_rom_crc32: 0,

@@ -13,31 +13,28 @@ impl Emulator {
     pub fn fetch(&mut self, address: u16) -> u8 {
         self.data_pins_are_not_floating = false;
 
-        if self.mapper_handles_cpu_read {
-            if let Some(cart) = self.cart.as_mut() {
-                cart.mapper_chip.handle_cpu_read(address);
-            }
+        if let Some(cart) = self.cart.as_mut() {
+            cart.mapper_chip.handle_cpu_read(address);
         }
 
         if address >= 0x8000 {
             // rom — go through mapper
-            if let Some(cart) = self.cart.as_mut() {
-                let result = cart.with_mapper(|mapper, cart| mapper.fetch_prg(cart, address));
+            if self.cart.is_some() {
+                let cart = self.cart.as_mut().unwrap();
+                let mut mapper = std::mem::replace(&mut cart.mapper_chip, Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default())));
+                let result = mapper.fetch_prg(cart, address);
+                let cart = self.cart.as_mut().unwrap();
+                cart.mapper_chip = mapper;
                 self.data_pins_are_not_floating = result.driven;
                 if result.driven {
                     self.data_bus = result.data;
                 }
             }
         } else if address < 0x2000 {
-            if self.mapper_cpu_ram_override {
-                if let Some(ref cart) = self.cart {
-                    if let Some(data) = cart.mapper_chip.cpu_ram_override(address) {
-                        self.data_bus = data;
-                        self.data_pins_are_not_floating = true;
-                    } else {
-                        self.data_bus = self.ram[(address & self.cpu_ram_mask) as usize];
-                        self.data_pins_are_not_floating = true;
-                    }
+            if let Some(ref cart) = self.cart {
+                if let Some(data) = cart.mapper_chip.cpu_ram_override(address) {
+                    self.data_bus = data;
+                    self.data_pins_are_not_floating = true;
                 } else {
                     self.data_bus = self.ram[(address & self.cpu_ram_mask) as usize];
                     self.data_pins_are_not_floating = true;
@@ -46,11 +43,15 @@ impl Emulator {
                 self.data_bus = self.ram[(address & self.cpu_ram_mask) as usize];
                 self.data_pins_are_not_floating = true;
             }        } else if address >= 0x2000 && address < 0x4000 {
-            let vt369 = self.is_vt369_ppu_cart;
+            let vt369 = self
+                .cart
+                .as_ref()
+                .map_or(false, |c| c.mapper_chip.onebus_vt369_ppu());
             if vt369 && address >= 0x3000 {
                 let ppu_addr = 0x2000 | (address & 0x0FFF);
                 let byte = if let Some(cart) = self.cart.as_mut() {
-                    let (data, _) = cart.mapper_chip.fetch_ppu(
+                    let mut mapper = std::mem::replace(&mut cart.mapper_chip, Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default())));
+                    let (data, _) = mapper.fetch_ppu(
                         &cart.prg_rom,
                         &cart.chr_rom,
                         &cart.prg_ram,
@@ -63,6 +64,7 @@ impl Emulator {
                         0,
                         &self.vram,
                     );
+                    cart.mapper_chip = mapper;
                     data
                 } else {
                     0
@@ -70,22 +72,27 @@ impl Emulator {
                 self.data_pins_are_not_floating = true;
                 self.data_bus = byte;
             } else {
-                let is_onebus = self.is_onebus_cart;
+                let is_onebus = self
+                    .cart
+                    .as_ref()
+                    .map_or(false, |c| crate::mappers::one_bus::is_onebus_mapper(c.memory_mapper));
                 if is_onebus && address >= 0x2010 {
-                    if let Some(cart) = self.cart.as_mut() {
-                        let result = cart.with_mapper(|mapper, cart| mapper.fetch_prg(cart, address));
-                        self.data_pins_are_not_floating = result.driven;
-                        if result.driven {
-                            self.data_bus = result.data;
-                        }
+                    let cart = self.cart.as_mut().unwrap();
+                    let mut mapper = std::mem::replace(&mut cart.mapper_chip, Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default())));
+                    let result = mapper.fetch_prg(cart, address);
+                    let cart = self.cart.as_mut().unwrap();
+                    cart.mapper_chip = mapper;
+                    self.data_pins_are_not_floating = result.driven;
+                    if result.driven {
+                        self.data_bus = result.data;
                     }
                 } else {
-                if self.mapper_um6578_probe && address == 0x2008 {
+                if self.cart.as_ref().map_or(false, |c| c.mapper_chip.is_um6578()) && address == 0x2008 {
                     self.data_bus = self.um6578_reg2008;
                     self.data_pins_are_not_floating = true;
                     return self.data_bus;
                 }
-                if self.mapper_um6578_probe
+                if self.cart.as_ref().map_or(false, |c| c.mapper_chip.is_um6578())
                     && (0x2040..=0x207F).contains(&address)
                 {
                     self.data_bus = self.palette_ram[(address & 0x3F) as usize];
@@ -93,7 +100,7 @@ impl Emulator {
                     return self.data_bus;
                 }
                 // ppu registers
-                let reg = if self.mapper_um6578_probe {
+                let reg = if self.cart.as_ref().map_or(false, |c| c.mapper_chip.is_um6578()) {
                     if address > 0x2007 {
                         self.data_bus = self.ppu_bus;
                         self.data_pins_are_not_floating = true;
@@ -117,23 +124,30 @@ impl Emulator {
                         self.ppu_addr_latch = false;
                         self.ppu_bus = self.data_bus;
                         for i in 5..8 { self.ppu_bus_decay[i] = PPU_BUS_DECAY_CONSTANT; }
-                        self.ppu_bus_decay_countdown = PPU_BUS_DECAY_CONSTANT;
                     }
                     0x2003 => { self.data_bus = self.ppu_bus; }
                     0x2004 => {
                         self.emulate_until_end_of_read();
                         self.data_bus = self.read_oam();
                         self.ppu_bus = self.data_bus;
-                        self.mark_ppu_bus_decay();
+                        for i in 0..8 { self.ppu_bus_decay[i] = PPU_BUS_DECAY_CONSTANT; }
                     }
                     0x2005 => { self.data_bus = self.ppu_bus; }
                     0x2006 => { self.data_bus = self.ppu_bus; }
                     0x2007 => {
-                        if !self.mapper_um6578_probe
+                        if !self.cart.as_ref().map_or(false, |c| c.mapper_chip.is_um6578())
                             && (self.ppu_v & 0x3FFF) >= 0x3F00 {
                             self.this_dot_read_from_palette_ram = true;
-                            let is_onebus = self.is_onebus_cart;
-                            let vt369_enhanced = self.mapper_vt369_enhanced_probe;
+                            let is_onebus = self
+                                .cart
+                                .as_ref()
+                                .map_or(false, |c| {
+                                    crate::mappers::one_bus::is_onebus_mapper(c.memory_mapper)
+                                });
+                            let vt369_enhanced = self
+                                .cart
+                                .as_ref()
+                                .map_or(false, |c| c.mapper_chip.onebus_vt369_enhanced_ppu());
                             let pal_addr = if vt369_enhanced {
                                 (self.ppu_v & 0x3FF) as usize
                             } else if is_onebus {
@@ -150,7 +164,7 @@ impl Emulator {
                             self.data_bus = self.ppu_read_buffer;
                         }
                         self.ppu_bus = self.data_bus;
-                        self.mark_ppu_bus_decay();
+                        for i in 0..8 { self.ppu_bus_decay[i] = PPU_BUS_DECAY_CONSTANT; }
                         self.emulate_until_end_of_read();
                         self.ppu_2007_read_sr = true;
                         self.ppu_2007_read = true;
@@ -201,7 +215,12 @@ impl Emulator {
                     || self.expansion_type.is_golden_nugget_casino()
                     || self.expansion_type.is_tv_pump())
             {
-                let is_onebus = self.is_onebus_cart;
+                let is_onebus = self
+                    .cart
+                    .as_ref()
+                    .map_or(false, |c| {
+                        crate::mappers::one_bus::is_onebus_mapper(c.memory_mapper)
+                    });
                 if is_onebus {
                     let reg = self
                         .cart
@@ -240,8 +259,10 @@ impl Emulator {
             }
             // $4000-$401F: apu/io registers, and mapper space
             let cart = self.cart.as_mut().unwrap();
-            let result = cart.with_mapper(|mapper, cart| mapper.fetch_prg(cart, address));
+            let mut mapper = std::mem::replace(&mut cart.mapper_chip, Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default())));
+            let result = mapper.fetch_prg(cart, address);
             let cart = self.cart.as_mut().unwrap();
+            cart.mapper_chip = mapper;
             self.data_pins_are_not_floating = result.driven;
             if result.driven {
                 self.data_bus = result.data;
@@ -722,8 +743,8 @@ impl Emulator {
                 // famicom 2-player expansion adapter
                 if self.expansion_adapter_type == crate::config::ExpansionAdapterType::TwoPlayer {
                     if self.apu_controller_ports_strobing {
-                        self.controller_shift_register1 = self.controller_sampled(self.expansion_adapter_ports[0].load(Ordering::Relaxed));
-                        self.controller_shift_register2 = self.controller_sampled(self.expansion_adapter_ports[1].load(Ordering::Relaxed));
+                        self.controller_shift_register1 = self.expansion_adapter_ports[0].load(Ordering::Relaxed);
+                        self.controller_shift_register2 = self.expansion_adapter_ports[1].load(Ordering::Relaxed);
                     }
                     let sr = if reg == 0x16 {
                         self.controller_shift_register1
@@ -1048,8 +1069,8 @@ impl Emulator {
                 }
 
                 if self.apu_controller_ports_strobing {
-                    self.controller_shift_register1 = self.controller_sampled(self.controller_port1.load(Ordering::Relaxed));
-                    self.controller_shift_register2 = self.controller_sampled(self.controller_port2.load(Ordering::Relaxed));
+                    self.controller_shift_register1 = self.controller_port1.load(Ordering::Relaxed);
+                    self.controller_shift_register2 = self.controller_port2.load(Ordering::Relaxed);
                 }
 
                 let sr_bit = if reg == 0x16 {
@@ -1969,12 +1990,8 @@ impl Emulator {
             cart.mapper_chip.handle_cpu_write(address, input);
         }
         if address < 0x2000 {
-            let overridden = if self.mapper_cpu_ram_override {
-                if let Some(ref mut cart) = self.cart {
-                    cart.mapper_chip.cpu_ram_override_store(address, input)
-                } else {
-                    false
-                }
+            let overridden = if let Some(ref mut cart) = self.cart {
+                cart.mapper_chip.cpu_ram_override_store(address, input)
             } else {
                 false
             };
@@ -1990,7 +2007,10 @@ impl Emulator {
                 let ppu_addr = 0x2000 | (address & 0x0FFF);
                 self.store_ppu_data(ppu_addr, input);
             } else {
-                let is_onebus = self.is_onebus_cart;
+                let is_onebus = self
+                    .cart
+                    .as_ref()
+                    .map_or(false, |c| crate::mappers::one_bus::is_onebus_mapper(c.memory_mapper));
                 if !is_onebus || address < 0x2010 {
                     self.store_ppu_registers(address, input);
                 }
@@ -2144,14 +2164,14 @@ impl Emulator {
                     self.subor_keyboard_column = 0;
                 }
                 if self.expansion_adapter_type == crate::config::ExpansionAdapterType::TwoPlayer {
-                    self.controller_shift_register1 = self.controller_sampled(self.expansion_adapter_ports[0].load(Ordering::Relaxed));
-                    self.controller_shift_register2 = self.controller_sampled(self.expansion_adapter_ports[1].load(Ordering::Relaxed));
+                    self.controller_shift_register1 = self.expansion_adapter_ports[0].load(Ordering::Relaxed);
+                    self.controller_shift_register2 = self.expansion_adapter_ports[1].load(Ordering::Relaxed);
                 } else if self.expansion_adapter_type == crate::config::ExpansionAdapterType::FourPlayer || self.expansion_adapter_type == crate::config::ExpansionAdapterType::HoriFourPlayer {
                     for p in 0..4usize {
-                        self.expansion_adapter_shift_register[p] = self.controller_sampled(self.expansion_adapter_ports[p].load(Ordering::Relaxed));
+                        self.expansion_adapter_shift_register[p] = self.expansion_adapter_ports[p].load(Ordering::Relaxed);
                     }
-                    self.controller_shift_register1 = self.controller_sampled(self.controller_port1.load(Ordering::Relaxed));
-                    self.controller_shift_register2 = self.controller_sampled(self.controller_port2.load(Ordering::Relaxed));
+                    self.controller_shift_register1 = self.controller_port1.load(Ordering::Relaxed);
+                    self.controller_shift_register2 = self.controller_port2.load(Ordering::Relaxed);
                 }
                 {
                     let vb_state_lock = self.virtualboy_state.lock().unwrap();
@@ -2237,9 +2257,10 @@ impl Emulator {
                 }
             }
             if self.cart.as_ref().is_some_and(|c| matches!(c.memory_mapper, 99 | 604)) {
-                if let Some(cart) = self.cart.as_mut() {
-                    cart.with_mapper(|mapper, cart| mapper.store_prg(cart, address, input));
-                }
+                let cart = self.cart.as_mut().unwrap();
+                let mut mapper = std::mem::replace(&mut cart.mapper_chip, Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default())));
+                mapper.store_prg(cart, address, input);
+                self.cart.as_mut().unwrap().mapper_chip = mapper;
             }
         } else if address == 0x4017 {
             if self.expansion_type.is_bit79_keyboard() {
@@ -2385,11 +2406,14 @@ impl Emulator {
                     }
                 }
             }
-            let is_onebus = self.is_onebus_cart;
-            if self.mapper_um6578_probe && address == 0x4020 {
+            let is_onebus = self
+                .cart
+                .as_ref()
+                .map_or(false, |c| crate::mappers::one_bus::is_onebus_mapper(c.memory_mapper));
+            if self.cart.as_ref().map_or(false, |c| c.mapper_chip.is_um6578()) && address == 0x4020 {
                 return;
             }
-            if self.mapper_um6578_probe && (0x4200..=0x421F).contains(&address) {
+            if self.cart.as_ref().map_or(false, |c| c.mapper_chip.is_um6578()) && (0x4200..=0x421F).contains(&address) {
                 return;
             }
             if !is_onebus && address <= 0x402F {
@@ -2451,15 +2475,12 @@ impl Emulator {
             }
             let cart = self.cart.as_mut().unwrap();
             cart.mapper_cpu_cycle = self.total_cycles as i64;
-            let ram = &mut self.ram;
-            let vram = &mut self.vram;
-            let irq_ack = cart.with_mapper(|mapper, cart| {
-                mapper.store_prg(cart, address, input);
-                let irq_ack = mapper.take_irq_ack();
-                mapper.execute_dma(cart, ram, vram);
-                irq_ack
-            });
+            let mut mapper = std::mem::replace(&mut cart.mapper_chip, Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default())));
+            mapper.store_prg(cart, address, input);
+            let irq_ack = mapper.take_irq_ack();
+            mapper.execute_dma(cart, &mut self.ram, &mut self.vram);
             let cart = self.cart.as_mut().unwrap();
+            cart.mapper_chip = mapper;
 
             if irq_ack {
                 self.irq_level_detector = false;
@@ -2735,13 +2756,20 @@ impl Emulator {
         let pal_limit = if vt369_enhanced { 0x3C00 } else { 0x3F00 };
         if address < pal_limit {
             if let Some(cart) = self.cart.as_mut() {
-                let vram = &mut self.vram;
-                cart.with_mapper(|mapper, cart| mapper.store_ppu(cart, address, input, vram));
+                let mut mapper = std::mem::replace(&mut cart.mapper_chip, Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default())));
+                mapper.store_ppu(cart, address, input, &mut self.vram);
+                cart.mapper_chip = mapper;
             }
         } else {
             // palette RAM
-            let is_onebus = self.is_onebus_cart;
-            let vt03_ppu = self.mapper_onebus_vt03_probe;
+            let is_onebus = self
+                .cart
+                .as_ref()
+                .map_or(false, |c| crate::mappers::one_bus::is_onebus_mapper(c.memory_mapper));
+            let vt03_ppu = self
+                .cart
+                .as_ref()
+                .map_or(false, |c| c.mapper_chip.onebus_vt03_ppu());
             let mut pal_addr = if vt369_enhanced {
                 (address & 0x3FF) as usize
             } else if is_onebus {

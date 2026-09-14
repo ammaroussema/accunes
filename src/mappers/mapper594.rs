@@ -411,8 +411,6 @@ impl Mapper for Mapper594 {
         }
     }
 
-    fn needs_ppu_clock(&self) -> bool { true }
-
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -431,8 +429,6 @@ impl Mapper for Mapper594 {
             rendering_on,
         )
     }
-
-    fn needs_cpu_clock(&self) -> bool { true }
 
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         self.adpcm.run(&mut self.fifo);

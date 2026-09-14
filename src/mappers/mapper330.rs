@@ -111,7 +111,6 @@ impl Mapper for Mapper330 {
             _ => {}
         }
     }
-    fn handles_cpu_write(&self) -> bool { true }
     fn handle_cpu_write(&mut self, address: u16, data: u8) {
         if address >= 0x4000 && address <= 0x401F {
             let idx = (address & 0x7F) as usize;
@@ -177,7 +176,6 @@ impl Mapper for Mapper330 {
             vram[(mirrored & 0x7FF) as usize] = data;
         }
     }
-    fn needs_cpu_clock(&self) -> bool { true }
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if (self.irq_counter & 0x8000) != 0 {
             self.irq_counter = self.irq_counter.wrapping_add(1);

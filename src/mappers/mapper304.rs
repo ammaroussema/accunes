@@ -114,8 +114,6 @@ impl Mapper for Mapper304 {
         }
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         self.irq
     }

@@ -1839,8 +1839,6 @@ impl Mapper for Mapper468 {
         }
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         let fusemap = self.fusemap();
         match fusemap {
@@ -1954,8 +1952,6 @@ impl Mapper for Mapper468 {
             }
         }
     }
-
-    fn needs_ppu_clock(&self) -> bool { true }
 
     fn ppu_clock(
         &mut self,

@@ -197,7 +197,6 @@ impl Mapper for Mapper308 {
             }
         }
     }
-    fn needs_cpu_clock(&self) -> bool { true }
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if self.irq_enabled {
             self.irq_counter_low = self.irq_counter_low.wrapping_add(1);

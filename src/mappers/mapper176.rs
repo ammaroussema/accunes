@@ -562,8 +562,6 @@ impl Mapper for Mapper176 {
         }
     }
 
-    fn needs_ppu_clock(&self) -> bool { true }
-
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -591,8 +589,6 @@ impl Mapper for Mapper176 {
         }
         irq
     }
-
-    fn needs_cpu_clock(&self) -> bool { true }
 
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.pa12_filter > 0 {

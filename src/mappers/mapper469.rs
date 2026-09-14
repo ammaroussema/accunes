@@ -329,8 +329,6 @@ impl Mapper for Mapper469 {
         }
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if self.timer_enabled {
             if self.timer_counter == 0 {

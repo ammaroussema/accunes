@@ -2,7 +2,6 @@
 // i hope this is accurate enough!
 
 use crate::emulator::{Emulator, Vt369SpriteEntry, Vt369SpriteHiEntry};
-use crate::bus::PPU_BUS_DECAY_CONSTANT;
 
 impl Emulator {
     /// ppu cycle
@@ -67,8 +66,7 @@ impl Emulator {
         self.ppu_status_sprite_overflow_delayed = self.ppu_status_sprite_overflow;
 
         let mapper_scanline = self.mapper_scanline();
-        if self.mapper_needs_ppu_clock {
-            if let Some(cart) = self.cart.as_mut() {
+        if let Some(cart) = self.cart.as_mut() {
             let rendering_on =
                 self.ppu_mask_show_background || self.ppu_mask_show_sprites;
             if cart.mapper_chip.ppu_clock(
@@ -80,7 +78,6 @@ impl Emulator {
                 rendering_on,
             ) {
                 self.irq_level_detector = true;
-            }
             }
         }
         // mapper irq a12 detection
@@ -375,9 +372,12 @@ impl Emulator {
                 self.ppu_increment_scroll_y();
             } else {
                 let inc = if self.ppu_control_increment_mode_32 { 32u16 } else { 1 };
-                let mask = if self.mapper_um6578_probe { 0xFFFF } else { 0x7FFF };
+                let mask = if self.cart.as_ref().map_or(false, |c| c.mapper_chip.is_um6578()) { 0xFFFF } else { 0x7FFF };
                 self.ppu_v = (self.ppu_v.wrapping_add(inc)) & mask;
-                let vt03_ppu = self.mapper_onebus_vt03_probe;
+                let vt03_ppu = self
+                    .cart
+                    .as_ref()
+                    .map_or(false, |c| c.mapper_chip.onebus_vt03_ppu());
                 if vt03_ppu
                     && self.do_oam_dma
                     && !self.is_pal()
@@ -545,14 +545,14 @@ impl Emulator {
     pub fn store_ppu_registers(&mut self, addr: u16, input: u8) {
         if self.is_um6578() && addr == 0x2008 {
             self.ppu_bus = input;
-            self.mark_ppu_bus_decay();
+            for i in 0..8 { self.ppu_bus_decay[i] = 1786830; }
             self.um6578_reg2008 = input;
             self.um6578_color_mask = if input & 0x80 != 0 { 0xF } else { 0x3 };
             return;
         }
         if self.is_um6578() && (0x2040..=0x207F).contains(&addr) {
             self.ppu_bus = input;
-            self.mark_ppu_bus_decay();
+            for i in 0..8 { self.ppu_bus_decay[i] = 1786830; }
             self.palette_ram[(addr & 0x3F) as usize] = input;
             return;
         }
@@ -561,7 +561,9 @@ impl Emulator {
         }
         if self.vt369_enhanced_ppu() && (addr & 0x200F) == 0x2008 {
             self.ppu_bus = input;
-            self.mark_ppu_bus_decay();
+            for i in 0..8 {
+                self.ppu_bus_decay[i] = 1786830;
+            }
             self.vt369_spr_addr_high = input & 1;
             return;
         }
@@ -569,7 +571,7 @@ impl Emulator {
         match reg {
             0x2000 => {
                 self.ppu_bus = input;
-                self.mark_ppu_bus_decay();
+                for i in 0..8 { self.ppu_bus_decay[i] = 1786830; }
                 if self.ppu_reset { return; }
                 self.ppu_t = (self.ppu_t & 0b0111001111111111) | (((input & 0x3) as u16) << 10);
                 self.emulate_n_master_clock_cycles(2);
@@ -581,7 +583,7 @@ impl Emulator {
             }
             0x2001 => {
                 self.ppu_bus = input;
-                self.mark_ppu_bus_decay();
+                for i in 0..8 { self.ppu_bus_decay[i] = 1786830; }
                 if self.ppu_reset { return; }
                 let alignment = self.ppu_clock & 3;
                 match alignment {
@@ -625,16 +627,16 @@ impl Emulator {
             }
             0x2002 => {
                 self.ppu_bus = input;
-                self.mark_ppu_bus_decay();
+                for i in 0..8 { self.ppu_bus_decay[i] = 1786830; }
             }
             0x2003 => {
                 self.ppu_bus = input;
-                self.mark_ppu_bus_decay();
+                for i in 0..8 { self.ppu_bus_decay[i] = 1786830; }
                 self.ppu_oam_address = self.ppu_bus;
             }
             0x2004 => {
                 self.ppu_bus = input;
-                self.mark_ppu_bus_decay();
+                for i in 0..8 { self.ppu_bus_decay[i] = 1786830; }
                 let can_write = ((self.ppu_scanline >= 240 && self.ppu_scanline < self.pre_render_scanline())
                     && (self.ppu_mask_show_background || self.ppu_mask_show_sprites))
                     || (!self.ppu_mask_show_background && !self.ppu_mask_show_sprites);
@@ -662,7 +664,7 @@ impl Emulator {
             }
             0x2005 => {
                 self.ppu_bus = input;
-                self.mark_ppu_bus_decay();
+                for i in 0..8 { self.ppu_bus_decay[i] = 1786830; }
                 if self.ppu_reset { return; }
                 if !self.ppu_addr_latch {
                     self.ppu_fine_x_scroll = input & 7;
@@ -675,7 +677,7 @@ impl Emulator {
             }
             0x2006 => {
                 self.ppu_bus = input;
-                self.mark_ppu_bus_decay();
+                for i in 0..8 { self.ppu_bus_decay[i] = 1786830; }
                 if self.ppu_reset { return; }
                 if self.vt369_ppu() {
                     if !self.ppu_addr_latch {
@@ -709,7 +711,7 @@ impl Emulator {
             0x2007 => {
                 self.ppu_bus = input;
                 self.ppu_2007_write_data = self.ppu_bus;
-                self.mark_ppu_bus_decay();
+                for i in 0..8 { self.ppu_bus_decay[i] = 1786830; }
                 self.emulate_n_master_clock_cycles(7);
                 self.ppu_2007_write = true;
                 self.ppu_2007_write_sr = true;
@@ -771,27 +773,14 @@ impl Emulator {
     }
 
     fn decay_ppu_data_bus(&mut self) {
-        if self.ppu_bus_decay_countdown > 0 {
-            self.ppu_bus_decay_countdown -= 1;
-            if self.ppu_bus_decay_countdown == 0 {
-                self.ppu_bus = 0;
-                return;
-            }
-            for i in 0..8 {
-                if self.ppu_bus_decay[i] > 0 {
-                    self.ppu_bus_decay[i] -= 1;
-                    if self.ppu_bus_decay[i] == 0 {
-                        self.ppu_bus &= !(1 << i);
-                    }
+        for i in 0..8 {
+            if self.ppu_bus_decay[i] > 0 {
+                self.ppu_bus_decay[i] -= 1;
+                if self.ppu_bus_decay[i] == 0 {
+                    self.ppu_bus &= !(1 << i);
                 }
             }
         }
-    }
-
-    #[inline(always)]
-    pub(crate) fn mark_ppu_bus_decay(&mut self) {
-        for i in 0..8 { self.ppu_bus_decay[i] = PPU_BUS_DECAY_CONSTANT; }
-        self.ppu_bus_decay_countdown = PPU_BUS_DECAY_CONSTANT;
     }
 
     // VT03 4bpp helpers
@@ -2045,7 +2034,7 @@ impl Emulator {
         }
     }
 
-    pub fn palette_rgb(&self, pal_idx: usize) -> u32 {
+    fn palette_rgb(&self, pal_idx: usize) -> u32 {
         match self.palette_mode {
             crate::config::PaletteMode::Ntsc => {
                 if let Some(ref custom) = self.custom_ntsc_palette { custom[pal_idx] } else { NES_PALETTE[pal_idx] }
@@ -2126,18 +2115,12 @@ impl Emulator {
                         | (if emphasis & 0x40 != 0 { 0x40 } else { 0 })
                         | (if emphasis & 0x20 != 0 { 0x80 } else { 0 })
                         | (if emphasis & 0x100 != 0 { 0x100 } else { 0 });
-                    let mut is_custom_ppu = self.is_vt369_ppu_cart
-                        || self.is_um6578_cart
-                        || self.is_vt369_enhanced_ppu_cart
-                        || self.vt03_4bpp_bg_cart
-                        || self.vt03_4bpp_sp_cart;
-                    if !is_custom_ppu && self.is_onebus_cart {
-                        is_custom_ppu = (self.cart.as_ref().map_or(0, |c| c.mapper_chip.vt03_reg2000_10()) & 0x80) != 0;
-                    }
-                    if is_custom_ppu {
+                    let is_vt03_custom = self.vt03_4bpp_bg_cart || self.vt03_4bpp_sp_cart || (self.cart.as_ref().map_or(0, |c| c.mapper_chip.vt03_reg2000_10()) & 0x80) != 0;
+                    if self.is_vt369_ppu_cart || is_vt03_custom || self.is_um6578_cart || self.is_vt369_enhanced_ppu_cart {
                         self.screen[y * 256 + x] = self.prev_prev_prev_dot_color_rgb;
                     } else {
-                        self.screen[y * 256 + x] = self.palette_lut[(chosen_color | emphasis) & 0x1FF];
+                        let pal_idx = (chosen_color | emphasis) % NES_PALETTE.len();
+                        self.screen[y * 256 + x] = self.palette_rgb(pal_idx);
                     }
                 }
             }

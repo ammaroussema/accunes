@@ -482,8 +482,6 @@ impl Mapper for Mapper421 {
         }
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         let irq_src = self.irq_control & 0x03;
         if irq_src == 0 {
@@ -494,8 +492,6 @@ impl Mapper for Mapper421 {
         self.irq_pending
     }
 
-    fn needs_cpu_clock_rise(&self) -> bool { true }
-
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         let irq_src = self.irq_control & 0x03;
         let is_a12 = (ppu_address_bus & 0x1000) != 0;
@@ -505,8 +501,6 @@ impl Mapper for Mapper421 {
         self.last_a12 = is_a12;
         self.irq_pending
     }
-
-    fn handles_cpu_write(&self) -> bool { true }
 
     fn handle_cpu_write(&mut self, _address: u16, _data: u8) {
         let irq_src = self.irq_control & 0x03;

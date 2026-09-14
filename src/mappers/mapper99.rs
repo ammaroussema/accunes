@@ -196,8 +196,6 @@ impl Mapper for Mapper99 {
     fn get_dip_switches(&self) -> u8 { self.vsdip }
     fn set_dip_switches(&mut self, value: u8) { self.vsdip = value; }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         self.cycle_accum += _cycles as u64;
         if self.cycle_accum >= VS_FRAME_CYCLES {

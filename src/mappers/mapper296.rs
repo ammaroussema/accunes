@@ -321,8 +321,6 @@ impl Mapper for Mapper296 {
         self.vt32_pcm_filter_prev.set(0.0);
     }
 
-    fn handles_cpu_write(&self) -> bool { true }
-
     fn handle_cpu_write(&mut self, address: u16, data: u8) {
         let mangle = OneBusMangle::IDENTITY;
         let mut handled_vt32_pcm = false;
@@ -617,8 +615,6 @@ impl Mapper for Mapper296 {
         }
     }
 
-    fn needs_ppu_clock(&self) -> bool { true }
-
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -634,8 +630,6 @@ impl Mapper for Mapper296 {
             false
         }
     }
-
-    fn needs_cpu_clock(&self) -> bool { true }
 
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if self.mmc1_filter > 0 {

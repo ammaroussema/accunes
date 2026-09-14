@@ -1066,8 +1066,6 @@ impl Mapper for MapperRainbow {
         }
     }
 
-    fn handles_cpu_write(&self) -> bool { true }
-
     fn handle_cpu_write(&mut self, address: u16, data: u8) {
         if (0x2000..0x4000).contains(&address) {
             match address & 0x2007 {
@@ -1086,10 +1084,6 @@ impl Mapper for MapperRainbow {
                 _ => {}
             }
         }
-    }
-
-    fn handles_cpu_read(&self) -> bool {
-        true
     }
 
     fn handle_cpu_read(&mut self, address: u16) {
@@ -1331,8 +1325,6 @@ impl Mapper for MapperRainbow {
             }
         }
     }
-
-    fn needs_cpu_clock(&self) -> bool { true }
 
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         self.cpu_parity = !self.cpu_parity;

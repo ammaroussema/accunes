@@ -576,8 +576,6 @@ impl Mapper for MapperMMC3 {
         }
     }
 
-    fn needs_ppu_clock(&self) -> bool { true }
-
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -606,8 +604,6 @@ impl Mapper for MapperMMC3 {
         }
         irq
     }
-
-    fn needs_cpu_clock_rise(&self) -> bool { true }
 
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         if (ppu_address_bus & 0x1000) == 0 {
@@ -652,8 +648,6 @@ impl Mapper for MapperMMC3 {
     fn set_dip_switches(&mut self, value: u8) {
         self.vsdip = value;
     }
-
-    fn needs_cpu_clock(&self) -> bool { true }
 
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         self.cycle_accum += _cycles as u64;

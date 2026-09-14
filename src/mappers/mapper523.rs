@@ -84,8 +84,6 @@ impl Mapper for Mapper523 {
         self.0.store_ppu(cart, address, data, vram);
     }
 
-    fn needs_ppu_clock(&self) -> bool { true }
-
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -105,13 +103,9 @@ impl Mapper for Mapper523 {
         )
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         self.0.cpu_clock(cycles)
     }
-
-    fn needs_cpu_clock_rise(&self) -> bool { true }
 
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         self.0.cpu_clock_rise(ppu_address_bus)

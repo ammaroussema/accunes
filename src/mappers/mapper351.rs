@@ -351,8 +351,6 @@ impl Mapper for Mapper351 {
         }
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         match self.mapper() {
             2 => self.mmc1_core.cpu_clock_irq(),
@@ -363,8 +361,6 @@ impl Mapper for Mapper351 {
             }
         }
     }
-
-    fn needs_ppu_clock(&self) -> bool { true }
 
     fn ppu_clock(&mut self, ppu_address_bus: u16, ppu_a12_prev: bool, scanline: u16, dot: u16, ppu_sprite_x16: bool, rendering_on: bool) -> bool {
         if self.mapper() == 0 || self.mapper() == 1 {

@@ -304,8 +304,6 @@ impl Mapper for Mapper405 {
         (addr as u8, addr)
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if self.hw.timer_control & 0x20 == 0 {
             self.hw.clock_timer();
@@ -316,8 +314,6 @@ impl Mapper for Mapper405 {
     fn cpu_clock_irq_level(&self) -> bool {
         true
     }
-
-    fn needs_ppu_clock(&self) -> bool { true }
 
     fn ppu_clock(
         &mut self,

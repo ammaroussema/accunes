@@ -373,8 +373,6 @@ impl Mapper for Mapper284 {
         }
     }
 
-    fn needs_cpu_clock_rise(&self) -> bool { true }
-
     fn cpu_clock_rise(&mut self, _ppu_address_bus: u16) -> bool {
         self.audio[0].generate_wave(1);
         self.audio[1].generate_wave(1);

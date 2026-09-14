@@ -107,8 +107,6 @@ impl Mapper for Mapper440 {
         }
     }
 
-    fn handles_cpu_write(&self) -> bool { true }
-
     fn handle_cpu_write(&mut self, address: u16, data: u8) {
         if (0x5000..0x6000).contains(&address) {
             match address & 0x700 {

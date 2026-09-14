@@ -1650,8 +1650,6 @@ impl Mapper for Mapper446 {
         }
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if !self.locked() {
             return false;
@@ -1707,8 +1705,6 @@ impl Mapper for Mapper446 {
         }
         false
     }
-
-    fn needs_ppu_clock(&self) -> bool { true }
 
     fn ppu_clock(
         &mut self,

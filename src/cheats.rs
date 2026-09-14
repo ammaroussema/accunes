@@ -233,10 +233,6 @@ impl CheatManager {
 
     pub fn rebuild_active(&mut self) {
         self.active_by_address.clear();
-        if crate::ra::hardcore_active() {
-            self.has_active = false;
-            return;
-        }
         if !self.disable_all {
             for entry in &self.cheats {
                 if entry.enabled {

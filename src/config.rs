@@ -190,67 +190,6 @@ pub fn save_region(region: Region) {
     upsert_config("region", name);
 }
 
-pub fn load_ra_username() -> Option<String> {
-    let path = config_path();
-    if let Ok(content) = std::fs::read_to_string(&path) {
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if let Some(value) = trimmed.strip_prefix("retroachievements_username=") {
-                let v = value.trim();
-                if !v.is_empty() {
-                    return Some(v.to_string());
-                }
-            }
-        }
-    }
-    None
-}
-
-pub fn load_ra_token() -> Option<String> {
-    let path = config_path();
-    if let Ok(content) = std::fs::read_to_string(&path) {
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if let Some(value) = trimmed.strip_prefix("retroachievements_token=") {
-                let v = value.trim();
-                if !v.is_empty() {
-                    return Some(v.to_string());
-                }
-            }
-        }
-    }
-    None
-}
-
-pub fn save_ra_credentials(username: &str, token: &str) {
-    upsert_config("retroachievements_username", username);
-    upsert_config("retroachievements_token", token);
-}
-
-pub fn clear_ra_credentials() {
-    upsert_config("retroachievements_username", "");
-    upsert_config("retroachievements_token", "");
-}
-
-pub fn load_ra_hardcore() -> bool {
-    let path = config_path();
-    if let Ok(content) = std::fs::read_to_string(&path) {
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if let Some(value) = trimmed.strip_prefix("retroachievements_hardcore=") {
-                let v = value.trim();
-                return v.eq_ignore_ascii_case("yes") || v == "1" || v.eq_ignore_ascii_case("true");
-            }
-        }
-    }
-    false
-}
-
-#[allow(dead_code)]
-pub fn save_ra_hardcore(enabled: bool) {
-    upsert_config("retroachievements_hardcore", if enabled { "yes" } else { "no" });
-}
-
 pub fn load_pause_on_lost_focus() -> bool {
     let path = config_path();
     if let Ok(content) = std::fs::read_to_string(&path) {
@@ -394,85 +333,6 @@ impl FpsMode {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum DisplayPosition {
-    TopLeft,
-    TopRight,
-    BottomLeft,
-    BottomRight,
-}
-
-impl DisplayPosition {
-    pub fn next(self) -> Self {
-        match self {
-            DisplayPosition::TopLeft => DisplayPosition::TopRight,
-            DisplayPosition::TopRight => DisplayPosition::BottomLeft,
-            DisplayPosition::BottomLeft => DisplayPosition::BottomRight,
-            DisplayPosition::BottomRight => DisplayPosition::TopLeft,
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            DisplayPosition::TopLeft => "Top Left",
-            DisplayPosition::TopRight => "Top Right",
-            DisplayPosition::BottomLeft => "Bottom Left",
-            DisplayPosition::BottomRight => "Bottom Right",
-        }
-    }
-}
-
-fn load_display_position(key: &str) -> DisplayPosition {
-    let path = config_path();
-    if let Ok(content) = std::fs::read_to_string(&path) {
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if let Some(value) = trimmed.strip_prefix(&format!("{}=", key)) {
-                return match value.trim().to_lowercase().as_str() {
-                    "top_left" => DisplayPosition::TopLeft,
-                    "bottom_left" => DisplayPosition::BottomLeft,
-                    "bottom_right" => DisplayPosition::BottomRight,
-                    _ => DisplayPosition::TopRight,
-                };
-            }
-        }
-    }
-    DisplayPosition::TopRight
-}
-
-fn display_position_str(pos: DisplayPosition) -> &'static str {
-    match pos {
-        DisplayPosition::TopLeft => "top_left",
-        DisplayPosition::TopRight => "top_right",
-        DisplayPosition::BottomLeft => "bottom_left",
-        DisplayPosition::BottomRight => "bottom_right",
-    }
-}
-
-pub fn load_fps_display_position() -> DisplayPosition {
-    load_display_position("fps_display_position")
-}
-
-pub fn save_fps_display_position(pos: DisplayPosition) {
-    upsert_config("fps_display_position", display_position_str(pos));
-}
-
-pub fn load_input_display_position() -> DisplayPosition {
-    load_display_position("input_display_position")
-}
-
-pub fn save_input_display_position(pos: DisplayPosition) {
-    upsert_config("input_display_position", display_position_str(pos));
-}
-
-pub fn load_lag_counter_position() -> DisplayPosition {
-    load_display_position("lag_counter_position")
-}
-
-pub fn save_lag_counter_position(pos: DisplayPosition) {
-    upsert_config("lag_counter_position", display_position_str(pos));
-}
-
 pub fn load_confirm_on_exit() -> bool {
     let path = config_path();
     if let Ok(content) = std::fs::read_to_string(&path) {
@@ -489,24 +349,6 @@ pub fn load_confirm_on_exit() -> bool {
 
 pub fn save_confirm_on_exit(enabled: bool) {
     upsert_config("confirm_on_exit", if enabled { "on" } else { "off" });
-}
-
-pub fn load_lag_counter_display() -> bool {
-    let path = config_path();
-    if let Ok(content) = std::fs::read_to_string(&path) {
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if let Some(value) = trimmed.strip_prefix("show_lag_counter=") {
-                let v = value.trim().to_lowercase();
-                return v == "yes" || v == "1" || v == "true" || v == "on";
-            }
-        }
-    }
-    false
-}
-
-pub fn save_lag_counter_display(enabled: bool) {
-    upsert_config("show_lag_counter", if enabled { "on" } else { "off" });
 }
 
 pub fn load_auto_save_sram() -> bool {
@@ -1619,42 +1461,6 @@ pub fn load_auto_hold() -> bool {
 
 pub fn save_auto_hold(enabled: bool) {
     upsert_config("auto_hold", if enabled { "on" } else { "off" });
-}
-
-pub fn load_input_display() -> bool {
-    let path = config_path();
-    if let Ok(content) = std::fs::read_to_string(&path) {
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if let Some(value) = trimmed.strip_prefix("input_display=") {
-                let v = value.trim().to_lowercase();
-                return v == "yes" || v == "1" || v == "true" || v == "on";
-            }
-        }
-    }
-    false
-}
-
-pub fn save_input_display(enabled: bool) {
-    upsert_config("input_display", if enabled { "on" } else { "off" });
-}
-
-pub fn load_autofire() -> bool {
-    let path = config_path();
-    if let Ok(content) = std::fs::read_to_string(&path) {
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if let Some(value) = trimmed.strip_prefix("autofire=") {
-                let v = value.trim().to_lowercase();
-                return v == "yes" || v == "1" || v == "true" || v == "on";
-            }
-        }
-    }
-    false
-}
-
-pub fn save_autofire(enabled: bool) {
-    upsert_config("autofire", if enabled { "on" } else { "off" });
 }
 
 pub const GAMEPAD_BUTTONS: &[&str] = &["A","B","TurboA","TurboB","Select","Start","Up","Down","Left","Right"];
@@ -3115,7 +2921,7 @@ pub fn clear_vb_bindings(prefix: &str) {
     }
 }
 
-pub const HOTKEY_COUNT: usize = 34;
+pub const HOTKEY_COUNT: usize = 27;
 
 pub const HOTKEY_LABELS: [&str; HOTKEY_COUNT] = [
     "Open ROM",
@@ -3145,13 +2951,6 @@ pub const HOTKEY_LABELS: [&str; HOTKEY_COUNT] = [
     "Show FPS",
     "Region Cycle",
     "Toggle Auto Hold",
-    "Toggle Input Display",
-    "Frame Advance",
-    "Toggle Lag Counter",
-    "Toggle Autofire",
-    "Increase Speed",
-    "Decrease Speed",
-    "Reset Speed",
 ];
 
 pub const HOTKEY_CONFIG_KEYS: [&str; HOTKEY_COUNT] = [
@@ -3182,13 +2981,6 @@ pub const HOTKEY_CONFIG_KEYS: [&str; HOTKEY_COUNT] = [
     "hotkey_show_fps",
     "hotkey_region_cycle",
     "hotkey_auto_hold",
-    "hotkey_input_display",
-    "hotkey_frame_advance",
-    "hotkey_lag_counter",
-    "hotkey_autofire",
-    "hotkey_speed_up",
-    "hotkey_speed_down",
-    "hotkey_reset_speed",
 ];
 
 pub const DEFAULT_HOTKEYS: [&str; HOTKEY_COUNT] = [
@@ -3219,13 +3011,6 @@ pub const DEFAULT_HOTKEYS: [&str; HOTKEY_COUNT] = [
     "F3",
     "F5",
     "Ctrl + H",
-    "F2",
-    "F4",
-    "F6",
-    "F7",
-    "\"+\"",
-    "\"-\"",
-    "",
 ];
 
 pub fn load_hotkeys() -> [String; HOTKEY_COUNT] {

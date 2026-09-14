@@ -298,7 +298,7 @@ impl Mapper for Mapper83 {
                 overall_crc32: 0,
                 prg_chr_crc32: 0,
                 is_vs_system: false,
-                mapper_chip: crate::cartridge::MapperSlot::new(Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default()))),
+                mapper_chip: Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default())),
                 tv_system: crate::region::TvSystem::Unknown,
             };
             let mirrored = self.mirror_nametable(&dummy, address);
@@ -307,16 +307,12 @@ impl Mapper for Mapper83 {
         (new_addr_bus as u8, new_addr_bus)
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if (self.flags & 0x40) == 0 {
             self.clock_counter();
         }
         self.irq_pending
     }
-
-    fn needs_ppu_clock(&self) -> bool { true }
 
     fn ppu_clock(
         &mut self,

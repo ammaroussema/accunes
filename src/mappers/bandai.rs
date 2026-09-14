@@ -699,8 +699,6 @@ impl Mapper for MapperBandai {
         }
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.is157() {
             self.tick_barcode();

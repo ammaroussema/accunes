@@ -1,47 +1,9 @@
 // the ines based cartridge loader
 
 use std::fs;
-use std::ops::{Deref, DerefMut};
 use crate::crc::crc32;
 use crate::mapper::{Mapper, create_mapper};
 use crate::region::TvSystem;
-
-pub struct MapperSlot {
-    inner: Option<Box<dyn Mapper + Send>>,
-}
-
-impl MapperSlot {
-    #[inline]
-    pub fn new(mapper: Box<dyn Mapper + Send>) -> Self {
-        Self { inner: Some(mapper) }
-    }
-
-    #[inline(always)]
-    fn take(&mut self) -> Box<dyn Mapper + Send> {
-        self.inner.take().expect("mapper already taken")
-    }
-
-    #[inline(always)]
-    fn restore(&mut self, mapper: Box<dyn Mapper + Send>) {
-        debug_assert!(self.inner.is_none());
-        self.inner = Some(mapper);
-    }
-}
-
-impl Deref for MapperSlot {
-    type Target = dyn Mapper + Send;
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        self.inner.as_ref().expect("mapper slot empty").as_ref()
-    }
-}
-
-impl DerefMut for MapperSlot {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.inner.as_mut().expect("mapper slot empty").as_mut()
-    }
-}
 
 pub struct Cartridge {
     pub name: String,
@@ -72,7 +34,7 @@ pub struct Cartridge {
     #[allow(dead_code)]
     pub misc_rom: Vec<u8>,    
 
-    pub mapper_chip: MapperSlot,
+    pub mapper_chip: Box<dyn Mapper + Send>,
 
     pub mapper_cpu_cycle: i64,
 
@@ -91,15 +53,9 @@ pub struct Cartridge {
 
 impl Cartridge {
     pub fn reset_mapper(&mut self) {
-        self.with_mapper(|mapper, cart| mapper.reset_with_cart(cart));
-    }
-
-    #[inline(always)]
-    pub fn with_mapper<R>(&mut self, f: impl FnOnce(&mut dyn Mapper, &mut Cartridge) -> R) -> R {
-        let mut mapper = self.mapper_chip.take();
-        let result = f(&mut *mapper, self);
-        self.mapper_chip.restore(mapper);
-        result
+        let mut mapper = std::mem::replace(&mut self.mapper_chip, Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default())));
+        mapper.reset_with_cart(self);
+        self.mapper_chip = mapper;
     }
 }
 fn convert_mfc_to_ines(rom: &[u8]) -> Result<Vec<u8>, String> {
@@ -149,8 +105,6 @@ impl Cartridge {
     pub fn from_file(filepath: &str) -> Result<Cartridge, String> {
         let mut rom = fs::read(filepath).map_err(|e| format!("Failed to read file: {}", e))?;
 
-        crate::ra::compute_ra_hashes(filepath, &rom);
-
         let is_nsf = (rom.len() >= 0x80 && &rom[0..5] == b"NESM\x1a")
             || filepath.to_lowercase().ends_with(".nsf");
         let is_nsfe = (rom.len() >= 4 && &rom[0..4] == b"NSFE")
@@ -195,7 +149,7 @@ impl Cartridge {
                 fds_disks: Vec::new(),
                 trainer: Vec::new(),
                 misc_rom: Vec::new(),
-                mapper_chip: MapperSlot::new(Box::new(crate::mappers::nsf::NsfMapper::new(nsf_rom.info))),
+                mapper_chip: Box::new(crate::mappers::nsf::NsfMapper::new(nsf_rom.info)),
                 mapper_cpu_cycle: 0,
                 prg_rom_crc32: prg_crc,
                 chr_rom_crc32: 0,
@@ -317,7 +271,7 @@ impl Cartridge {
                 fds_disks,
                 trainer: Vec::new(),
                 misc_rom: Vec::new(),
-                mapper_chip: MapperSlot::new(Box::new(crate::mapper::Mapper20::new(vec![]))),
+                mapper_chip: Box::new(crate::mapper::Mapper20::new(vec![])),
                 mapper_cpu_cycle: 0,
                 prg_rom_crc32: fds_prg_rom_crc,
                 chr_rom_crc32: 0,
@@ -328,7 +282,7 @@ impl Cartridge {
             };
             
             let mut cartridge = cartridge;
-            cartridge.mapper_chip = MapperSlot::new(Box::new(crate::mapper::Mapper20::new(cartridge.fds_disks.clone())));
+            cartridge.mapper_chip = Box::new(crate::mapper::Mapper20::new(cartridge.fds_disks.clone()));
 
             println!("Loaded FDS ROM: {} ({} sides)", cartridge.name, cartridge.fds_disks.len());
             return Ok(cartridge);
@@ -377,7 +331,7 @@ impl Cartridge {
                 fds_disks: Vec::new(),
                 trainer: Vec::new(),
                 misc_rom: Vec::new(),
-                mapper_chip: MapperSlot::new(Box::new(crate::mapper::MapperStudyBox::new(tape))),
+                mapper_chip: Box::new(crate::mapper::MapperStudyBox::new(tape)),
                 mapper_cpu_cycle: 0,
                 prg_rom_crc32: bios_crc,
                 chr_rom_crc32: 0,
@@ -712,7 +666,7 @@ impl Cartridge {
                 fds_disks: Vec::new(),
                 trainer: Vec::new(),
                 misc_rom: Vec::new(),
-                mapper_chip: MapperSlot::new(mapper_chip),
+                mapper_chip,
                 mapper_cpu_cycle: 0,
                 prg_rom_crc32: unif_prg_crc,
                 chr_rom_crc32: unif_chr_crc,
@@ -1205,7 +1159,7 @@ impl Cartridge {
             fds_disks: Vec::new(),
             trainer,
             misc_rom,
-            mapper_chip: MapperSlot::new(mapper_chip),
+            mapper_chip,
             mapper_cpu_cycle: 0,
             prg_rom_crc32: ines_prg_crc,
             chr_rom_crc32: ines_chr_crc,
@@ -1231,24 +1185,52 @@ impl Cartridge {
 
         if let Some(sav_data) = bandai_sav {
             let sav_path = std::path::Path::new(filepath).with_extension("sav");
-            cartridge.with_mapper(|mapper, cart| mapper.load_battery_save(cart, &sav_data));
+            let mut mapper = std::mem::replace(
+                &mut cartridge.mapper_chip,
+                Box::new(crate::mapper::MapperNROM::new(
+                    crate::mapper::NromConfig::default(),
+                )),
+            );
+            mapper.load_battery_save(&mut cartridge, &sav_data);
+            cartridge.mapper_chip = mapper;
             println!("Loaded Bandai save from {:?}", sav_path);
         } else if memory_mapper == 342 {
             let sav_path = crate::config::save_file_path(filepath);
             if let Ok(sav_data) = fs::read(&sav_path) {
-                cartridge.with_mapper(|mapper, cart| mapper.load_battery_save(cart, &sav_data));
+                let mut mapper = std::mem::replace(
+                    &mut cartridge.mapper_chip,
+                    Box::new(crate::mapper::MapperNROM::new(
+                        crate::mapper::NromConfig::default(),
+                    )),
+                );
+                mapper.load_battery_save(&mut cartridge, &sav_data);
+                cartridge.mapper_chip = mapper;
                 println!("Loaded COOLGIRL flash save from {:?}", sav_path);
             }
         } else if memory_mapper == 558 {
             let sav_path = crate::config::save_file_path(filepath);
             if let Ok(sav_data) = fs::read(&sav_path) {
-                cartridge.with_mapper(|mapper, cart| mapper.load_battery_save(cart, &sav_data));
+                let mut mapper = std::mem::replace(
+                    &mut cartridge.mapper_chip,
+                    Box::new(crate::mapper::MapperNROM::new(
+                        crate::mapper::NromConfig::default(),
+                    )),
+                );
+                mapper.load_battery_save(&mut cartridge, &sav_data);
+                cartridge.mapper_chip = mapper;
                 println!("Loaded Waixing FSxxx save from {:?}", sav_path);
             }
         } else if memory_mapper == 800 {
             let sav_path = crate::config::save_file_path(filepath);
             if let Ok(sav_data) = fs::read(&sav_path) {
-                cartridge.with_mapper(|mapper, cart| mapper.load_battery_save(cart, &sav_data));
+                let mut mapper = std::mem::replace(
+                    &mut cartridge.mapper_chip,
+                    Box::new(crate::mapper::MapperNROM::new(
+                        crate::mapper::NromConfig::default(),
+                    )),
+                );
+                mapper.load_battery_save(&mut cartridge, &sav_data);
+                cartridge.mapper_chip = mapper;
                 println!("Loaded FlameCyclone (mapper 800) save from {:?}", sav_path);
             }
         }

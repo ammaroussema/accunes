@@ -563,8 +563,6 @@ impl Mapper for Mapper90 {
         }
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         let irq_src = self.irq_control & 0x03;
         if irq_src == 0 {
@@ -574,8 +572,6 @@ impl Mapper for Mapper90 {
         }
         self.irq_pending
     }
-
-    fn needs_cpu_clock_rise(&self) -> bool { true }
 
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         let irq_src = self.irq_control & 0x03;

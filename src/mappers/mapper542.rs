@@ -229,8 +229,6 @@ fn store_prg(&mut self, _cart: &mut Cartridge, address: u16, data: u8) {
         }
     }
 
-    fn needs_cpu_clock_rise(&self) -> bool { true }
-
     fn cpu_clock_rise(&mut self, _ppu_address_bus: u16) -> bool {
         if self.irq_enabled && !self.irq_mode {
             self.irq_prescaler -= 3;
@@ -246,8 +244,6 @@ fn store_prg(&mut self, _cart: &mut Cartridge, address: u16, data: u8) {
         }
         false
     }
-
-    fn needs_cpu_clock(&self) -> bool { true }
 
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.irq_enabled && self.irq_mode {

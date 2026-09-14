@@ -203,8 +203,6 @@ impl Mapper for Mapper458 {
         }
     }
 
-    fn needs_ppu_clock(&self) -> bool { true }
-
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -233,8 +231,6 @@ impl Mapper for Mapper458 {
         }
         irq
     }
-
-    fn needs_cpu_clock_rise(&self) -> bool { true }
 
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         let a12 = (ppu_address_bus & 0x1000) != 0;

@@ -415,8 +415,6 @@ impl Mapper for Mapper522 {
         (new_addr_bus as u8, new_addr_bus)
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if cycles > 0 {
             self.fds.run(cycles as u32);

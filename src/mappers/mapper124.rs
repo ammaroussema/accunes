@@ -350,10 +350,6 @@ impl Mapper for Mapper124 {
         self.irq_ack_pulse = false;
     }
 
-    fn has_cpu_ram_override(&self) -> bool {
-        true
-    }
-
     fn cpu_ram_override(&self, address: u16) -> Option<u8> {
         if address < 0x1000 {
             Some(self.work_ram[address as usize])
@@ -543,8 +539,6 @@ impl Mapper for Mapper124 {
         }
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         self.cycle_accum += cycles as u64;
         if self.cycle_accum >= VS_FRAME_CYCLES {
@@ -559,16 +553,12 @@ impl Mapper for Mapper124 {
         }
     }
 
-    fn needs_cpu_clock_rise(&self) -> bool { true }
-
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         if self.mapper() == MAPPER_MMC3 {
             self.mmc3.cpu_clock_rise(ppu_address_bus);
         }
         false
     }
-
-    fn needs_ppu_clock(&self) -> bool { true }
 
     fn ppu_clock(
         &mut self,

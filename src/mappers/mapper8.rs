@@ -86,8 +86,6 @@ impl Mapper for Mapper8 {
         self.inner.store_ppu(cart, address, data, vram);
     }
 
-    fn needs_ppu_clock(&self) -> bool { true }
-
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -106,8 +104,6 @@ impl Mapper for Mapper8 {
             rendering_on,
         )
     }
-
-    fn needs_cpu_clock(&self) -> bool { true }
 
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         self.inner.cpu_clock(cycles)

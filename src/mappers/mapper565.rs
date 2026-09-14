@@ -162,8 +162,6 @@ impl Mapper for Mapper565 {
         (new_addr_bus as u8, new_addr_bus)
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if self.irq_enabled & 1 != 0 {
             self.irq_prescaler = self.irq_prescaler.wrapping_add(1);

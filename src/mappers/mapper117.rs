@@ -177,8 +177,6 @@ impl Mapper for Mapper117 {
         }
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         if self.pa12_filter > 0 {
             self.pa12_filter -= 1;
@@ -197,8 +195,6 @@ impl Mapper for Mapper117 {
         }
         fired
     }
-
-    fn needs_ppu_clock(&self) -> bool { true }
 
     fn ppu_clock(
         &mut self,

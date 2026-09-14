@@ -217,19 +217,19 @@ impl Emulator {
                         }
                     }
                     if self.expansion_adapter_type == crate::config::ExpansionAdapterType::TwoPlayer {
-                        self.controller_shift_register1 = self.controller_sampled(self.expansion_adapter_ports[0].load(Ordering::Relaxed));
-                        self.controller_shift_register2 = self.controller_sampled(self.expansion_adapter_ports[1].load(Ordering::Relaxed));
+                        self.controller_shift_register1 = self.expansion_adapter_ports[0].load(Ordering::Relaxed);
+                        self.controller_shift_register2 = self.expansion_adapter_ports[1].load(Ordering::Relaxed);
                     } else if self.expansion_adapter_type == crate::config::ExpansionAdapterType::FourPlayer || self.expansion_adapter_type == crate::config::ExpansionAdapterType::HoriFourPlayer {
                         for p in 0..4usize {
-                            self.expansion_adapter_shift_register[p] = self.controller_sampled(self.expansion_adapter_ports[p].load(Ordering::Relaxed));
+                            self.expansion_adapter_shift_register[p] = self.expansion_adapter_ports[p].load(Ordering::Relaxed);
                         }
                         self.fourscore_readbit[0] = 0;
                         self.fourscore_readbit[1] = 0;
-                        self.controller_shift_register1 = self.controller_sampled(self.controller_port1.load(Ordering::Relaxed));
-                        self.controller_shift_register2 = self.controller_sampled(self.controller_port2.load(Ordering::Relaxed));
+                        self.controller_shift_register1 = self.controller_port1.load(Ordering::Relaxed);
+                        self.controller_shift_register2 = self.controller_port2.load(Ordering::Relaxed);
                     } else {
-                        self.controller_shift_register1 = self.controller_sampled(self.controller_port1.load(Ordering::Relaxed));
-                        self.controller_shift_register2 = self.controller_sampled(self.controller_port2.load(Ordering::Relaxed));
+                        self.controller_shift_register1 = self.controller_port1.load(Ordering::Relaxed);
+                        self.controller_shift_register2 = self.controller_port2.load(Ordering::Relaxed);
                     }
                     // powerpad
                     {

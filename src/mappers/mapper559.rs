@@ -235,8 +235,6 @@ impl Mapper for Mapper559 {
         }
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         let mut raised = false;
         if self.irq_raise_count > 0 {

@@ -325,8 +325,6 @@ impl Mapper for MapperFME7 {
         }
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         self.tick_audio();
         if self.irqa != 0 {

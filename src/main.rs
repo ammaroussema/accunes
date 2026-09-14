@@ -9,7 +9,6 @@ mod cartridge;
 mod crc;
 mod mappers;
 mod mapper;
-mod ra;
 mod wxn;
 mod studybox;
 mod wavreader;
@@ -125,7 +124,6 @@ enum FileMenuItem {
 #[derive(Clone, Copy, PartialEq)]
 enum NesMenuItem {
     Pause,
-    FrameAdvance,
     DipSwitches,
     InsertCoin1,
     InsertCoin2,
@@ -140,11 +138,9 @@ enum NesMenuItem {
 #[derive(Clone, Copy, PartialEq)]
 enum ToolsMenuItem {
     Cheats,
-    Achievements,
     TapePlay,
     TapeRecord,
     TapeStop,
-    EmulationSpeed,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -674,9 +670,6 @@ struct MenuState {
     show_save_state_submenu: bool,
     show_load_state_submenu: bool,
     show_region_submenu: bool,
-    show_speed_submenu: bool,
-    current_speed: u32,
-    hovered_speed_index: Option<usize>,
     current_region: Region,
     show_general_settings: bool,
     show_directories_settings: bool,
@@ -736,16 +729,6 @@ struct MenuState {
     cheat_db_selected_game_idx: Option<usize>,
     cheat_db_cheats_scroll: usize,
     cheat_db_selected_cheat_idx: Option<usize>,
-    show_achievements_window: bool,
-    achievements_scroll: usize,
-    show_ra_login: bool,
-    ra_login_focus: usize,
-    ra_login_user: String,
-    ra_login_user_caret: usize,
-    ra_login_pass: String,
-    ra_login_pass_caret: usize,
-    ra_login_error: String,
-    ra_toasts: Vec<(std::time::Instant, ra::RaToast)>,
     mouse_pos: (usize, usize),
     menu_height: usize,
     scale: f32,
@@ -777,9 +760,6 @@ impl MenuState {
             show_save_state_submenu: false,
             show_load_state_submenu: false,
             show_region_submenu: false,
-            show_speed_submenu: false,
-            current_speed: SPEED_DEFAULT,
-            hovered_speed_index: None,
             current_region: config::load_region(),
             show_general_settings: false,
             show_directories_settings: false,
@@ -839,16 +819,6 @@ impl MenuState {
             cheat_db_selected_game_idx: None,
             cheat_db_cheats_scroll: 0,
             cheat_db_selected_cheat_idx: None,
-            show_achievements_window: false,
-            achievements_scroll: 0,
-            show_ra_login: false,
-            ra_login_focus: 0,
-            ra_login_user: String::new(),
-            ra_login_user_caret: 0,
-            ra_login_pass: String::new(),
-            ra_login_pass_caret: 0,
-            ra_login_error: String::new(),
-            ra_toasts: Vec::new(),
             mouse_pos: (0, 0),
             menu_height: BASE_MENU_HEIGHT,
             scale: 1.0,
@@ -1077,7 +1047,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.7.1";
+const APP_VERSION: &str = "1.7.0";
 
 fn strip_version_prefix(s: &str) -> &str {
     s.trim_start_matches(|c: char| c.is_ascii_alphabetic())
@@ -1163,114 +1133,6 @@ fn draw_text(buffer: &mut [u32], x: usize, y: usize, width: usize, text: &str, c
         let cx = x + (i as f32 * char_w).round() as usize;
         draw_char(buffer, cx, y, width, c, color, scale);
     }
-}
-
-fn draw_input_display_row(
-    buffer: &mut [u32],
-    screen_w: usize,
-    x: usize,
-    y: usize,
-    port: u8,
-    held: u8,
-    label: &str,
-    colors: &UiColors,
-    scale: f32,
-) -> usize {
-    let s = scale;
-    let gap = (4.0 * s).round() as usize;
-    let bw = (22.0 * s).round() as usize;
-    let bh = (16.0 * s).round() as usize;
-    let text_h = (8.0 * s).round() as usize;
-
-    draw_text(buffer, x, y + ((bh.saturating_sub(text_h)) / 2), screen_w, label, colors.menu_text, s);
-
-    let mut bx = x + (30.0 * s).round() as usize;
-
-    let draw_btn = |buffer: &mut [u32], bx: usize, text: &str, mask: u8, extra_w: usize| -> usize {
-        let w = bw + extra_w;
-        let pressed = port & mask != 0;
-        let is_held = held & mask != 0;
-        let border = if pressed { colors.menu_text } else { colors.box_border };
-        let bg = if pressed {
-            if is_held { colors.dip_on_fill } else { colors.box_bg_hover }
-        } else {
-            colors.box_bg_default
-        };
-        let text_color = if pressed { colors.menu_text } else { colors.disabled_text };
-        draw_rect(buffer, bx, y, w, bh, screen_w, border);
-        draw_rect(buffer, bx + 1, y + 1, w.saturating_sub(2), bh.saturating_sub(2), screen_w, bg);
-        let tw = text.len() as f32 * 8.0 * s;
-        let tx = bx + ((w as f32 - tw).max(0.0) / 2.0).round() as usize;
-        let ty = y + ((bh.saturating_sub(text_h)) / 2);
-        draw_text(buffer, tx, ty, screen_w, text, text_color, s);
-        w + gap
-    };
-
-    bx += draw_btn(buffer, bx, "^", 0x08, 0);
-    bx += draw_btn(buffer, bx, "v", 0x04, 0);
-    bx += draw_btn(buffer, bx, "<", 0x02, 0);
-    bx += draw_btn(buffer, bx, ">", 0x01, 0);
-    bx += gap;
-    bx += draw_btn(buffer, bx, "SEL", 0x20, (10.0 * s).round() as usize);
-    bx += draw_btn(buffer, bx, "STA", 0x10, (10.0 * s).round() as usize);
-    bx += gap;
-    bx += draw_btn(buffer, bx, "A", 0x80, 0);
-    draw_btn(buffer, bx, "B", 0x40, 0);
-
-    bh
-}
-
-fn input_display_row_size(scale: f32) -> (usize, usize) {
-    let s = scale;
-    let gap = (4.0 * s).round() as usize;
-    let bw = (22.0 * s).round() as usize;
-    let bh = (16.0 * s).round() as usize;
-    let extra = (10.0 * s).round() as usize;
-    let w = (30.0 * s).round() as usize
-        + 4 * (bw + gap)
-        + gap
-        + 2 * (bw + extra + gap)
-        + gap
-        + (bw + gap)
-        + bw;
-    (w, bh)
-}
-
-fn stack_overlay_positions(
-    corner: config::DisplayPosition,
-    width: usize,
-    height: usize,
-    menu_height: usize,
-    scale: f32,
-    blocks: &[(usize, usize)],
-) -> Vec<(usize, usize)> {
-    let margin = (10.0 * scale).round() as usize;
-    let gap = (8.0 * scale).round() as usize;
-    let mut result = Vec::with_capacity(blocks.len());
-    let is_top = matches!(corner, config::DisplayPosition::TopLeft | config::DisplayPosition::TopRight);
-    let mut cursor: usize = if is_top {
-        menu_height + margin
-    } else {
-        height.saturating_sub(margin)
-    };
-    for &(bw, bh) in blocks {
-        let x = match corner {
-            config::DisplayPosition::TopLeft | config::DisplayPosition::BottomLeft => margin,
-            _ => width.saturating_sub(margin).saturating_sub(bw),
-        };
-        let y = if is_top {
-            cursor
-        } else {
-            cursor.saturating_sub(bh)
-        };
-        result.push((x, y));
-        if is_top {
-            cursor = y + bh + gap;
-        } else {
-            cursor = y.saturating_sub(gap);
-        }
-    }
-    result
 }
 
 fn truncate_text(text: &str, max_w: usize, scale: f32) -> String {
@@ -1955,177 +1817,6 @@ fn expansion_device_label(t: config::ExpansionType, i: usize) -> &'static str {
     }
 }
 
-
-// retroachievements ui
-
-fn render_achievements_window(
-    buffer: &mut [u32],
-    width: usize,
-    height: usize,
-    ms: &MenuState,
-    colors: &UiColors,
-    scale: f32,
-) {
-    let sc = scale;
-    let win_w = ((width as f32 - 40.0 * sc).min(560.0 * sc)).round() as usize;
-    let win_h = ((height as f32 - 40.0 * sc).min(420.0 * sc)).round() as usize;
-    let win_x = (width.saturating_sub(win_w)) / 2;
-    let win_y = (height.saturating_sub(win_h)) / 2;
-
-    draw_rect(buffer, win_x, win_y, win_w, win_h, width, colors.window_bg);
-    let border_t = (2.0 * sc).round() as usize;
-    draw_rect(buffer, win_x, win_y, win_w, border_t, width, colors.window_border);
-    draw_rect(buffer, win_x, win_y, border_t, win_h, width, colors.window_border);
-    draw_rect(buffer, win_x + win_w - border_t, win_y, border_t, win_h, width, colors.window_border);
-    draw_rect(buffer, win_x, win_y + win_h - border_t, win_w, border_t, width, colors.window_border);
-
-    let title_h = (30.0 * sc).round() as usize;
-    draw_rect(buffer, win_x, win_y, win_w, title_h, width, colors.dropdown_bg);
-
-    let game = ra::get_game();
-    let user = ra::get_user();
-    let title = match (&game, &user) {
-        (Some(g), Some(u)) => format!("Achievements — {} ({} pts, {})", g.title, u.score, u.username),
-        (Some(g), None) => format!("Achievements — {}", g.title),
-        _ => "Achievements".to_string(),
-    };
-    draw_text(buffer, win_x + (10.0 * sc).round() as usize, win_y + (8.0 * sc).round() as usize, width, &title, colors.menu_text, sc);
-
-    let close_w = (20.0 * sc).round() as usize;
-    let close_h = (20.0 * sc).round() as usize;
-    let close_x = win_x + win_w - close_w - (6.0 * sc).round() as usize;
-    let close_y = win_y + (title_h.saturating_sub(close_h)) / 2;
-    draw_rect(buffer, close_x, close_y, close_w, close_h, width, colors.close_bg);
-    draw_text(buffer, close_x + (6.0 * sc).round() as usize, close_y + (6.0 * sc).round() as usize, width, "X", colors.menu_text, sc);
-
-    let list_y = win_y + title_h + (8.0 * sc).round() as usize;
-    let list_h = win_h - title_h - (8.0 * sc).round() as usize;
-    let row_h = (44.0 * sc).round() as usize;
-    let pad_x = (10.0 * sc).round() as usize;
-    let text_x = win_x + pad_x;
-    let text_w = win_w - pad_x * 2;
-
-    if user.is_none() {
-        let msg = "Not logged in. Use Tools > RA Login.";
-        draw_text_wrapped(buffer, text_x, list_y + (10.0 * sc).round() as usize, text_w, width, msg, colors.disabled_text, sc);
-        return;
-    }
-
-    let achievements = ra::get_achievements();
-    if achievements.is_empty() {
-        draw_text_wrapped(buffer, text_x, list_y + (10.0 * sc).round() as usize, text_w, width, "No achievements for this game.", colors.disabled_text, sc);
-        return;
-    }
-
-    let visible_rows = (list_h / row_h).max(1);
-    let max_scroll = achievements.len().saturating_sub(visible_rows);
-    let scroll = ms.achievements_scroll.min(max_scroll);
-
-    for (row, ach) in achievements.iter().skip(scroll).take(visible_rows).enumerate() {
-        let row_y = list_y + row * row_h;
-        let color = if ach.disabled {
-            colors.disabled_text
-        } else if ach.unlocked {
-            colors.menu_text
-        } else {
-            colors.disabled_text
-        };
-        let state_tag = if ach.unlocked {
-            format!("[✓ {} pts]", ach.points)
-        } else if ach.disabled {
-            format!("[{} pts]", ach.points)
-        } else {
-            format!("[{} pts]", ach.points)
-        };
-        let progress = if !ach.measured_progress.is_empty() && !ach.unlocked {
-            format!(" ({})", ach.measured_progress)
-        } else {
-            String::new()
-        };
-        draw_text(buffer, text_x, row_y, width, &ach.title, color, sc);
-        draw_text(buffer, win_x + win_w - pad_x - (90.0 * sc).round() as usize, row_y, width, &state_tag, color, sc);
-        let desc = format!("{}{}", ach.description, progress);
-        draw_text_wrapped(buffer, text_x, row_y + (18.0 * sc).round() as usize, text_w.saturating_sub((95.0 * sc).round() as usize), width, &desc, color, sc);
-        let _ = ach.id;
-    }
-}
-
-fn render_ra_login(
-    buffer: &mut [u32],
-    width: usize,
-    height: usize,
-    ms: &MenuState,
-    colors: &UiColors,
-    scale: f32,
-) {
-    let sc = scale;
-    let dlg_w = (360.0 * sc).round() as usize;
-    let dlg_h = (220.0 * sc).round() as usize;
-    let dlg_x = (width.saturating_sub(dlg_w)) / 2;
-    let dlg_y = (height.saturating_sub(dlg_h)) / 2;
-
-    draw_rect(buffer, dlg_x, dlg_y, dlg_w, dlg_h, width, colors.window_bg);
-    let border_t = (2.0 * sc).round() as usize;
-    draw_rect(buffer, dlg_x, dlg_y, dlg_w, border_t, width, colors.window_border);
-    draw_rect(buffer, dlg_x, dlg_y, border_t, dlg_h, width, colors.window_border);
-    draw_rect(buffer, dlg_x + dlg_w - border_t, dlg_y, border_t, dlg_h, width, colors.window_border);
-    draw_rect(buffer, dlg_x, dlg_y + dlg_h - border_t, dlg_w, border_t, width, colors.window_border);
-
-    let title_h = (26.0 * sc).round() as usize;
-    draw_rect(buffer, dlg_x, dlg_y, dlg_w, title_h, width, colors.dropdown_bg);
-    draw_text(buffer, dlg_x + (10.0 * sc).round() as usize, dlg_y + (6.0 * sc).round() as usize, width, "RetroAchievements Login", colors.menu_text, sc);
-
-    let close_w = (20.0 * sc).round() as usize;
-    let close_h = (20.0 * sc).round() as usize;
-    let close_x = dlg_x + dlg_w - close_w - (4.0 * sc).round() as usize;
-    let close_y = dlg_y + (title_h.saturating_sub(close_h)) / 2;
-    draw_rect(buffer, close_x, close_y, close_w, close_h, width, colors.close_bg);
-    draw_text(buffer, close_x + (6.0 * sc).round() as usize, close_y + (6.0 * sc).round() as usize, width, "X", colors.menu_text, sc);
-
-    let field_x = dlg_x + (12.0 * sc).round() as usize;
-    let field_w = dlg_w - (24.0 * sc).round() as usize;
-    let field_h = (26.0 * sc).round() as usize;
-    let user_y = dlg_y + title_h + (12.0 * sc).round() as usize;
-    let pass_y = user_y + field_h + (20.0 * sc).round() as usize;
-
-    let user_box = ms.ra_login_focus == 0;
-    let border_color = if user_box { colors.rebind_border } else { colors.box_border };
-    draw_rect(buffer, field_x, user_y, field_w, field_h, width, border_color);
-    draw_rect(buffer, field_x + border_t, user_y + border_t, field_w - border_t * 2, field_h - border_t * 2, width, colors.box_bg_default);
-    let masked_user: String = ms.ra_login_user.chars().collect();
-    draw_text(buffer, field_x + (6.0 * sc).round() as usize, user_y + (6.0 * sc).round() as usize, width, &masked_user, colors.menu_text, sc);
-    if user_box {
-        let caret_x = field_x + (6.0 * sc).round() as usize + (masked_user.len() as f32 * 8.0 * sc).round() as usize;
-        draw_rect(buffer, caret_x, user_y + (5.0 * sc).round() as usize, (2.0 * sc).round() as usize, (16.0 * sc).round() as usize, width, colors.menu_text);
-    }
-
-    let pass_box = ms.ra_login_focus == 1;
-    let border_color = if pass_box { colors.rebind_border } else { colors.box_border };
-    draw_rect(buffer, field_x, pass_y, field_w, field_h, width, border_color);
-    draw_rect(buffer, field_x + border_t, pass_y + border_t, field_w - border_t * 2, field_h - border_t * 2, width, colors.box_bg_default);
-    let masked_pass: String = "*".repeat(ms.ra_login_pass.chars().count());
-    draw_text(buffer, field_x + (6.0 * sc).round() as usize, pass_y + (6.0 * sc).round() as usize, width, &masked_pass, colors.menu_text, sc);
-    if pass_box {
-        let caret_x = field_x + (6.0 * sc).round() as usize + (masked_pass.len() as f32 * 8.0 * sc).round() as usize;
-        draw_rect(buffer, caret_x, pass_y + (5.0 * sc).round() as usize, (2.0 * sc).round() as usize, (16.0 * sc).round() as usize, width, colors.menu_text);
-    }
-
-    if !ms.ra_login_error.is_empty() {
-        draw_text_wrapped(buffer, field_x, pass_y + field_h + (8.0 * sc).round() as usize, field_w, width, &ms.ra_login_error, colors.disabled_text, sc);
-    }
-
-    let btn_w = (90.0 * sc).round() as usize;
-    let btn_h = (24.0 * sc).round() as usize;
-    let btn_y = dlg_y + dlg_h - btn_h - (10.0 * sc).round() as usize;
-    let login_x = dlg_x + dlg_w - btn_w * 2 - (8.0 * sc).round() as usize - (12.0 * sc).round() as usize;
-    let cancel_x = dlg_x + dlg_w - btn_w - (12.0 * sc).round() as usize;
-    draw_rect(buffer, login_x, btn_y, btn_w, btn_h, width, colors.close_bg);
-    let t = "Login";
-    draw_text(buffer, login_x + (btn_w.saturating_sub((t.len() as f32 * 8.0 * sc).round() as usize)) / 2, btn_y + (5.0 * sc).round() as usize, width, t, colors.menu_text, sc);
-    draw_rect(buffer, cancel_x, btn_y, btn_w, btn_h, width, colors.close_bg);
-    let t = "Cancel";
-    draw_text(buffer, cancel_x + (btn_w.saturating_sub((t.len() as f32 * 8.0 * sc).round() as usize)) / 2, btn_y + (5.0 * sc).round() as usize, width, t, colors.menu_text, sc);
-}
 
 // cheats ui
 
@@ -3164,18 +2855,6 @@ fn calculate_submenu_positions(count: usize, submenu_x: usize, anchor_y: usize, 
     positions
 }
 
-pub const SPEED_STEPS: [u32; 6] = [3, 6, 12, 25, 50, 100];
-pub const SPEED_LABELS: [&str; 6] =
-    ["3%", "6%", "12%", "25%", "50%", "100%"];
-pub const SPEED_DEFAULT: u32 = 100;
-pub const SPEED_NO_THROTTLE: u32 = 6400;
-
-fn step_speed(current: u32, delta: i32) -> u32 {
-    let idx = SPEED_STEPS.iter().position(|&s| s == current).unwrap_or(5);
-    let next = (idx as i32 + delta).clamp(0, SPEED_STEPS.len() as i32 - 1) as usize;
-    SPEED_STEPS[next]
-}
-
 fn active_audio_channels(_rate: u32) -> &'static [(usize, &'static str)] {
     const ALL: &[(usize, &str)] = &[
         (0, "Master:"),
@@ -3360,7 +3039,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.7.1")
+        .with_title("AccuNES 1.7.0")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -3584,7 +3263,6 @@ fn main() {
     let pause_on_lost_focus = Rc::new(RefCell::new(config::load_pause_on_lost_focus()));
     let initial_ram = Rc::new(RefCell::new(config::load_initial_ram()));
     let fps_mode = Rc::new(RefCell::new(config::load_fps_mode()));
-    let fps_display_position = Rc::new(RefCell::new(config::load_fps_display_position()));
     let confirm_on_exit = Rc::new(RefCell::new(config::load_confirm_on_exit()));
     let auto_save_sram = Rc::new(RefCell::new(config::load_auto_save_sram()));
     let check_updates_on_startup = Rc::new(RefCell::new(config::load_check_updates_on_startup()));
@@ -3599,12 +3277,6 @@ fn main() {
     let allow_opposing_dpad = Rc::new(RefCell::new(config::load_allow_opposing_dpad()));
     let auto_detect_game_controller = Rc::new(RefCell::new(config::load_auto_detect_game_controller()));
     let auto_hold = Rc::new(RefCell::new(config::load_auto_hold()));
-    let autofire_enabled = Arc::new(AtomicBool::new(config::load_autofire()));
-    let input_display = Rc::new(RefCell::new(config::load_input_display()));
-    let input_display_position = Rc::new(RefCell::new(config::load_input_display_position()));
-    let lag_counter_display = Rc::new(RefCell::new(config::load_lag_counter_display()));
-    let lag_counter_position = Rc::new(RefCell::new(config::load_lag_counter_position()));
-    emu.lock().unwrap().autofire_enabled = autofire_enabled.clone();
     let controller1_bindings = Rc::new(RefCell::new(config::load_bindings("controller1")));
     let controller2_bindings = Rc::new(RefCell::new(config::load_bindings("controller2")));
     let zapper_trigger_binding = Rc::new(RefCell::new(config::load_zapper_trigger()));
@@ -3754,10 +3426,6 @@ fn main() {
     let fps_update_time = Rc::new(RefCell::new(std::time::Instant::now()));
     let current_fps = Arc::new(AtomicU32::new(0));
     let emu_frame_count = Arc::new(AtomicU32::new(0));
-    let lag_frame_count = Arc::new(AtomicU32::new(0));
-    let lag_frame_is_lagging = Arc::new(AtomicBool::new(false));
-    let frame_advance_pending = Arc::new(AtomicU32::new(0));
-    let speed_scale = Arc::new(AtomicU32::new(SPEED_DEFAULT));
 
     let window = Arc::new(window);
     let surface_clone = surface.clone();
@@ -3781,7 +3449,6 @@ fn main() {
     let pause_on_lost_focus_clone = pause_on_lost_focus.clone();
     let initial_ram_clone = initial_ram.clone();
     let fps_mode_clone = fps_mode.clone();
-    let fps_display_position_clone = fps_display_position.clone();
     let confirm_on_exit_clone = confirm_on_exit.clone();
     let auto_save_sram_clone = auto_save_sram.clone();
     let check_updates_on_startup_clone = check_updates_on_startup.clone();
@@ -3791,12 +3458,6 @@ fn main() {
     let allow_opposing_dpad_clone = allow_opposing_dpad.clone();
     let auto_detect_game_controller_clone = auto_detect_game_controller.clone();
     let auto_hold_clone = auto_hold.clone();
-    let input_display_clone = input_display.clone();
-    let input_display_position_clone = input_display_position.clone();
-    let lag_counter_display_clone = lag_counter_display.clone();
-    let lag_counter_position_clone = lag_counter_position.clone();
-    let autofire_enabled_clone = autofire_enabled.clone();
-    let speed_scale_clone = speed_scale.clone();
     let controller1_bindings_clone = controller1_bindings.clone();
     let controller2_bindings_clone = controller2_bindings.clone();
     let controller_port1_clone = controller_port1.clone();
@@ -4017,19 +3678,10 @@ fn main() {
     let current_fps_thread = current_fps.clone();
     let rom_loaded_for_thread = rom_loaded_flag.clone();
     let paused_thread = paused.clone();
-    let lag_frame_count_thread = lag_frame_count.clone();
-    let lag_frame_is_lagging_thread = lag_frame_is_lagging.clone();
-    let frame_advance_pending_thread = frame_advance_pending.clone();
-    let speed_scale_thread = speed_scale.clone();
     let disk_inserted_flag_thread = disk_inserted_flag.clone();
     let resolved_region_thread = resolved_region_flag.clone();
 
     let emu_frame_count_ui = emu_frame_count.clone();
-    let lag_frame_count_ui = lag_frame_count.clone();
-    let lag_frame_is_lagging_ui = lag_frame_is_lagging.clone();
-    let frame_advance_pending_clone = frame_advance_pending.clone();
-
-    ra::init_client();
 
     thread::spawn(move || {
         let _timer_guard = TimerGuard::new(1);
@@ -4044,22 +3696,10 @@ fn main() {
             if exit_for_thread.load(Ordering::Relaxed) {
                 break;
             }
-            if !rom_loaded_for_thread.load(Ordering::Relaxed) {
-                ra::idle();
+            if !rom_loaded_for_thread.load(Ordering::Relaxed) || paused_thread.load(Ordering::Relaxed) {
                 thread::sleep(Duration::from_millis(2));
                 next_deadline = Instant::now();
                 continue;
-            }
-            let mut frame_advanced = false;
-            if paused_thread.load(Ordering::Relaxed) {
-                if frame_advance_pending_thread.load(Ordering::Relaxed) == 0 {
-                    ra::idle();
-                    thread::sleep(Duration::from_millis(2));
-                    next_deadline = Instant::now();
-                    continue;
-                }
-                frame_advance_pending_thread.fetch_sub(1, Ordering::Relaxed);
-                frame_advanced = true;
             }
 
             let target: Duration;
@@ -4077,16 +3717,9 @@ fn main() {
                     match cmd {
                         EmuCommand::Exit => { return; }
                         EmuCommand::LoadCartridge(cart) => {
-                            ra::unload_game();
                             e.save_turbo_file();
                             e.save_battle_box();
                             e.load_cartridge(cart);
-                            if let Some(hash) = ra::take_pending_hash() {
-                                match ra::load_game(&hash) {
-                                    Ok(title) => { let _ = title; }
-                                    Err(err) => { eprintln!("[RA] load_game: {}", err); }
-                                }
-                            }
                             disk_inserted_flag_thread.store(e.disk_inserted(), Ordering::Relaxed);
                             cart_has_dip_thread.store(e.has_dip_switches(), Ordering::Relaxed);
                             cart_is_vs_thread.store(e.is_vs_system_cart, Ordering::Relaxed);
@@ -4110,7 +3743,6 @@ fn main() {
                         }
                         EmuCommand::SavePrgRam => { e.save_prg_ram(); e.save_turbo_file(); e.save_battle_box(); }
                         EmuCommand::ClearCart => {
-                            ra::unload_game();
                             e.save_turbo_file();
                             e.save_battle_box();
                             e.clear_cart();
@@ -4132,18 +3764,12 @@ fn main() {
                 }
 
                 e.core_frame_advance();
-                ra::do_frame(&e);
-                if ra::take_reset_requested() {
-                    e.reset();
-                }
                 disk_inserted_flag_thread.store(e.disk_inserted(), Ordering::Relaxed);
                 is_nsf_cart_flag_thread.store(e.is_nsf_cart, Ordering::Relaxed);
                 let is_pal = e.is_pal();
                 let is_dendy = e.is_dendy();
                 resolved_region_thread.store(if is_pal { 2 } else if is_dendy { 3 } else { 1 }, Ordering::Relaxed);
                 emu_frame_count_thread.fetch_add(1, Ordering::Relaxed);
-                lag_frame_count_thread.store(e.lag_frames as u32, Ordering::Relaxed);
-                lag_frame_is_lagging_thread.store(e.last_frame_was_lag, Ordering::Relaxed);
 
                 let mut screen = screen_out.lock().unwrap();
                 screen.copy_from_slice(&e.screen);
@@ -4160,29 +3786,19 @@ fn main() {
                 fps_time_local = Instant::now();
             }
 
-            if frame_advanced {
-                next_deadline = Instant::now();
+            next_deadline += target;
+            let now = Instant::now();
+            if now >= next_deadline {
+                if now > next_deadline + target * 3 {
+                    next_deadline = now;
+                }
             } else {
-                let speed = speed_scale_thread.load(Ordering::Relaxed);
-                let scaled_target = if speed >= SPEED_NO_THROTTLE {
-                    Duration::ZERO
-                } else {
-                    target.mul_f64(100.0 / f64::from(speed))
-                };
-                next_deadline += scaled_target;
-                let now = Instant::now();
-                if now >= next_deadline {
-                    if now > next_deadline + scaled_target * 3 {
-                        next_deadline = now;
-                    }
-                } else {
-                    let remaining = next_deadline - now;
-                    if remaining > Duration::from_micros(2000) {
-                        thread::sleep(remaining - Duration::from_micros(1500));
-                    }
-                    while Instant::now() < next_deadline {
-                        std::hint::spin_loop();
-                    }
+                let remaining = next_deadline - now;
+                if remaining > Duration::from_micros(2000) {
+                    thread::sleep(remaining - Duration::from_micros(1500));
+                }
+                while Instant::now() < next_deadline {
+                    std::hint::spin_loop();
                 }
             }
         }
@@ -4838,7 +4454,6 @@ fn main() {
                         emu_clone.lock().unwrap().save_turbo_file();
                         emu_clone.lock().unwrap().save_battle_box();
                     }
-                    ra::shutdown();
                     *control_flow = ControlFlow::Exit;
                 }
             }
@@ -4890,16 +4505,6 @@ fn main() {
                         ms.cheat_db_selected_game_idx = None;
                         ms.cheat_db_cheats_scroll = 0;
                         ms.cheat_db_selected_cheat_idx = None;
-                    } else if ms.show_ra_login {
-                        if ms.ra_login_focus == 0 {
-                            let caret = ms.ra_login_user_caret.min(ms.ra_login_user.len());
-                            ms.ra_login_user.insert(caret, c);
-                            ms.ra_login_user_caret = caret + 1;
-                        } else {
-                            let caret = ms.ra_login_pass_caret.min(ms.ra_login_pass.len());
-                            ms.ra_login_pass.insert(caret, c);
-                            ms.ra_login_pass_caret = caret + 1;
-                        }
                     }
                 }
             }
@@ -4985,98 +4590,6 @@ fn main() {
                                 paused_clone.store(false, Ordering::Relaxed);
                             }
                             _ => {}
-                        }
-                    }
-                } else if {
-                    let ms = menu_state_clone.borrow();
-                    ms.show_ra_login
-                } {
-                    if pressed {
-                        let mut ms = menu_state_clone.borrow_mut();
-                        match keycode {
-                            winit::event::VirtualKeyCode::Escape => {
-                                ms.show_ra_login = false;
-                                paused_clone.store(false, Ordering::Relaxed);
-                            }
-                            winit::event::VirtualKeyCode::Tab => {
-                                ms.ra_login_focus = 1 - ms.ra_login_focus;
-                            }
-                            winit::event::VirtualKeyCode::Back => {
-                                if ms.ra_login_focus == 0 {
-                                    if ms.ra_login_user_caret > 0 && ms.ra_login_user_caret <= ms.ra_login_user.len() {
-                                        ms.ra_login_user_caret -= 1;
-                                        let c = ms.ra_login_user_caret;
-                                        ms.ra_login_user.remove(c);
-                                    }
-                                } else {
-                                    if ms.ra_login_pass_caret > 0 && ms.ra_login_pass_caret <= ms.ra_login_pass.len() {
-                                        ms.ra_login_pass_caret -= 1;
-                                        let c = ms.ra_login_pass_caret;
-                                        ms.ra_login_pass.remove(c);
-                                    }
-                                }
-                            }
-                            winit::event::VirtualKeyCode::Delete => {
-                                if ms.ra_login_focus == 0 {
-                                    if ms.ra_login_user_caret < ms.ra_login_user.len() {
-                                        let c = ms.ra_login_user_caret;
-                                        ms.ra_login_user.remove(c);
-                                    }
-                                } else {
-                                    if ms.ra_login_pass_caret < ms.ra_login_pass.len() {
-                                        let c = ms.ra_login_pass_caret;
-                                        ms.ra_login_pass.remove(c);
-                                    }
-                                }
-                            }
-                            winit::event::VirtualKeyCode::Left => {
-                                if ms.ra_login_focus == 0 {
-                                    ms.ra_login_user_caret = ms.ra_login_user_caret.saturating_sub(1);
-                                } else {
-                                    ms.ra_login_pass_caret = ms.ra_login_pass_caret.saturating_sub(1);
-                                }
-                            }
-                            winit::event::VirtualKeyCode::Right => {
-                                if ms.ra_login_focus == 0 {
-                                    ms.ra_login_user_caret = (ms.ra_login_user_caret + 1).min(ms.ra_login_user.len());
-                                } else {
-                                    ms.ra_login_pass_caret = (ms.ra_login_pass_caret + 1).min(ms.ra_login_pass.len());
-                                }
-                            }
-                            winit::event::VirtualKeyCode::Return => {
-                                let user = ms.ra_login_user.trim().to_string();
-                                let pass = ms.ra_login_pass.clone();
-                                if user.is_empty() || pass.is_empty() {
-                                    ms.ra_login_error = "Username and password are required.".to_string();
-                                } else {
-                                    drop(ms);
-                                    match ra::login(&user, &pass) {
-                                        Ok(()) => {
-                                            let mut ms2 = menu_state_clone.borrow_mut();
-                                            ms2.show_ra_login = false;
-                                            ms2.ra_login_pass.clear();
-                                            ms2.ra_login_pass_caret = 0;
-                                            ms2.ra_login_error.clear();
-                                            paused_clone.store(false, Ordering::Relaxed);
-                                        }
-                                        Err(err) => {
-                                            let mut ms2 = menu_state_clone.borrow_mut();
-                                            ms2.ra_login_error = err;
-                                        }
-                                    }
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                } else if {
-                    let ms = menu_state_clone.borrow();
-                    ms.show_achievements_window
-                } {
-                    if pressed {
-                        let mut ms = menu_state_clone.borrow_mut();
-                        if keycode == winit::event::VirtualKeyCode::Escape {
-                            ms.show_achievements_window = false;
                         }
                     }
                 } else if {
@@ -6057,7 +5570,6 @@ fn main() {
                         || ms.show_error
                         || ms.show_confirm_exit_dialog
                         || ms.show_barcode_input || ms.show_cheats_window || ms.show_cheat_edit_dialog || ms.show_cheat_db_dialog
-                        || ms.show_achievements_window || ms.show_ra_login
                 };
 
                 if is_settings_modal_open {
@@ -6348,7 +5860,6 @@ fn main() {
                                     if *auto_save_sram_clone.borrow() && *rom_loaded_clone.borrow() {
                                         let _ = cmd_tx.send(EmuCommand::SavePrgRam);
                                     }
-                                    ra::shutdown();
                                     *control_flow = ControlFlow::Exit;
                                 }
                             } else if hotkey_matches_base(&bindings[8], ctrl, shift, alt, keycode) {
@@ -6513,42 +6024,6 @@ fn main() {
                                     clear_auto_hold_port(&expansion_adapter_port3_clone, &expansion_adapter_hold3_clone);
                                     clear_auto_hold_port(&expansion_adapter_port4_clone, &expansion_adapter_hold4_clone);
                                 }
-                            } else if hotkey_matches_base(&bindings[27], ctrl, shift, alt, keycode) {
-                                open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
-                                let new_val = !*input_display_clone.borrow();
-                                *input_display_clone.borrow_mut() = new_val;
-                                config::save_input_display(new_val);
-                            } else if hotkey_matches_base(&bindings[28], ctrl, shift, alt, keycode) {
-                                open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
-                                if *rom_loaded_clone.borrow() {
-                                    paused_clone.store(true, Ordering::Relaxed);
-                                    frame_advance_pending_clone.fetch_add(1, Ordering::Relaxed);
-                                }
-                            } else if hotkey_matches_base(&bindings[29], ctrl, shift, alt, keycode) {
-                                open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
-                                let new_val = !*lag_counter_display_clone.borrow();
-                                *lag_counter_display_clone.borrow_mut() = new_val;
-                                config::save_lag_counter_display(new_val);
-                            } else if hotkey_matches_base(&bindings[30], ctrl, shift, alt, keycode) {
-                                open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
-                                let new_val = !autofire_enabled_clone.load(Ordering::Relaxed);
-                                autofire_enabled_clone.store(new_val, Ordering::Relaxed);
-                                config::save_autofire(new_val);
-                            } else if hotkey_matches_base(&bindings[31], ctrl, shift, alt, keycode) {
-                                open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
-                                let mut ms_speed = menu_state_clone.borrow_mut();
-                                ms_speed.current_speed = step_speed(ms_speed.current_speed, 1);
-                                speed_scale_clone.store(ms_speed.current_speed, Ordering::Relaxed);
-                            } else if hotkey_matches_base(&bindings[32], ctrl, shift, alt, keycode) {
-                                open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
-                                let mut ms_speed = menu_state_clone.borrow_mut();
-                                ms_speed.current_speed = step_speed(ms_speed.current_speed, -1);
-                                speed_scale_clone.store(ms_speed.current_speed, Ordering::Relaxed);
-                            } else if hotkey_matches_base(&bindings[33], ctrl, shift, alt, keycode) {
-                                open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
-                                let mut ms_speed = menu_state_clone.borrow_mut();
-                                ms_speed.current_speed = SPEED_DEFAULT;
-                                speed_scale_clone.store(ms_speed.current_speed, Ordering::Relaxed);
                             }
                         }
                     }
@@ -7504,7 +6979,6 @@ WinitEvent::WindowEvent {
                 ms.hovered_help_index = None;
                 ms.hovered_region_item = None;
                 ms.hovered_region_index = None;
-                ms.hovered_speed_index = None;
                 ms.hovered_recent_index = None;
                 ms.hovered_options_index = None;
                 ms.hovered_save_slot = None;
@@ -7541,14 +7015,6 @@ WinitEvent::WindowEvent {
                     let mut ms_mut = menu_state_clone.borrow_mut();
                     let cur = ms_mut.cheats_scroll as i32 - amount;
                     ms_mut.cheats_scroll = cur.max(0) as usize;
-                } else if menu_state_clone.borrow().show_achievements_window {
-                    let amount = match delta {
-                        winit::event::MouseScrollDelta::LineDelta(_, y) => (y * 2.0) as i32,
-                        winit::event::MouseScrollDelta::PixelDelta(p) => (p.y / 15.0).round() as i32,
-                    };
-                    let mut ms_mut = menu_state_clone.borrow_mut();
-                    let cur = ms_mut.achievements_scroll as i32 - amount;
-                    ms_mut.achievements_scroll = cur.max(0) as usize;
                 } else if menu_state_clone.borrow().show_cheat_db_dialog {
                     let amount = match delta {
                         winit::event::MouseScrollDelta::LineDelta(_, y) => (y * 2.0) as i32,
@@ -7793,7 +7259,6 @@ WinitEvent::WindowEvent {
                         || ms.show_expansion_settings || ms.show_hotkeys_settings
                         || ms.show_about || ms.show_error || ms.show_confirm_exit_dialog
                         || ms.show_barcode_input || ms.show_cheats_window || ms.show_cheat_edit_dialog || ms.show_cheat_db_dialog
-                        || ms.show_achievements_window || ms.show_ra_login
                 };
                 if !is_modal_open {
                     const BIT_MASKS: [u8; 10] = [0x80, 0x40, 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
@@ -8423,7 +7888,6 @@ WinitEvent::WindowEvent {
                                 emu.save_turbo_file();
                                 emu.save_battle_box();
                             }
-                            ra::shutdown();
                             *control_flow = ControlFlow::Exit;
                         } else if point_in_rect(mx, my, no_x, btn_y, btn_w, btn_h) {
                             drop(ms);
@@ -8473,81 +7937,6 @@ WinitEvent::WindowEvent {
                             barcode_ctrl_clone.store(false, Ordering::Relaxed);
                             menu_state_clone.borrow_mut().show_barcode_input = false;
                             paused_clone.store(false, Ordering::Relaxed);
-                        }
-                    } else if ms.show_ra_login {
-                        drop(ms);
-                        let sc = { menu_state_clone.borrow().scale };
-                        let dlg_w = (360.0 * sc).round() as usize;
-                        let dlg_h = (220.0 * sc).round() as usize;
-                        let dlg_x = (width.saturating_sub(dlg_w)) / 2;
-                        let dlg_y = (height.saturating_sub(dlg_h)) / 2;
-                        let title_h = (26.0 * sc).round() as usize;
-                        let close_w = (20.0 * sc).round() as usize;
-                        let close_h = (20.0 * sc).round() as usize;
-                        let close_x = dlg_x + dlg_w - close_w - (4.0 * sc).round() as usize;
-                        let close_y = dlg_y + (title_h.saturating_sub(close_h)) / 2;
-                        let field_x = dlg_x + (12.0 * sc).round() as usize;
-                        let field_w = dlg_w - (24.0 * sc).round() as usize;
-                        let field_h = (26.0 * sc).round() as usize;
-                        let user_y = dlg_y + title_h + (12.0 * sc).round() as usize;
-                        let pass_y = user_y + field_h + (20.0 * sc).round() as usize;
-                        let btn_w = (90.0 * sc).round() as usize;
-                        let btn_h = (24.0 * sc).round() as usize;
-                        let btn_y = dlg_y + dlg_h - btn_h - (10.0 * sc).round() as usize;
-                        let login_x = dlg_x + dlg_w - btn_w * 2 - (8.0 * sc).round() as usize - (12.0 * sc).round() as usize;
-                        let cancel_x = dlg_x + dlg_w - btn_w - (12.0 * sc).round() as usize;
-
-                        if point_in_rect(mx, my, close_x, close_y, close_w, close_h) {
-                            let mut ms_mut = menu_state_clone.borrow_mut();
-                            ms_mut.show_ra_login = false;
-                            paused_clone.store(false, Ordering::Relaxed);
-                        } else if point_in_rect(mx, my, field_x, user_y, field_w, field_h) {
-                            menu_state_clone.borrow_mut().ra_login_focus = 0;
-                        } else if point_in_rect(mx, my, field_x, pass_y, field_w, field_h) {
-                            menu_state_clone.borrow_mut().ra_login_focus = 1;
-                        } else if point_in_rect(mx, my, login_x, btn_y, btn_w, btn_h) {
-                            let (user, pass) = {
-                                let ms2 = menu_state_clone.borrow();
-                                (ms2.ra_login_user.trim().to_string(), ms2.ra_login_pass.clone())
-                            };
-                            if user.is_empty() || pass.is_empty() {
-                                menu_state_clone.borrow_mut().ra_login_error = "Username and password are required.".to_string();
-                            } else {
-                                match ra::login(&user, &pass) {
-                                    Ok(()) => {
-                                        let mut ms_mut = menu_state_clone.borrow_mut();
-                                        ms_mut.show_ra_login = false;
-                                        ms_mut.ra_login_pass.clear();
-                                        ms_mut.ra_login_pass_caret = 0;
-                                        ms_mut.ra_login_error.clear();
-                                        paused_clone.store(false, Ordering::Relaxed);
-                                    }
-                                    Err(err) => {
-                                        menu_state_clone.borrow_mut().ra_login_error = err;
-                                    }
-                                }
-                            }
-                        } else if point_in_rect(mx, my, cancel_x, btn_y, btn_w, btn_h) {
-                            let mut ms_mut = menu_state_clone.borrow_mut();
-                            ms_mut.show_ra_login = false;
-                            ms_mut.ra_login_error.clear();
-                            paused_clone.store(false, Ordering::Relaxed);
-                        }
-                    } else if ms.show_achievements_window {
-                        drop(ms);
-                        let sc = { menu_state_clone.borrow().scale };
-                        let win_w = ((width as f32 - 40.0 * sc).min(560.0 * sc)).round() as usize;
-                        let win_h = ((height as f32 - 40.0 * sc).min(420.0 * sc)).round() as usize;
-                        let win_x = (width.saturating_sub(win_w)) / 2;
-                        let win_y = (height.saturating_sub(win_h)) / 2;
-                        let title_h = (30.0 * sc).round() as usize;
-                        let close_w = (20.0 * sc).round() as usize;
-                        let close_h = (20.0 * sc).round() as usize;
-                        let close_x = win_x + win_w - close_w - (6.0 * sc).round() as usize;
-                        let close_y = win_y + (title_h.saturating_sub(close_h)) / 2;
-                        if point_in_rect(mx, my, close_x, close_y, close_w, close_h) {
-                            let mut ms_mut = menu_state_clone.borrow_mut();
-                            ms_mut.show_achievements_window = false;
                         }
                     } else if ms.show_cheat_edit_dialog {
                         drop(ms);
@@ -8614,7 +8003,7 @@ WinitEvent::WindowEvent {
                         }
                     } else if ms.show_general_settings {
                         let general_w = (400.0 * ms.scale).round() as usize;
-                        let general_h = (390.0 * ms.scale).round() as usize;
+                        let general_h = (280.0 * ms.scale).round() as usize;
                         let general_x = (width.saturating_sub(general_w)) / 2;
                         let general_y = (height.saturating_sub(general_h)) / 2;
                         let close_w = (20.0 * ms.scale).round() as usize;
@@ -8652,48 +8041,24 @@ WinitEvent::WindowEvent {
                             }
                             let row4_y = row3_y + row_h + (8.0 * sc).round() as usize;
                             if point_in_rect(mx, my, box_x, row4_y, box_w, row_h) {
-                                let mut pos = fps_display_position_clone.borrow_mut();
-                                *pos = pos.next();
-                                config::save_fps_display_position(*pos);
-                            }
-                            let row5_y = row4_y + row_h + (8.0 * sc).round() as usize;
-                            if point_in_rect(mx, my, box_x, row5_y, box_w, row_h) {
-                                let mut pos = input_display_position_clone.borrow_mut();
-                                *pos = pos.next();
-                                config::save_input_display_position(*pos);
-                            }
-                            let row6_y = row5_y + row_h + (8.0 * sc).round() as usize;
-                            if point_in_rect(mx, my, box_x, row6_y, box_w, row_h) {
-                                let new_val = !*lag_counter_display_clone.borrow();
-                                *lag_counter_display_clone.borrow_mut() = new_val;
-                                config::save_lag_counter_display(new_val);
-                            }
-                            let row7_y = row6_y + row_h + (8.0 * sc).round() as usize;
-                            if point_in_rect(mx, my, box_x, row7_y, box_w, row_h) {
-                                let mut pos = lag_counter_position_clone.borrow_mut();
-                                *pos = pos.next();
-                                config::save_lag_counter_position(*pos);
-                            }
-                            let row8_y = row7_y + row_h + (8.0 * sc).round() as usize;
-                            if point_in_rect(mx, my, box_x, row8_y, box_w, row_h) {
                                 let new_val = !*confirm_on_exit_clone.borrow();
                                 *confirm_on_exit_clone.borrow_mut() = new_val;
                                 config::save_confirm_on_exit(new_val);
                             }
-                            let row9_y = row8_y + row_h + (8.0 * sc).round() as usize;
-                            if point_in_rect(mx, my, box_x, row9_y, box_w, row_h) {
+                            let row5_y = row4_y + row_h + (8.0 * sc).round() as usize;
+                            if point_in_rect(mx, my, box_x, row5_y, box_w, row_h) {
                                 let new_val = !*auto_save_sram_clone.borrow();
                                 *auto_save_sram_clone.borrow_mut() = new_val;
                                 config::save_auto_save_sram(new_val);
                             }
-                            let row10_y = row9_y + row_h + (8.0 * sc).round() as usize;
-                            if point_in_rect(mx, my, box_x, row10_y, box_w, row_h) {
+                            let row6_y = row5_y + row_h + (8.0 * sc).round() as usize;
+                            if point_in_rect(mx, my, box_x, row6_y, box_w, row_h) {
                                 let new_val = !*check_updates_on_startup_clone.borrow();
                                 *check_updates_on_startup_clone.borrow_mut() = new_val;
                                 config::save_check_updates_on_startup(new_val);
                             }
-                            let row11_y = row10_y + row_h + (8.0 * sc).round() as usize;
-                            if point_in_rect(mx, my, box_x, row11_y, box_w, row_h) {
+                            let row7_y = row6_y + row_h + (8.0 * sc).round() as usize;
+                            if point_in_rect(mx, my, box_x, row7_y, box_w, row_h) {
                                 drop(ms);
                                 let cur = menu_state_clone.borrow().theme.clone();
                                 let new_theme = match cur.as_str() {
@@ -10266,7 +9631,6 @@ let video_items = 9;
                                 drop(mode);
                                 if let Ok(mut e) = emu_clone.lock() {
                                     e.palette_mode = new_mode;
-                                    e.refresh_palette_lut();
                                 }
                             }
                             row_y += row_h + gap;
@@ -10320,7 +9684,6 @@ let video_items = 9;
                                             1 => e.custom_pal_palette = None,
                                             _ => e.custom_vs_palette = None,
                                         }
-                                        e.refresh_palette_lut();
                                     }
                                     config::clear_custom_palette(kind);
                                     let mut ms_mut = menu_state_clone.borrow_mut();
@@ -10339,7 +9702,6 @@ let video_items = 9;
                                                         1 => e.custom_pal_palette = Some(pal),
                                                         _ => e.custom_vs_palette = Some(pal),
                                                     }
-                                                    e.refresh_palette_lut();
                                                 }
                                                 config::save_custom_palette(kind, &path_str);
                                                 let mut ms_mut = menu_state_clone.borrow_mut();
@@ -10401,8 +9763,8 @@ let video_items = 9;
                     } else if ms.show_input_settings {
                         let sc = ms.scale;
                     let input_w = (480.0 * sc).round() as usize;
-let input_h_4p = (464.0 * sc).round() as usize;
-                        let input_h = if *expansion_adapter_type_clone.borrow() == config::ExpansionAdapterType::FourPlayer || *expansion_adapter_type_clone.borrow() == config::ExpansionAdapterType::HoriFourPlayer { input_h_4p } else { (434.0 * sc).round() as usize };
+                    let input_h_4p = (400.0 * sc).round() as usize;
+                    let input_h = if *expansion_adapter_type_clone.borrow() == config::ExpansionAdapterType::FourPlayer || *expansion_adapter_type_clone.borrow() == config::ExpansionAdapterType::HoriFourPlayer { input_h_4p } else { (370.0 * sc).round() as usize };
                         let input_x = (width.saturating_sub(input_w)) / 2;
                         let input_y = (height.saturating_sub(input_h)) / 2;
                         let title_h = (30.0 * sc).round() as usize;
@@ -10685,15 +10047,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                     let hold_label = "Auto Hold";
                                     let hold_text_gap = (6.0 * sc).round() as usize;
                                     let hold_total_w = cb_w + hold_text_gap + (hold_label.len() as f32 * 8.0 * sc).round() as usize;
-                                    let input_display_y = hold_y + row_h + (10.0 * sc).round() as usize;
-                                        let input_display_label = "Input Display";
-                                        let input_display_text_gap = (6.0 * sc).round() as usize;
-                                        let input_display_total_w = cb_w + input_display_text_gap + (input_display_label.len() as f32 * 8.0 * sc).round() as usize;
-                                        let autofire_y = input_display_y + row_h + (10.0 * sc).round() as usize;
-                                        let autofire_label = "Autofire";
-                                        let autofire_text_gap = (6.0 * sc).round() as usize;
-                                        let autofire_total_w = cb_w + autofire_text_gap + (autofire_label.len() as f32 * 8.0 * sc).round() as usize;
-                                        let hk_y = autofire_y + row_h + (10.0 * sc).round() as usize;
+                                    let hk_y = hold_y + row_h + (10.0 * sc).round() as usize;
                                     let hk_btn_x = dpad_box_x;
                                     if point_in_rect(mx, my, col1_x, auto_y, auto_total_w, row_h) {
                                         let new_val = !*auto_detect_game_controller_clone.borrow();
@@ -10713,14 +10067,6 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                             clear_auto_hold_port(&expansion_adapter_port3_clone, &expansion_adapter_hold3_clone);
                                             clear_auto_hold_port(&expansion_adapter_port4_clone, &expansion_adapter_hold4_clone);
                                         }
-                                    } else if point_in_rect(mx, my, col1_x, input_display_y, input_display_total_w, row_h) {
-                                        let new_val = !*input_display_clone.borrow();
-                                        *input_display_clone.borrow_mut() = new_val;
-                                        config::save_input_display(new_val);
-                                    } else if point_in_rect(mx, my, col1_x, autofire_y, autofire_total_w, row_h) {
-                                        let new_val = !autofire_enabled_clone.load(Ordering::Relaxed);
-                                        autofire_enabled_clone.store(new_val, Ordering::Relaxed);
-                                        config::save_autofire(new_val);
                                     } else if point_in_rect(mx, my, hk_btn_x, hk_y, box_w, configure_h) {
                                         drop(ms);
                                         let mut ms_mut = menu_state_clone.borrow_mut();
@@ -10758,7 +10104,6 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                     ms_mut.active_menu = Some(*menu);
                                     ms_mut.show_recent_submenu = false;
                                     ms_mut.show_region_submenu = false;
-                                    ms_mut.show_speed_submenu = false;
                                 }
                                 break;
                             }
@@ -10986,7 +10331,6 @@ let state_path = config::state_file_path(rom_path, slot + 1);
                                                     if *auto_save_sram_clone.borrow() && *rom_loaded_clone.borrow() {
                                                         let _ = cmd_tx.send(EmuCommand::SavePrgRam);
                                                     }
-                                                    ra::shutdown();
                                                     *control_flow = ControlFlow::Exit;
                                                 }
                                             }
@@ -11094,7 +10438,7 @@ let state_path = config::state_file_path(rom_path, slot + 1);
                                 };
                                 let nes_items = [pause_text, "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", disk_label, "Swap Disk", "Input Barcode", "Reset", "Power Cycle"];
                                 let nes_positions = calculate_item_positions(&nes_items, dropdown_x, dropdown_y, dropdown_w, sc);
-let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::InputBarcode, NesMenuItem::Reset, NesMenuItem::PowerCycle];
+                                let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::InputBarcode, NesMenuItem::Reset, NesMenuItem::PowerCycle];
                                 
                                 for (i, (x, y, w, h)) in nes_positions.iter().enumerate() {
                                     if point_in_rect(mx, my, *x, *y, *w, *h) {
@@ -11126,10 +10470,6 @@ let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem
                                         match nes_menu_items[i] {
                                             NesMenuItem::Pause => {
                                                 paused_clone.store(!paused_clone.load(Ordering::Relaxed), Ordering::Relaxed);
-                                            }
-                                            NesMenuItem::FrameAdvance => {
-                                                paused_clone.store(true, Ordering::Relaxed);
-                                                frame_advance_pending_clone.fetch_add(1, Ordering::Relaxed);
                                             }
                                             NesMenuItem::DipSwitches => {
                                                    if *rom_loaded_clone.borrow() {
@@ -11210,89 +10550,54 @@ let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem
                                 let dropdown_w = item_w;
                                 let dropdown_y = ms_mut.menu_height;
                                 let sc = ms_mut.scale;
-                                let submenu_x = dropdown_x + dropdown_w;
-                                let submenu_w = (150.0 * sc).round() as usize;
-                                let submenu_item_h = (16.0 * sc).round() as usize;
-                                let tools_items = ["Cheats", "Achievements", "Play Tape", "Record Tape", "Stop Tape", "Emulation Speed"];
+                                let tools_items = ["Cheats", "Play Tape", "Record Tape", "Stop Tape"];
                                 let tools_positions = calculate_item_positions(&tools_items, dropdown_x, dropdown_y, dropdown_w, sc);
 
-                                if ms_mut.show_speed_submenu {
-                                    let speed_anchor_y = tools_positions.get(5).map(|p| p.1).unwrap_or(dropdown_y);
-                                    let speed_positions = calculate_submenu_positions(SPEED_STEPS.len(), submenu_x, speed_anchor_y, submenu_w, submenu_item_h);
-                                    let mut clicked = false;
-                                    for (i, (x, y, w, h)) in speed_positions.iter().enumerate() {
-                                        if point_in_rect(mx, my, *x, *y, *w, *h) {
-                                            ms_mut.current_speed = SPEED_STEPS[i];
-                                            speed_scale_clone.store(ms_mut.current_speed, Ordering::Relaxed);
-                                            ms_mut.show_speed_submenu = false;
-                                            ms_mut.active_menu = None;
-                                            clicked = true;
-                                            break;
-                                        }
-                                    }
-                                    if !clicked {
-                                        if let Some((x, y, w, h)) = tools_positions.get(5) {
-                                            if point_in_rect(mx, my, *x, *y, *w, *h) {
-                                                ms_mut.show_speed_submenu = false;
+                                for (i, (x, y, w, h)) in tools_positions.iter().enumerate() {
+                                    if point_in_rect(mx, my, *x, *y, *w, *h) {
+                                        match i {
+                                            0 => {
+                                                ms_mut.show_cheats_window = true;
+                                                ms_mut.cheats_selected_index = None;
                                             }
-                                        }
-                                    }
-                                } else {
-                                    for (i, (x, y, w, h)) in tools_positions.iter().enumerate() {
-                                        if point_in_rect(mx, my, *x, *y, *w, *h) {
-                                            match i {
-                                                0 => {
-                                                    ms_mut.show_cheats_window = true;
-                                                    ms_mut.cheats_selected_index = None;
-                                                }
-                                                1 => {
-                                                    ms_mut.show_achievements_window = true;
-                                                    ms_mut.achievements_scroll = 0;
-                                                }
-                                                2 => {
-                                                    if *rom_loaded_clone.borrow()
-                                                        && *expansion_type_clone.borrow() == config::ExpansionType::SharpC1Cassette
-                                                    {
-                                                        if let Some(path) = rfd::FileDialog::new()
-                                                            .add_filter("Sharp C1 Tape", &["tap", "wav"])
-                                                            .add_filter("TAP", &["tap"])
-                                                            .add_filter("WAV", &["wav"])
-                                                            .pick_file() {
-                                                            let is_wav = path.to_string_lossy().to_lowercase().ends_with(".wav");
-                                                            emu_clone.lock().unwrap().tape_play(path, if is_wav { 2 } else { 1 });
-                                                        }
+                                            1 => {
+                                                if *rom_loaded_clone.borrow()
+                                                    && *expansion_type_clone.borrow() == config::ExpansionType::SharpC1Cassette
+                                                {
+                                                    if let Some(path) = rfd::FileDialog::new()
+                                                        .add_filter("Sharp C1 Tape", &["tap", "wav"])
+                                                        .add_filter("TAP", &["tap"])
+                                                        .add_filter("WAV", &["wav"])
+                                                        .pick_file() {
+                                                        let is_wav = path.to_string_lossy().to_lowercase().ends_with(".wav");
+                                                        emu_clone.lock().unwrap().tape_play(path, if is_wav { 2 } else { 1 });
                                                     }
                                                 }
-                                                3 => {
-                                                    if *rom_loaded_clone.borrow()
-                                                        && *expansion_type_clone.borrow() == config::ExpansionType::SharpC1Cassette
-                                                    {
-                                                        if let Some(path) = rfd::FileDialog::new()
-                                                            .add_filter("Sharp C1 Tape", &["tap", "wav"])
-                                                            .add_filter("WAV", &["wav"])
-                                                            .add_filter("TAP", &["tap"])
-                                                            .save_file() {
-                                                            let is_wav = path.to_string_lossy().to_lowercase().ends_with(".wav");
-                                                            emu_clone.lock().unwrap().tape_record(path, if is_wav { 2 } else { 1 });
-                                                        }
+                                            }
+                                            2 => {
+                                                if *rom_loaded_clone.borrow()
+                                                    && *expansion_type_clone.borrow() == config::ExpansionType::SharpC1Cassette
+                                                {
+                                                    if let Some(path) = rfd::FileDialog::new()
+                                                        .add_filter("Sharp C1 Tape", &["tap", "wav"])
+                                                        .add_filter("WAV", &["wav"])
+                                                        .add_filter("TAP", &["tap"])
+                                                        .save_file() {
+                                                        let is_wav = path.to_string_lossy().to_lowercase().ends_with(".wav");
+                                                        emu_clone.lock().unwrap().tape_record(path, if is_wav { 2 } else { 1 });
                                                     }
                                                 }
-                                                4 => {
-                                                    if *rom_loaded_clone.borrow()
-                                                        && *expansion_type_clone.borrow() == config::ExpansionType::SharpC1Cassette
-                                                    {
-                                                        emu_clone.lock().unwrap().tape_stop();
-                                                    }
-                                                }
-                                                _ => {
-                                                    ms_mut.show_speed_submenu = true;
+                                            }
+                                            _ => {
+                                                if *rom_loaded_clone.borrow()
+                                                    && *expansion_type_clone.borrow() == config::ExpansionType::SharpC1Cassette
+                                                {
+                                                    emu_clone.lock().unwrap().tape_stop();
                                                 }
                                             }
-                                            if i != 5 {
-                                                ms_mut.active_menu = None;
-                                            }
-                                            break;
                                         }
+                                        ms_mut.active_menu = None;
+                                        break;
                                     }
                                 }
                             }
@@ -11300,9 +10605,7 @@ let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem
                                 let dropdown_w = item_w;
                                 let dropdown_y = ms_mut.menu_height;
                                 let sc = ms_mut.scale;
-                                let logged_in = ra::get_user().is_some();
-                                let ra_item_label = if logged_in { "RA Logout" } else { "RA Login" };
-                                let help_items = ["Check for Updates", "About", ra_item_label];
+                                let help_items = ["Check for Updates", "About"];
                                 let help_positions = calculate_item_positions(&help_items, dropdown_x, dropdown_y, dropdown_w, sc);
                                 
                                 if let Some((x, y, w, h)) = help_positions.get(0) {
@@ -11364,18 +10667,6 @@ let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem
                                 if let Some((x, y, w, h)) = help_positions.get(1) {
                                     if point_in_rect(mx, my, *x, *y, *w, *h) {
                                         ms_mut.show_about = true;
-                                        ms_mut.active_menu = None;
-                                        paused_clone.store(true, Ordering::Relaxed);
-                                    }                                }                                if let Some((x, y, w, h)) = help_positions.get(2) {
-                                    if point_in_rect(mx, my, *x, *y, *w, *h) {
-                                        if logged_in {
-                                            ra::logout();
-                                            ms_mut.show_achievements_window = false;
-                                        } else {
-                                            ms_mut.show_ra_login = true;
-                                            ms_mut.ra_login_focus = 0;
-                                            ms_mut.ra_login_error.clear();
-                                        }
                                         ms_mut.active_menu = None;
                                         paused_clone.store(true, Ordering::Relaxed);
                                     }
@@ -11782,7 +11073,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                             };
                             let nes_items = [pause_text, "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", disk_label, "Swap Disk", "Input Barcode", "Reset", "Power Cycle"];
                             let nes_positions = calculate_item_positions(&nes_items, dropdown_x, dropdown_y, dropdown_w, sc);
-                            let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::InputBarcode, NesMenuItem::Reset, NesMenuItem::PowerCycle];
+                            let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::InputBarcode, NesMenuItem::Reset, NesMenuItem::PowerCycle];
                             
                             ms_mut.hovered_nes_item = None;
                             let is_fds = if let Some(ref rom_path) = *current_rom_clone.borrow() {
@@ -11818,52 +11109,33 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                         Menu::Tools => {
                             let sc = ms_mut.scale;
                             let dropdown_w = item_w;
-                            let submenu_x = dropdown_x + dropdown_w;
-                            let submenu_w = (150.0 * sc).round() as usize;
-                            let submenu_item_h = (16.0 * sc).round() as usize;
-                            let tools_items = ["Cheats", "Achievements", "Play Tape", "Record Tape", "Stop Tape", "Emulation Speed"];
+                            let tools_items = ["Cheats", "Play Tape", "Record Tape", "Stop Tape"];
                             let tools_positions = calculate_item_positions(&tools_items, dropdown_x, dropdown_y, dropdown_w, sc);
 
                             ms_mut.hovered_tools_item = None;
                             for (i, (x, y, w, h)) in tools_positions.iter().enumerate() {
                                 if point_in_rect(mx, my, *x, *y, *w, *h) {
                                     let enabled = match i {
-                                        0 | 1 | 5 => true,
+                                        0 => true,
                                         _ => *rom_loaded_clone.borrow()
                                             && *expansion_type_clone.borrow() == config::ExpansionType::SharpC1Cassette,
                                     };
                                     if enabled {
                                         ms_mut.hovered_tools_item = Some(match i {
                                             0 => ToolsMenuItem::Cheats,
-                                            1 => ToolsMenuItem::Achievements,
-                                            2 => ToolsMenuItem::TapePlay,
-                                            3 => ToolsMenuItem::TapeRecord,
-                                            4 => ToolsMenuItem::TapeStop,
-                                            _ => ToolsMenuItem::EmulationSpeed,
+                                            1 => ToolsMenuItem::TapePlay,
+                                            2 => ToolsMenuItem::TapeRecord,
+                                            _ => ToolsMenuItem::TapeStop,
                                         });
                                     }
                                     break;
                                 }
                             }
-
-                            if ms_mut.show_speed_submenu {
-                                ms_mut.hovered_speed_index = None;
-                                let speed_anchor_y = tools_positions.get(5).map(|p| p.1).unwrap_or(dropdown_y);
-                                let speed_positions = calculate_submenu_positions(SPEED_STEPS.len(), submenu_x, speed_anchor_y, submenu_w, submenu_item_h);
-                                for (i, (x, y, w, h)) in speed_positions.iter().enumerate() {
-                                    if point_in_rect(mx, my, *x, *y, *w, *h) {
-                                        ms_mut.hovered_speed_index = Some(i);
-                                        break;
-                                    }
-                                }
-                            } else {
-                                ms_mut.hovered_speed_index = None;
-                            }
                         }
                         Menu::Help => {
                             let sc = ms_mut.scale;
                             let dropdown_w = item_w;
-                            let help_items = ["Check for Updates", "About", "RA Login"];
+                            let help_items = ["Check for Updates", "About"];
                             let help_positions = calculate_item_positions(&help_items, dropdown_x, dropdown_y, dropdown_w, sc);
 
                             ms_mut.hovered_help_index = None;
@@ -11917,7 +11189,6 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                     ms_mut.hovered_help_index = None;
                     ms_mut.hovered_region_item = None;
                     ms_mut.hovered_region_index = None;
-                    ms_mut.hovered_speed_index = None;
                     ms_mut.hovered_options_index = None;
                     ms_mut.hovered_recent_index = None;
                 }
@@ -11941,7 +11212,6 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                     || ms_mut.show_hotkeys_settings
                     || ms_mut.show_confirm_exit_dialog
                     || ms_mut.show_barcode_input || ms_mut.show_cheats_window || ms_mut.show_cheat_edit_dialog || ms_mut.show_cheat_db_dialog
-                    || ms_mut.show_achievements_window || ms_mut.show_ra_login
                     || ms_mut.show_error
                     || ms_mut.rebind_button.is_some()
                     || ms_mut.rebind_hotkey.is_some();
@@ -11977,9 +11247,9 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                         } else if lower.ends_with(".fds") || lower.ends_with(".qd") || lower.ends_with(".studybox") || lower.ends_with(".study") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.7.1: {}", filename)
+                        format!("AccuNES 1.7.0: {}", filename)
                     } else {
-                        "AccuNES 1.7.1".to_string()
+                        "AccuNES 1.7.0".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -12317,103 +11587,6 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
 
                 let menu_text = colors.menu_text;
                 let menu_highlight = colors.menu_highlight;
-
-                let fps_overlay = *fps_mode_clone.borrow() == config::FpsMode::Overlay;
-                let lag_overlay = *lag_counter_display_clone.borrow();
-                let input_overlay = *input_display_clone.borrow();
-
-                let fps_corner = *fps_display_position_clone.borrow();
-                let lag_corner = *lag_counter_position_clone.borrow();
-                let input_corner = *input_display_position_clone.borrow();
-
-                let fps_text = if fps_overlay {
-                    format!("{} FPS", current_fps_clone.load(Ordering::Relaxed))
-                } else {
-                    String::new()
-                };
-                let fps_w = if fps_overlay { (fps_text.len() as f32 * 8.0 * scale).round() as usize } else { 0 };
-                let fps_h = if fps_overlay { (8.0 * scale).round() as usize } else { 0 };
-
-                let lag_count = lag_frame_count_ui.load(Ordering::Relaxed);
-                let lag_text = format!("Lag: {}", lag_count);
-                let lag_w = if lag_overlay { (lag_text.len() as f32 * 8.0 * scale).round() as usize } else { 0 };
-                let lag_h = if lag_overlay { (8.0 * scale).round() as usize } else { 0 };
-
-                let (id_w, _, id_block_h, id_row_gap, show_p3p4, draw_1p, draw_2p) = if input_overlay {
-                    let c1t = *controller1_type_clone.borrow();
-                    let c2t = *controller2_type_clone.borrow();
-                    let show_p3p4 = c1t == config::ControllerType::FourScore
-                        || c2t == config::ControllerType::FourScore
-                        || *expansion_adapter_type_clone.borrow() == config::ExpansionAdapterType::FourPlayer
-                        || *expansion_adapter_type_clone.borrow() == config::ExpansionAdapterType::HoriFourPlayer;
-                    let draw_1p = c1t != config::ControllerType::None;
-                    let draw_2p = c2t == config::ControllerType::Gamepad
-                        || c2t == config::ControllerType::FamicomGamepad
-                        || show_p3p4;
-                    let row_count = (draw_1p as usize) + (draw_2p as usize) + (2 * show_p3p4 as usize);
-                    let (w, rh) = input_display_row_size(scale);
-                    let row_gap = (4.0 * scale).round() as usize;
-                    let bh = if row_count > 0 { row_count * rh + (row_count - 1) * row_gap } else { 0 };
-                    (w, rh, bh, row_gap, show_p3p4, draw_1p, draw_2p)
-                } else {
-                    (0, 0, 0, 0, false, false, false)
-                };
-
-                let mut fps_pos: Option<(usize, usize)> = None;
-                let mut lag_pos: Option<(usize, usize)> = None;
-                let mut input_pos: Option<(usize, usize)> = None;
-
-                for corner in [
-                    config::DisplayPosition::TopLeft,
-                    config::DisplayPosition::TopRight,
-                    config::DisplayPosition::BottomLeft,
-                    config::DisplayPosition::BottomRight,
-                ] {
-                    let mut blocks: Vec<(usize, usize)> = Vec::new();
-                    if fps_overlay && fps_corner == corner { blocks.push((fps_w, fps_h)); }
-                    if lag_overlay && lag_corner == corner { blocks.push((lag_w, lag_h)); }
-                    if input_overlay && input_corner == corner && id_block_h > 0 { blocks.push((id_w, id_block_h)); }
-                    if blocks.is_empty() { continue; }
-                    let positions = stack_overlay_positions(corner, width, height, menu_height, scale, &blocks);
-                    let mut idx = 0;
-                    if fps_overlay && fps_corner == corner { fps_pos = Some(positions[idx]); idx += 1; }
-                    if lag_overlay && lag_corner == corner { lag_pos = Some(positions[idx]); idx += 1; }
-                    if input_overlay && input_corner == corner && id_block_h > 0 { input_pos = Some(positions[idx]); }
-                }
-
-                if let Some((id_x, mut id_y)) = input_pos {
-                    if draw_1p {
-                        let used = draw_input_display_row(&mut buffer, width, id_x, id_y, controller_port1_clone.load(Ordering::Relaxed), controller_hold1_clone.load(Ordering::Relaxed), "1P", &colors, scale);
-                        id_y += used + id_row_gap;
-                    }
-                    if draw_2p {
-                        let used = draw_input_display_row(&mut buffer, width, id_x, id_y, controller_port2_clone.load(Ordering::Relaxed), controller_hold2_clone.load(Ordering::Relaxed), "2P", &colors, scale);
-                        id_y += used + id_row_gap;
-                    }
-                    if show_p3p4 {
-                        let used = draw_input_display_row(&mut buffer, width, id_x, id_y, controller_port3_clone.load(Ordering::Relaxed), controller_hold3_clone.load(Ordering::Relaxed), "3P", &colors, scale);
-                        id_y += used + id_row_gap;
-                        draw_input_display_row(&mut buffer, width, id_x, id_y, controller_port4_clone.load(Ordering::Relaxed), controller_hold4_clone.load(Ordering::Relaxed), "4P", &colors, scale);
-                    }
-                }
-
-                if lag_overlay {
-                    if let Some((lag_x, lag_y)) = lag_pos {
-                        let lag_color = if lag_frame_is_lagging_ui.load(Ordering::Relaxed) {
-                            0xFFE04242
-                        } else {
-                            colors.menu_text
-                        };
-                        draw_text(&mut buffer, lag_x, lag_y, width, &lag_text, lag_color, scale);
-                    }
-                }
-
-                if fps_overlay {
-                    if let Some((fps_x, fps_y)) = fps_pos {
-                        draw_text(&mut buffer, fps_x, fps_y, width, &fps_text, colors.menu_text, scale);
-                    }
-                }
-
                 draw_rect(&mut buffer, 0, 0, width, menu_height, width, colors.menu_bg);
                 
                 let menu_names = [("FILE", Menu::File), ("NES", Menu::Nes), ("OPTIONS", Menu::Options), ("TOOLS", Menu::Tools), ("HELP", Menu::Help)];
@@ -12569,7 +11742,6 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                             };
                             let items: &[(&str, NesMenuItem)] = &[
                                 (pause_text, NesMenuItem::Pause),
-                                ("Frame Advance", NesMenuItem::FrameAdvance),
                                 ("DIP Switches", NesMenuItem::DipSwitches),
                                 ("Insert Coin 1", NesMenuItem::InsertCoin1),
                                 ("Insert Coin 2", NesMenuItem::InsertCoin2),
@@ -12634,11 +11806,9 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                             let pad_y = (4.0 * scale).round() as usize;
                             let items: &[(&str, ToolsMenuItem)] = &[
                                 ("Cheats", ToolsMenuItem::Cheats),
-                                ("Achievements", ToolsMenuItem::Achievements),
                                 ("Play Tape", ToolsMenuItem::TapePlay),
                                 ("Record Tape", ToolsMenuItem::TapeRecord),
                                 ("Stop Tape", ToolsMenuItem::TapeStop),
-                                ("Emulation Speed", ToolsMenuItem::EmulationSpeed),
                             ];
                             let text_max_w = dropdown_w.saturating_sub(pad_x * 2);
                             let item_heights: Vec<usize> = items.iter().map(|(name, _)| {
@@ -12649,7 +11819,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                             let mut item_y = dropdown_y;
                             for ((name, item), &ih) in items.iter().zip(item_heights.iter()) {
                                 let enabled = match item {
-                                    ToolsMenuItem::Cheats | ToolsMenuItem::Achievements | ToolsMenuItem::EmulationSpeed => true,
+                                    ToolsMenuItem::Cheats => true,
                                     _ => *rom_loaded_clone.borrow()
                                         && *expansion_type_clone.borrow() == config::ExpansionType::SharpC1Cassette,
                                 };
@@ -12658,40 +11828,14 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                                 }
                                 let text_color = if enabled { menu_text } else { colors.disabled_text };
                                 draw_text_wrapped(&mut buffer, dropdown_x + pad_x, item_y + pad_y, text_max_w, width, name, text_color, scale);
-                                if item == &ToolsMenuItem::EmulationSpeed {
-                                    let arrow_x = (dropdown_x + dropdown_w).saturating_sub(pad_x * 2);
-                                    draw_text(&mut buffer, arrow_x, item_y + pad_y, width, ">", menu_text, scale);
-                                }
                                 item_y += ih;
-                            }
-
-                            if ms.show_speed_submenu {
-                                let submenu_x = dropdown_x + dropdown_w;
-                                let submenu_item_h = (16.0 * scale).round() as usize;
-                                let submenu_w = (150.0 * scale).round() as usize;
-                                let speed_anchor_y = dropdown_y + item_heights.iter().take(5).sum::<usize>();
-                                let speed_h = SPEED_STEPS.len() * submenu_item_h;
-                                draw_rect(&mut buffer, submenu_x, speed_anchor_y, submenu_w, speed_h, width, dropdown_bg);
-                                let indicator_gap = (10.0 * scale).round() as usize;
-                                let name_x = submenu_x + pad_x + indicator_gap;
-                                let name_max_w = submenu_w.saturating_sub(name_x - submenu_x + pad_x);
-                                for (i, name) in SPEED_LABELS.iter().enumerate() {
-                                    let iy = speed_anchor_y + i * submenu_item_h;
-                                    if ms.hovered_speed_index == Some(i) {
-                                        draw_rect(&mut buffer, submenu_x, iy, submenu_w, submenu_item_h, width, menu_highlight);
-                                    }
-                                    draw_text_wrapped(&mut buffer, name_x, iy + pad_y, name_max_w, width, name, menu_text, scale);
-                                    if SPEED_STEPS[i] == ms.current_speed {
-                                        draw_text(&mut buffer, submenu_x + pad_x, iy + pad_y, width, ">", menu_text, scale);
-                                    }
-                                }
                             }
                         }
                         Menu::Help => {
                             let dropdown_w = item_w;
                             let pad_x = (8.0 * scale).round() as usize;
                             let pad_y = (4.0 * scale).round() as usize;
-                            let help_items = ["Check for Updates", "About", "RA Login"];
+                            let help_items = ["Check for Updates", "About"];
                             let text_max_w = dropdown_w.saturating_sub(pad_x * 2);
                             let item_heights: Vec<usize> = help_items.iter().map(|name| {
                                 measure_wrapped_height(name, text_max_w, scale) + pad_y * 2
@@ -12791,7 +11935,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.7.1",
+                        "Version: 1.7.0",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
@@ -12886,7 +12030,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                 
                 if ms.show_general_settings {
                     let general_w = (400.0 * scale).round() as usize;
-                    let general_h = (390.0 * scale).round() as usize;
+                    let general_h = (280.0 * scale).round() as usize;
                     let general_x = (width.saturating_sub(general_w)) / 2;
                     let general_y = (height.saturating_sub(general_h)) / 2;
                     let window_bg = colors.window_bg;
@@ -12941,54 +12085,6 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                     let box_y = row_y;
                     let fps_val = *fps_mode_clone.borrow();
                     let val = fps_val.label();
-                    let hovered = point_in_rect(mouse_x, mouse_y, box_x, box_y, box_w, row_h);
-                    let bg = if hovered { colors.box_bg_hover } else { colors.box_bg_default };
-                    draw_rect(&mut buffer, box_x, box_y, box_w, row_h, width, colors.box_border);
-                    draw_rect(&mut buffer, box_x + 1, box_y + 1, box_w - 2, row_h - 2, width, bg);
-                    let vw = val.len() as f32 * 8.0 * scale;
-                    draw_text(&mut buffer, box_x + ((box_w as f32 - vw) / 2.0).round() as usize, box_y + (6.0 * scale).round() as usize, width, val, menu_text, scale);
-
-                    row_y += row_h + (8.0 * scale).round() as usize;
-                    draw_text(&mut buffer, label_x, row_y + (6.0 * scale).round() as usize, width, "FPS Display Position:", menu_text, scale);
-                    let box_x = general_x + general_w - (15.0 * scale).round() as usize - box_w;
-                    let box_y = row_y;
-                    let val = (*fps_display_position_clone.borrow()).label();
-                    let hovered = point_in_rect(mouse_x, mouse_y, box_x, box_y, box_w, row_h);
-                    let bg = if hovered { colors.box_bg_hover } else { colors.box_bg_default };
-                    draw_rect(&mut buffer, box_x, box_y, box_w, row_h, width, colors.box_border);
-                    draw_rect(&mut buffer, box_x + 1, box_y + 1, box_w - 2, row_h - 2, width, bg);
-                    let vw = val.len() as f32 * 8.0 * scale;
-                    draw_text(&mut buffer, box_x + ((box_w as f32 - vw) / 2.0).round() as usize, box_y + (6.0 * scale).round() as usize, width, val, menu_text, scale);
-
-                    row_y += row_h + (8.0 * scale).round() as usize;
-                    draw_text(&mut buffer, label_x, row_y + (6.0 * scale).round() as usize, width, "Input Display Position:", menu_text, scale);
-                    let box_x = general_x + general_w - (15.0 * scale).round() as usize - box_w;
-                    let box_y = row_y;
-                    let val = (*input_display_position_clone.borrow()).label();
-                    let hovered = point_in_rect(mouse_x, mouse_y, box_x, box_y, box_w, row_h);
-                    let bg = if hovered { colors.box_bg_hover } else { colors.box_bg_default };
-                    draw_rect(&mut buffer, box_x, box_y, box_w, row_h, width, colors.box_border);
-                    draw_rect(&mut buffer, box_x + 1, box_y + 1, box_w - 2, row_h - 2, width, bg);
-                    let vw = val.len() as f32 * 8.0 * scale;
-                    draw_text(&mut buffer, box_x + ((box_w as f32 - vw) / 2.0).round() as usize, box_y + (6.0 * scale).round() as usize, width, val, menu_text, scale);
-
-                    row_y += row_h + (8.0 * scale).round() as usize;
-                    draw_text(&mut buffer, label_x, row_y + (6.0 * scale).round() as usize, width, "Show Lag Counter:", menu_text, scale);
-                    let box_x = general_x + general_w - (15.0 * scale).round() as usize - box_w;
-                    let box_y = row_y;
-                    let val = if *lag_counter_display_clone.borrow() { "On" } else { "Off" };
-                    let hovered = point_in_rect(mouse_x, mouse_y, box_x, box_y, box_w, row_h);
-                    let bg = if hovered { colors.box_bg_hover } else { colors.box_bg_default };
-                    draw_rect(&mut buffer, box_x, box_y, box_w, row_h, width, colors.box_border);
-                    draw_rect(&mut buffer, box_x + 1, box_y + 1, box_w - 2, row_h - 2, width, bg);
-                    let vw = val.len() as f32 * 8.0 * scale;
-                    draw_text(&mut buffer, box_x + ((box_w as f32 - vw) / 2.0).round() as usize, box_y + (6.0 * scale).round() as usize, width, val, menu_text, scale);
-
-                    row_y += row_h + (8.0 * scale).round() as usize;
-                    draw_text(&mut buffer, label_x, row_y + (6.0 * scale).round() as usize, width, "Lag Counter Position:", menu_text, scale);
-                    let box_x = general_x + general_w - (15.0 * scale).round() as usize - box_w;
-                    let box_y = row_y;
-                    let val = (*lag_counter_position_clone.borrow()).label();
                     let hovered = point_in_rect(mouse_x, mouse_y, box_x, box_y, box_w, row_h);
                     let bg = if hovered { colors.box_bg_hover } else { colors.box_bg_default };
                     draw_rect(&mut buffer, box_x, box_y, box_w, row_h, width, colors.box_border);
@@ -13509,8 +12605,8 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
 
                 if ms.show_input_settings {
                     let input_w = (480.0 * scale).round() as usize;
-                    let input_h_base = (434.0 * scale).round() as usize;
-                    let input_h_4p = (464.0 * scale).round() as usize;
+                    let input_h_base = (370.0 * scale).round() as usize;
+                    let input_h_4p = (400.0 * scale).round() as usize;
                     let input_h = {
                             let dt = *expansion_type_clone.borrow();
                             let at = *expansion_adapter_type_clone.borrow();
@@ -13777,39 +12873,7 @@ config::ExpansionType::TopRider => config::ExpansionPortType::TopRider,
                     }
                     draw_text(&mut buffer, hold_cb_x + cb_w + hold_text_gap, hold_y + (6.0 * scale).round() as usize, width, hold_label, menu_text, scale);
 
-                    let input_display_y = hold_y + row_h + (10.0 * scale).round() as usize;
-                    let input_display_cb_x = col1_x;
-                    let input_display_cb_y = input_display_y + ((row_h.saturating_sub(cb_h)) / 2);
-                    let input_display_label = "Input Display";
-                    let input_display_text_gap = (6.0 * scale).round() as usize;
-                    let input_display_total_w = cb_w + input_display_text_gap + (input_display_label.len() as f32 * 8.0 * scale).round() as usize;
-                    let input_display_hovered = point_in_rect(mouse_x, mouse_y, col1_x, input_display_y, input_display_total_w, row_h);
-                    let input_display_bg = if input_display_hovered { colors.box_bg_hover } else { colors.box_bg_default };
-                    draw_rect(&mut buffer, input_display_cb_x, input_display_cb_y, cb_w, cb_h, width, colors.box_border);
-draw_rect(&mut buffer, input_display_cb_x + 1, input_display_cb_y + 1, cb_w.saturating_sub(2), cb_h.saturating_sub(2), width, input_display_bg);
-                    if *input_display_clone.borrow() {
-                        let check_pad = (3.0 * scale).round() as usize;
-                        draw_rect(&mut buffer, input_display_cb_x + check_pad, input_display_cb_y + check_pad, cb_w.saturating_sub(check_pad * 2), cb_h.saturating_sub(check_pad * 2), width, colors.menu_text);
-                    }
-draw_text(&mut buffer, input_display_cb_x + cb_w + input_display_text_gap, input_display_y + (6.0 * scale).round() as usize, width, input_display_label, menu_text, scale);
-
-                    let autofire_y = input_display_y + row_h + (10.0 * scale).round() as usize;
-                    let autofire_cb_x = col1_x;
-                    let autofire_cb_y = autofire_y + ((row_h.saturating_sub(cb_h)) / 2);
-                    let autofire_label = "Autofire";
-                    let autofire_text_gap = (6.0 * scale).round() as usize;
-                    let autofire_total_w = cb_w + autofire_text_gap + (autofire_label.len() as f32 * 8.0 * scale).round() as usize;
-                    let autofire_hovered = point_in_rect(mouse_x, mouse_y, col1_x, autofire_y, autofire_total_w, row_h);
-                    let autofire_bg = if autofire_hovered { colors.box_bg_hover } else { colors.box_bg_default };
-                    draw_rect(&mut buffer, autofire_cb_x, autofire_cb_y, cb_w, cb_h, width, colors.box_border);
-                    draw_rect(&mut buffer, autofire_cb_x + 1, autofire_cb_y + 1, cb_w.saturating_sub(2), cb_h.saturating_sub(2), width, autofire_bg);
-                    if autofire_enabled_clone.load(Ordering::Relaxed) {
-                        let check_pad = (3.0 * scale).round() as usize;
-                        draw_rect(&mut buffer, autofire_cb_x + check_pad, autofire_cb_y + check_pad, cb_w.saturating_sub(check_pad * 2), cb_h.saturating_sub(check_pad * 2), width, colors.menu_text);
-                    }
-                    draw_text(&mut buffer, autofire_cb_x + cb_w + autofire_text_gap, autofire_y + (6.0 * scale).round() as usize, width, autofire_label, menu_text, scale);
-
-                    let hk_y = autofire_y + row_h + (10.0 * scale).round() as usize;
+                    let hk_y = hold_y + row_h + (10.0 * scale).round() as usize;
                     draw_text(&mut buffer, col1_x, hk_y + (6.0 * scale).round() as usize, width, "Hotkeys:", menu_text, scale);
                     let hk_btn_x = dpad_box_x;
                     let hk_hovered = point_in_rect(mouse_x, mouse_y, hk_btn_x, hk_y, box_w, configure_h);
@@ -15466,54 +14530,14 @@ draw_text(&mut buffer, input_display_cb_x + cb_w + input_display_text_gap, input
                 if ms.show_cheat_db_dialog {
                     render_cheat_db_dialog(&mut buffer, width, height, &ms, &colors, scale);
                 }
-                if ms.show_achievements_window {
-                    render_achievements_window(&mut buffer, width, height, &ms, &colors, scale);
+                if *fps_mode_clone.borrow() == config::FpsMode::Overlay {
+                    let fps_text = format!("{} FPS", current_fps_clone.load(Ordering::Relaxed));
+                    let overlay_x = (10.0 * scale).round() as usize;
+                    let overlay_y = menu_height + (10.0 * scale).round() as usize;
+                    draw_text(&mut buffer, overlay_x, overlay_y, width, &fps_text, colors.menu_text, scale);
                 }
-                if ms.show_ra_login {
-                    render_ra_login(&mut buffer, width, height, &ms, &colors, scale);
-                }
+                
                 drop(ms);
-
-                {
-                    let mut ms_mut = menu_state_clone.borrow_mut();
-                    for t in ra::take_toasts() {
-                        ms_mut.ra_toasts.push((std::time::Instant::now(), t));
-                    }
-                    const TOAST_LIFETIME: std::time::Duration = std::time::Duration::from_secs(5);
-                    ms_mut
-                        .ra_toasts
-                        .retain(|(t, _)| t.elapsed() < TOAST_LIFETIME);
-                    if ms_mut.ra_toasts.len() > 3 {
-                        let excess = ms_mut.ra_toasts.len() - 3;
-                        ms_mut.ra_toasts.drain(0..excess);
-                    }
-                    const TOAST_W: usize = 280;
-                    const TOAST_H: usize = 52;
-                    for (i, (_, toast)) in ms_mut.ra_toasts.iter().enumerate() {
-                        let toast_w = (TOAST_W as f32 * scale).round() as usize;
-                        let toast_h = (TOAST_H as f32 * scale).round() as usize;
-                        let toast_x = width.saturating_sub(toast_w + (12.0 * scale).round() as usize);
-                        let toast_y = height
-                            .saturating_sub(((i as f32 + 1.0) * (TOAST_H as f32 + 8.0) * scale).round() as usize);
-                        draw_rect(&mut buffer, toast_x, toast_y, toast_w, toast_h, width, colors.window_bg);
-                        let bt = (2.0 * scale).round() as usize;
-                        draw_rect(&mut buffer, toast_x, toast_y, toast_w, bt, width, colors.window_border);
-                        draw_rect(&mut buffer, toast_x, toast_y, bt, toast_h, width, colors.window_border);
-                        draw_rect(&mut buffer, toast_x + toast_w - bt, toast_y, bt, toast_h, width, colors.window_border);
-                        draw_rect(&mut buffer, toast_x, toast_y + toast_h - bt, toast_w, bt, width, colors.window_border);
-                        let header = if toast.hardcore { "Achievement Unlocked (Hardcore)" } else { "Achievement Unlocked" };
-                        draw_text(&mut buffer, toast_x + (8.0 * scale).round() as usize, toast_y + (6.0 * scale).round() as usize, width, header, colors.menu_text, scale);
-                        draw_text(&mut buffer, toast_x + (8.0 * scale).round() as usize, toast_y + (20.0 * scale).round() as usize, width, &toast.title, colors.menu_text, scale);
-                        let desc = if toast.description.chars().count() > 32 {
-                            let t: String = toast.description.chars().take(29).collect();
-                            format!("{}...", t)
-                        } else {
-                            toast.description.clone()
-                        };
-                        let footer = format!("{} — {} points", desc, toast.points);
-                        draw_text(&mut buffer, toast_x + (8.0 * scale).round() as usize, toast_y + (34.0 * scale).round() as usize, width, &footer, colors.disabled_text, scale);
-                    }
-                }
 
                 if *hide_mouse_cursor_clone.borrow() {
                     let ms_state = menu_state_clone.borrow();
@@ -15523,7 +14547,6 @@ draw_text(&mut buffer, input_display_cb_x + cb_w + input_display_text_gap, input
                         || ms_state.show_save_state_submenu
                         || ms_state.show_load_state_submenu
                         || ms_state.show_region_submenu
-                        || ms_state.show_speed_submenu
                         || ms_state.show_general_settings
                         || ms_state.show_directories_settings
                         || ms_state.show_audio_settings
@@ -15538,8 +14561,7 @@ draw_text(&mut buffer, input_display_cb_x + cb_w + input_display_text_gap, input
                         || ms_state.show_error
                         || ms_state.show_dip_switches
                         || ms_state.show_confirm_exit_dialog
-                        || ms_state.show_barcode_input || ms_state.show_cheats_window || ms_state.show_cheat_edit_dialog || ms_state.show_cheat_db_dialog
-                        || ms_state.show_achievements_window || ms_state.show_ra_login;
+                        || ms_state.show_barcode_input || ms_state.show_cheats_window || ms_state.show_cheat_edit_dialog || ms_state.show_cheat_db_dialog;
                     let emu_active = *rom_loaded_clone.borrow() && !paused_clone.load(Ordering::Relaxed);
                     let oeka_active = *expansion_type_clone.borrow() == config::ExpansionType::OekaKidsTablet;
                     drop(ms_state);

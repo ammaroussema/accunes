@@ -205,8 +205,6 @@ impl Mapper for Mapper550 {
         }
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.filter > 0 {
             self.filter = self.filter.saturating_sub(cycles);

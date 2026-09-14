@@ -187,7 +187,6 @@ impl Mapper for Mapper548 {
         }
         (nab as u8, nab)
     }
-    fn needs_cpu_clock(&self) -> bool { true }
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         if self.counting {
             self.counter = self.counter.saturating_add(cycles as u16);

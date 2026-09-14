@@ -58,8 +58,6 @@ impl Mapper for Mapper370 {
         self.mmc3.reset();
     }
 
-    fn handles_cpu_write(&self) -> bool { true }
-
     fn handle_cpu_write(&mut self, address: u16, _val: u8) {
         if (0x5000..=0x5FFF).contains(&address) {
             self.prg_or = ((address & 0x38) as u8) << 1;
@@ -249,8 +247,6 @@ impl Mapper for Mapper370 {
         }
     }
 
-    fn needs_ppu_clock(&self) -> bool { true }
-
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -270,13 +266,9 @@ impl Mapper for Mapper370 {
         )
     }
 
-    fn needs_cpu_clock_rise(&self) -> bool { true }
-
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         self.mmc3.cpu_clock_rise(ppu_address_bus)
     }
-
-    fn needs_cpu_clock(&self) -> bool { true }
 
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         self.mmc3.cpu_clock(cycles)

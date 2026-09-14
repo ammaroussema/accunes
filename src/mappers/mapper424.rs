@@ -34,8 +34,6 @@ impl Mapper for Mapper424 {
         self.core.reg4100[0x1E] = 0;
     }
 
-    fn handles_cpu_write(&self) -> bool { true }
-
     fn handle_cpu_write(&mut self, address: u16, data: u8) {
         let mangle = OneBusMangle::IDENTITY;
         if (0x2000..0x2100).contains(&address) {
@@ -113,8 +111,6 @@ impl Mapper for Mapper424 {
         }
     }
 
-    fn needs_ppu_clock(&self) -> bool { true }
-
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -126,8 +122,6 @@ impl Mapper for Mapper424 {
     ) -> bool {
         self.core.ppu_cycle(ppu_address_bus, scanline, dot, rendering_on)
     }
-
-    fn needs_cpu_clock(&self) -> bool { true }
 
     fn cpu_clock(&mut self, _cycles: u8) -> bool {
         self.core.cpu_cycle()

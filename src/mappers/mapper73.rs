@@ -153,8 +153,6 @@ impl Mapper for Mapper73 {
         }
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         for _ in 0..cycles as u16 {
             if self.irq & 0x02 != 0 {

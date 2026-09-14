@@ -134,8 +134,6 @@ impl Mapper for Mapper456 {
         }
     }
 
-    fn handles_cpu_write(&self) -> bool { true }
-
     fn handle_cpu_write(&mut self, address: u16, data: u8) {
         if (0x4000..0x6000).contains(&address) && (address & 0x100) != 0 {
             self.reg_latch = data;
@@ -195,8 +193,6 @@ impl Mapper for Mapper456 {
         }
     }
 
-    fn needs_ppu_clock(&self) -> bool { true }
-
     fn ppu_clock(
         &mut self,
         ppu_address_bus: u16,
@@ -225,8 +221,6 @@ impl Mapper for Mapper456 {
         }
         irq
     }
-
-    fn needs_cpu_clock_rise(&self) -> bool { true }
 
     fn cpu_clock_rise(&mut self, ppu_address_bus: u16) -> bool {
         let a12 = (ppu_address_bus & 0x1000) != 0;

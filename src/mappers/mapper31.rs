@@ -94,7 +94,7 @@ impl Mapper for Mapper31 {
                     fds_disks: Vec::new(),
                     trainer: Vec::new(),
                     misc_rom: Vec::new(),
-                    mapper_chip: crate::cartridge::MapperSlot::new(Box::new(Mapper31 { prg_banks: [0xFF; 8] })),
+                    mapper_chip: Box::new(Mapper31 { prg_banks: [0xFF; 8] }),
                     mapper_cpu_cycle: 0,
                     prg_rom_crc32: 0,
                     chr_rom_crc32: 0,

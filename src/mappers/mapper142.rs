@@ -471,8 +471,6 @@ impl Mapper for Mapper142 {
         }
     }
 
-    fn needs_cpu_clock(&self) -> bool { true }
-
     fn cpu_clock(&mut self, cycles: u8) -> bool {
         self.fds_get(cycles as u32);
         if (self.irq_control & 2) != 0 {
