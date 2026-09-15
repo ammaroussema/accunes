@@ -1,0 +1,1956 @@
+// the mapper factory and some mapper trait defs are all included in this file.
+
+use crate::cartridge::Cartridge;
+use crate::mappers::one_bus::OneBusChrCtx;
+pub use crate::mappers::axrom::MapperAxROM;
+pub use crate::mappers::bandai::{BandaiKind, MapperBandai};
+pub use crate::mappers::cnrom::{CnromConfig, MapperCNROM};
+pub use crate::mappers::cprom::MapperCpROM;
+pub use crate::mappers::fds::Mapper20;
+pub use crate::mappers::studybox::MapperStudyBox;
+pub use crate::mappers::ffe::{FfeConfig, MapperFfe};
+pub use crate::mappers::fme7::MapperFME7;
+pub use crate::mappers::gxrom::Mapper66;
+pub use crate::mappers::mmc1::{MapperMMC1, Mmc1Config};
+pub use crate::mappers::mmc2::MapperMMC2;
+pub use crate::mappers::mmc3::{MapperMMC3, Mmc3Config};
+pub use crate::mappers::mmc4::MapperMMC4;
+pub use crate::mappers::mmc5::{MapperMMC5, Mmc5Config};
+pub use crate::mappers::n106::Mapper19;
+pub use crate::mappers::nrom::{MapperNROM, NromConfig};
+pub use crate::mappers::sl12::MapperSL12;
+pub use crate::mappers::sl1632::MapperSL1632;
+pub use crate::mappers::uxrom::{MapperUxROM, UxromConfig};
+pub use crate::mappers::vrc2_4::{Vrc2And4, VrcVariant};
+pub use crate::mappers::vrc6::{Vrc6, Vrc6Variant};
+pub use crate::mappers::vrc7::Vrc7;
+pub use crate::mappers::mapper8::Mapper8;
+pub use crate::mappers::mapper11::Mapper11;
+pub use crate::mappers::mapper12::Mapper12;
+pub use crate::mappers::mapper15::Mapper15;
+pub use crate::mappers::mapper18::Mapper18;
+pub use crate::mappers::mapper27::Mapper27;
+pub use crate::mappers::mapper28::Mapper28;
+pub use crate::mappers::mapper29::Mapper29;
+pub use crate::mappers::mapper30::Mapper30;
+pub use crate::mappers::mapper31::Mapper31;
+pub use crate::mappers::mapper32::Mapper32;
+pub use crate::mappers::mapper33::Mapper33;
+pub use crate::mappers::mapper34::{Mapper34, Mapper34Kind};
+pub use crate::mappers::mapper36::Mapper36;
+pub use crate::mappers::mapper37::Mapper37;
+pub use crate::mappers::mapper38::Mapper38;
+pub use crate::mappers::mapper39::Mapper39;
+pub use crate::mappers::mapper40::Mapper40;
+pub use crate::mappers::mapper41::Mapper41;
+pub use crate::mappers::mapper42::Mapper42;
+pub use crate::mappers::mapper43::Mapper43;
+pub use crate::mappers::mapper44::Mapper44;
+pub use crate::mappers::mapper45::Mapper45;
+pub use crate::mappers::mapper46::Mapper46;
+pub use crate::mappers::mapper47::Mapper47;
+pub use crate::mappers::mapper48::Mapper48;
+pub use crate::mappers::mapper49::Mapper49;
+pub use crate::mappers::mapper50::Mapper50;
+pub use crate::mappers::mapper51::Mapper51;
+pub use crate::mappers::mapper52::Mapper52;
+pub use crate::mappers::mapper53::Mapper53;
+pub use crate::mappers::mapper54::Mapper54;
+pub use crate::mappers::mapper55::Mapper55;
+pub use crate::mappers::mapper56::Mapper56;
+pub use crate::mappers::mapper57::Mapper57;
+pub use crate::mappers::mapper58::Mapper58;
+pub use crate::mappers::mapper59::Mapper59;
+pub use crate::mappers::mapper60::Mapper60;
+pub use crate::mappers::mapper61::Mapper61;
+pub use crate::mappers::mapper62::Mapper62;
+pub use crate::mappers::mapper63::Mapper63;
+pub use crate::mappers::mapper64::Mapper64;
+pub use crate::mappers::mapper65::Mapper65;
+pub use crate::mappers::mapper67::Mapper67;
+pub use crate::mappers::mapper68::Mapper68;
+pub use crate::mappers::mapper70::Mapper70;
+pub use crate::mappers::mapper71::Mapper71;
+pub use crate::mappers::mapper72::{Mapper72, Mapper72Variant};
+pub use crate::mappers::mapper73::Mapper73;
+pub use crate::mappers::mapper74::Mapper74;
+pub use crate::mappers::mapper75::Mapper75;
+pub use crate::mappers::mapper76::Mapper76;
+pub use crate::mappers::mapper77::Mapper77;
+pub use crate::mappers::mapper78::Mapper78;
+pub use crate::mappers::mapper79::Mapper79;
+pub use crate::mappers::mapper80::Mapper80;
+pub use crate::mappers::mapper81::Mapper81;
+pub use crate::mappers::mapper82::Mapper82;
+pub use crate::mappers::mapper83::Mapper83;
+pub use crate::mappers::mapper86::Mapper86;
+pub use crate::mappers::mapper87::Mapper87;
+pub use crate::mappers::mapper88::Mapper88;
+pub use crate::mappers::mapper89::Mapper89;
+pub use crate::mappers::mapper90::{Mapper90, Mapper90Variant};
+pub use crate::mappers::mapper91::Mapper91;
+pub use crate::mappers::mapper93::Mapper93;
+pub use crate::mappers::mapper94::Mapper94;
+pub use crate::mappers::mapper95::Mapper95;
+pub use crate::mappers::mapper96::Mapper96;
+pub use crate::mappers::mapper97::Mapper97;
+pub use crate::mappers::mapper99::Mapper99;
+pub use crate::mappers::mapper100::Mapper100;
+pub use crate::mappers::mapper101::Mapper101;
+pub use crate::mappers::mapper103::Mapper103;
+pub use crate::mappers::mapper104::Mapper104;
+pub use crate::mappers::mapper106::Mapper106;
+pub use crate::mappers::mapper107::Mapper107;
+pub use crate::mappers::mapper108::Mapper108;
+pub use crate::mappers::mapper111::Mapper111;
+pub use crate::mappers::mapper112::Mapper112;
+pub use crate::mappers::mapper113::Mapper113;
+pub use crate::mappers::mapper114::Mapper114;
+pub use crate::mappers::mapper115::Mapper115;
+pub use crate::mappers::mapper117::Mapper117;
+pub use crate::mappers::mapper118::Mapper118;
+pub use crate::mappers::mapper119::Mapper119;
+pub use crate::mappers::mapper120::Mapper120;
+pub use crate::mappers::mapper121::Mapper121;
+pub use crate::mappers::mapper122::Mapper122;
+pub use crate::mappers::mapper123::Mapper123;
+pub use crate::mappers::mapper124::Mapper124;
+pub use crate::mappers::mapper125::Mapper125;
+pub use crate::mappers::mapper127::Mapper127;
+pub use crate::mappers::mapper128::Mapper128;
+pub use crate::mappers::mapper130::Mapper130;
+pub use crate::mappers::mapper131::Mapper131;
+pub use crate::mappers::mapper132::Mapper132;
+pub use crate::mappers::mapper133::Mapper133;
+pub use crate::mappers::mapper134::Mapper134;
+pub use crate::mappers::mapper136::Mapper136;
+pub use crate::mappers::mapper137::Mapper137;
+pub use crate::mappers::mapper138::Mapper138;
+pub use crate::mappers::mapper139::Mapper139;
+pub use crate::mappers::mapper140::Mapper140;
+pub use crate::mappers::mapper141::Mapper141;
+pub use crate::mappers::mapper142::Mapper142;
+pub use crate::mappers::mapper143::Mapper143;
+pub use crate::mappers::mapper144::Mapper144;
+pub use crate::mappers::mapper145::Mapper145;
+pub use crate::mappers::mapper147::Mapper147;
+pub use crate::mappers::mapper148::Mapper148;
+pub use crate::mappers::mapper149::Mapper149;
+pub use crate::mappers::mapper150::Mapper150;
+pub use crate::mappers::mapper151::Mapper151;
+pub use crate::mappers::mapper154::Mapper154;
+pub use crate::mappers::mapper156::Mapper156;
+pub use crate::mappers::mapper162::Mapper162;
+pub use crate::mappers::mapper163::Mapper163;
+pub use crate::mappers::mapper164::Mapper164;
+pub use crate::mappers::mapper165::Mapper165;
+pub use crate::mappers::mapper166::Mapper166;
+pub use crate::mappers::mapper167::Mapper167;
+pub use crate::mappers::mapper168::Mapper168;
+pub use crate::mappers::mapper169::Mapper169;
+pub use crate::mappers::mapper170::Mapper170;
+pub use crate::mappers::mapper172::Mapper172;
+pub use crate::mappers::mapper173::Mapper173;
+pub use crate::mappers::mapper174::Mapper174;
+pub use crate::mappers::mapper175::Mapper175;
+pub use crate::mappers::mapper176::{Mapper176, Mapper176Config};
+pub use crate::mappers::mapper177::Mapper177;
+pub use crate::mappers::mapper178::Mapper178;
+pub use crate::mappers::mapper179::Mapper179;
+pub use crate::mappers::mapper180::Mapper180;
+pub use crate::mappers::mapper183::Mapper183;
+pub use crate::mappers::mapper184::Mapper184;
+pub use crate::mappers::mapper185::{Mapper185, Mapper185Config};
+pub use crate::mappers::mapper186::Mapper186;
+pub use crate::mappers::mapper187::Mapper187;
+pub use crate::mappers::mapper188::Mapper188;
+pub use crate::mappers::mapper189::Mapper189;
+pub use crate::mappers::mapper190::Mapper190;
+pub use crate::mappers::mapper191::Mapper191;
+pub use crate::mappers::mapper192::Mapper192;
+pub use crate::mappers::mapper193::Mapper193;
+pub use crate::mappers::mapper194::Mapper194;
+pub use crate::mappers::mapper195::Mapper195;
+pub use crate::mappers::mapper196::Mapper196;
+pub use crate::mappers::mapper197::Mapper197;
+pub use crate::mappers::mapper198::Mapper198;
+pub use crate::mappers::mapper199::Mapper199;
+pub use crate::mappers::mapper200::Mapper200;
+pub use crate::mappers::mapper201::Mapper201;
+pub use crate::mappers::mapper202::Mapper202;
+pub use crate::mappers::mapper203::Mapper203;
+pub use crate::mappers::mapper204::Mapper204;
+pub use crate::mappers::mapper205::Mapper205;
+pub use crate::mappers::mapper206::Mapper206;
+pub use crate::mappers::mapper207::Mapper207;
+pub use crate::mappers::mapper208::Mapper208;
+pub use crate::mappers::mapper210::Mapper210;
+pub use crate::mappers::mapper212::Mapper212;
+pub use crate::mappers::mapper214::Mapper214;
+pub use crate::mappers::mapper215::Mapper215;
+pub use crate::mappers::mapper216::Mapper216;
+pub use crate::mappers::mapper217::Mapper217;
+pub use crate::mappers::mapper218::Mapper218;
+pub use crate::mappers::mapper219::Mapper219;
+pub use crate::mappers::mapper221::Mapper221;
+pub use crate::mappers::mapper222::Mapper222;
+pub use crate::mappers::mapper224::Mapper224;
+pub use crate::mappers::mapper225::Mapper225;
+pub use crate::mappers::mapper226::Mapper226;
+pub use crate::mappers::mapper227::Mapper227;
+pub use crate::mappers::mapper228::Mapper228;
+pub use crate::mappers::mapper229::Mapper229;
+pub use crate::mappers::mapper230::Mapper230;
+pub use crate::mappers::mapper231::Mapper231;
+pub use crate::mappers::mapper232::Mapper232;
+pub use crate::mappers::mapper233::Mapper233;
+pub use crate::mappers::mapper234::Mapper234;
+pub use crate::mappers::mapper235::Mapper235;
+pub use crate::mappers::mapper236::Mapper236;
+pub use crate::mappers::mapper237::Mapper237;
+pub use crate::mappers::mapper238::Mapper238;
+pub use crate::mappers::mapper239::Mapper239;
+pub use crate::mappers::mapper240::Mapper240;
+pub use crate::mappers::mapper241::Mapper241;
+pub use crate::mappers::mapper242::Mapper242;
+pub use crate::mappers::mapper243::Mapper243;
+pub use crate::mappers::mapper244::Mapper244;
+pub use crate::mappers::mapper245::Mapper245;
+pub use crate::mappers::mapper246::Mapper246;
+pub use crate::mappers::mapper248::Mapper248;
+pub use crate::mappers::mapper249::Mapper249;
+pub use crate::mappers::mapper250::Mapper250;
+pub use crate::mappers::mapper252::Mapper252;
+pub use crate::mappers::mapper253::Mapper253;
+pub use crate::mappers::mapper254::Mapper254;
+pub use crate::mappers::mapper255::Mapper255;
+pub use crate::mappers::mapper256::Mapper256;
+pub use crate::mappers::mapper257::Mapper257;
+pub use crate::mappers::mapper259::Mapper259;
+pub use crate::mappers::mapper260::Mapper260;
+pub use crate::mappers::mapper262::Mapper262;
+pub use crate::mappers::mapper263::Mapper263;
+pub use crate::mappers::mapper266::Mapper266;
+pub use crate::mappers::mapper267::Mapper267;
+pub use crate::mappers::mapper268::Mapper268;
+pub use crate::mappers::mapper269::Mapper269;
+pub use crate::mappers::mapper270::Mapper270;
+pub use crate::mappers::mapper271::Mapper271;
+pub use crate::mappers::mapper272::Mapper272;
+pub use crate::mappers::mapper273::Mapper273;
+pub use crate::mappers::mapper274::Mapper274;
+pub use crate::mappers::mapper277::Mapper277;
+pub use crate::mappers::mapper280::Mapper280;
+pub use crate::mappers::mapper283::Mapper283;
+pub use crate::mappers::mapper261::Mapper261;
+pub use crate::mappers::mapper265::Mapper265;
+pub use crate::mappers::mapper284::Mapper284;
+pub use crate::mappers::mapper285::Mapper285;
+pub use crate::mappers::mapper286::Mapper286;
+pub use crate::mappers::mapper287::Mapper287;
+pub use crate::mappers::mapper288::Mapper288;
+pub use crate::mappers::mapper289::Mapper289;
+pub use crate::mappers::mapper290::Mapper290;
+pub use crate::mappers::mapper291::Mapper291;
+pub use crate::mappers::mapper292::Mapper292;
+pub use crate::mappers::mapper293::Mapper293;
+pub use crate::mappers::mapper294::Mapper294;
+pub use crate::mappers::mapper296::Mapper296;
+pub use crate::mappers::mapper297::Mapper297;
+pub use crate::mappers::mapper298::Mapper298;
+pub use crate::mappers::mapper299::Mapper299;
+pub use crate::mappers::mapper300::Mapper300;
+pub use crate::mappers::mapper407::Mapper407;
+pub use crate::mappers::mapper408::Mapper408;
+pub use crate::mappers::mapper419::Mapper419;
+pub use crate::mappers::mapper420::Mapper420;
+pub use crate::mappers::mapper421::Mapper421;
+pub use crate::mappers::mapper423::Mapper423;
+pub use crate::mappers::mapper424::Mapper424;
+pub use crate::mappers::mapper425::Mapper425;
+pub use crate::mappers::mapper426::Mapper426;
+pub use crate::mappers::mapper427::Mapper427;
+pub use crate::mappers::mapper428::Mapper428;
+pub use crate::mappers::mapper429::Mapper429;
+pub use crate::mappers::mapper430::Mapper430;
+pub use crate::mappers::mapper432::Mapper432;
+pub use crate::mappers::mapper433::Mapper433;
+pub use crate::mappers::mapper434::Mapper434;
+pub use crate::mappers::mapper435::Mapper435;
+pub use crate::mappers::mapper436::Mapper436;
+pub use crate::mappers::mapper496::Mapper496;
+pub use crate::mappers::mapper302::Mapper302;
+pub use crate::mappers::mapper303::Mapper303;
+pub use crate::mappers::mapper304::Mapper304;
+pub use crate::mappers::mapper305::Mapper305;
+pub use crate::mappers::mapper306::Mapper306;
+pub use crate::mappers::mapper307::Mapper307;
+pub use crate::mappers::mapper308::Mapper308;
+pub use crate::mappers::mapper309::Mapper309;
+pub use crate::mappers::mapper310::Mapper310;
+pub use crate::mappers::mapper312::Mapper312;
+pub use crate::mappers::mapper313::Mapper313;
+pub use crate::mappers::mapper314::Mapper314;
+pub use crate::mappers::mapper315::Mapper315;
+pub use crate::mappers::mapper328::Mapper328;
+pub use crate::mappers::mapper329::Mapper329;
+pub use crate::mappers::mapper331::Mapper331;
+pub use crate::mappers::mapper365::Mapper365;
+pub use crate::mappers::mapper385::Mapper385;
+pub use crate::mappers::mapper389::Mapper389;
+pub use crate::mappers::mapper390::Mapper390;
+pub use crate::mappers::mapper391::Mapper391;
+pub use crate::mappers::mapper392::Mapper392;
+pub use crate::mappers::mapper393::Mapper393;
+pub use crate::mappers::mapper394::Mapper394;
+pub use crate::mappers::mapper396::Mapper396;
+pub use crate::mappers::mapper398::Mapper398;
+pub use crate::mappers::mapper399::Mapper399;
+pub use crate::mappers::mapper400::Mapper400;
+pub use crate::mappers::mapper401::Mapper401;
+pub use crate::mappers::mapper402::Mapper402;
+pub use crate::mappers::mapper403::Mapper403;
+pub use crate::mappers::mapper404::Mapper404;
+pub use crate::mappers::mapper406::Mapper406;
+pub use crate::mappers::mapper395::Mapper395;
+pub use crate::mappers::mapper409::Mapper409;
+pub use crate::mappers::mapper410::Mapper410;
+pub use crate::mappers::mapper411::Mapper411;
+pub use crate::mappers::mapper412::Mapper412;
+pub use crate::mappers::mapper413::Mapper413;
+pub use crate::mappers::mapper414::Mapper414;
+pub use crate::mappers::mapper415::Mapper415;
+pub use crate::mappers::mapper416::Mapper416;
+pub use crate::mappers::mapper417::Mapper417;
+pub use crate::mappers::mapper418::Mapper418;
+pub use crate::mappers::mapper437::Mapper437;
+pub use crate::mappers::mapper438::Mapper438;
+pub use crate::mappers::mapper439::Mapper439;
+pub use crate::mappers::mapper440::Mapper440;
+pub use crate::mappers::mapper441::Mapper441;
+pub use crate::mappers::mapper442::Mapper442;
+pub use crate::mappers::mapper443::Mapper443;
+pub use crate::mappers::mapper444::Mapper444;
+pub use crate::mappers::mapper445::Mapper445;
+pub use crate::mappers::mapper446::Mapper446;
+pub use crate::mappers::mapper447::Mapper447;
+pub use crate::mappers::mapper448::Mapper448;
+pub use crate::mappers::mapper449::Mapper449;
+pub use crate::mappers::mapper450::Mapper450;
+pub use crate::mappers::mapper451::Mapper451;
+pub use crate::mappers::mapper452::Mapper452;
+pub use crate::mappers::mapper453::Mapper453;
+pub use crate::mappers::mapper454::Mapper454;
+pub use crate::mappers::mapper455::Mapper455;
+pub use crate::mappers::mapper456::Mapper456;
+pub use crate::mappers::mapper457::Mapper457;
+pub use crate::mappers::mapper458::Mapper458;
+pub use crate::mappers::mapper459::Mapper459;
+pub use crate::mappers::mapper460::Mapper460;
+pub use crate::mappers::mapper461::Mapper461;
+pub use crate::mappers::mapper462::Mapper462;
+pub use crate::mappers::mapper463::Mapper463;
+pub use crate::mappers::mapper464::Mapper464;
+pub use crate::mappers::mapper465::Mapper465;
+pub use crate::mappers::mapper466::Mapper466;
+pub use crate::mappers::mapper467::Mapper467;
+pub use crate::mappers::mapper468::Mapper468;
+pub use crate::mappers::mapper469::Mapper469;
+pub use crate::mappers::mapper470::Mapper470;
+pub use crate::mappers::mapper471::Mapper471;
+pub use crate::mappers::mapper472::Mapper472;
+pub use crate::mappers::mapper473::Mapper473;
+pub use crate::mappers::mapper474::Mapper474;
+pub use crate::mappers::mapper475::Mapper475;
+pub use crate::mappers::mapper477::Mapper477;
+pub use crate::mappers::mapper478::Mapper478;
+pub use crate::mappers::mapper479::Mapper479;
+pub use crate::mappers::mapper480::Mapper480;
+pub use crate::mappers::mapper481::Mapper481;
+pub use crate::mappers::mapper482::Mapper482;
+pub use crate::mappers::mapper483::Mapper483;
+pub use crate::mappers::mapper484::Mapper484;
+pub use crate::mappers::mapper485::Mapper485;
+pub use crate::mappers::mapper487::Mapper487;
+pub use crate::mappers::mapper488::Mapper488;
+pub use crate::mappers::mapper489::Mapper489;
+pub use crate::mappers::mapper490::Mapper490;
+pub use crate::mappers::mapper491::Mapper491;
+pub use crate::mappers::mapper492::Mapper492;
+pub use crate::mappers::mapper493::Mapper493;
+pub use crate::mappers::mapper494::Mapper494;
+pub use crate::mappers::mapper522::Mapper522;
+pub use crate::mappers::mapper486::Mapper486;
+pub use crate::mappers::mapper535::Mapper535;
+pub use crate::mappers::mapper538::Mapper538;
+pub use crate::mappers::mapper539::Mapper539;
+pub use crate::mappers::mapper543::Mapper543;
+pub use crate::mappers::mapper546::Mapper546;
+pub use crate::mappers::mapper548::Mapper548;
+pub use crate::mappers::mapper549::Mapper549;
+pub use crate::mappers::mapper550::Mapper550;
+pub use crate::mappers::mapper551::Mapper551;
+pub use crate::mappers::mapper554::Mapper554;
+pub use crate::mappers::mapper555::Mapper555;
+pub use crate::mappers::mapper556::Mapper556;
+pub use crate::mappers::mapper557::Mapper557;
+pub use crate::mappers::mapper558::Mapper558;
+pub use crate::mappers::mapper559::Mapper559;
+pub use crate::mappers::mapper560::Mapper560;
+pub use crate::mappers::mapper561::Mapper561;
+pub use crate::mappers::mapper562::Mapper562;
+pub use crate::mappers::mapper563::Mapper563;
+pub use crate::mappers::mapper564::Mapper564;
+pub use crate::mappers::mapper565::Mapper565;
+pub use crate::mappers::mapper566::Mapper566;
+pub use crate::mappers::mapper567::Mapper567;
+pub use crate::mappers::mapper568::Mapper568;
+pub use crate::mappers::mapper569::Mapper569;
+pub use crate::mappers::mapper570::Mapper570;
+pub use crate::mappers::mapper571::Mapper571;
+pub use crate::mappers::mapper572::Mapper572;
+pub use crate::mappers::mapper573::Mapper573;
+pub use crate::mappers::mapper574::Mapper574;
+pub use crate::mappers::mapper575::Mapper575;
+pub use crate::mappers::mapper576::Mapper576;
+pub use crate::mappers::mapper577::Mapper577;
+pub use crate::mappers::mapper578::Mapper578;
+pub use crate::mappers::mapper579::Mapper579;
+pub use crate::mappers::mapper580::Mapper580;
+pub use crate::mappers::mapper476::Mapper476;
+pub use crate::mappers::mapper495::Mapper495;
+pub use crate::mappers::mapper497::Mapper497;
+pub use crate::mappers::mapper498::Mapper498;
+pub use crate::mappers::mapper499::Mapper499;
+pub use crate::mappers::mapper500::Mapper500;
+pub use crate::mappers::mapper501::Mapper501;
+pub use crate::mappers::mapper502::Mapper502;
+pub use crate::mappers::mapper503::Mapper503;
+pub use crate::mappers::mapper504::Mapper504;
+pub use crate::mappers::mapper505::Mapper505;
+pub use crate::mappers::mapper506::Mapper506;
+pub use crate::mappers::mapper507::Mapper507;
+pub use crate::mappers::mapper508::Mapper508;
+pub use crate::mappers::mapper509::Mapper509;
+pub use crate::mappers::mapper510::Mapper510;
+pub use crate::mappers::mapper511::Mapper511;
+pub use crate::mappers::mapper512::Mapper512;
+pub use crate::mappers::mapper513::Mapper513;
+pub use crate::mappers::mapper514::Mapper514;
+pub use crate::mappers::mapper515::Mapper515;
+pub use crate::mappers::mapper516::Mapper516;
+pub use crate::mappers::mapper517::Mapper517;
+pub use crate::mappers::mapper518::Mapper518;
+pub use crate::mappers::mapper519::Mapper519;
+pub use crate::mappers::mapper520::Mapper520;
+pub use crate::mappers::mapper521::Mapper521;
+pub use crate::mappers::mapper523::Mapper523;
+pub use crate::mappers::mapper524::Mapper524;
+pub use crate::mappers::mapper525::Mapper525;
+pub use crate::mappers::mapper526::Mapper526;
+pub use crate::mappers::mapper527::Mapper527;
+pub use crate::mappers::mapper528::Mapper528;
+pub use crate::mappers::mapper529::Mapper529;
+pub use crate::mappers::mapper530::Mapper530;
+pub use crate::mappers::mapper531::Mapper531;
+pub use crate::mappers::mapper533::Mapper533;
+pub use crate::mappers::mapper534::{MapperAx5202p, Ax5202pVariant};
+pub use crate::mappers::mapper536::Mapper536;
+pub use crate::mappers::mapper537::Mapper537;
+pub use crate::mappers::mapper540::Mapper540;
+pub use crate::mappers::mapper541::Mapper541;
+pub use crate::mappers::mapper542::Mapper542;
+pub use crate::mappers::mapper544::Mapper544;
+pub use crate::mappers::mapper545::Mapper545;
+pub use crate::mappers::mapper547::Mapper547;
+pub use crate::mappers::mapper552::Mapper552;
+pub use crate::mappers::mapper553::Mapper553;
+pub use crate::mappers::mapper319::Mapper319;
+pub use crate::mappers::mapper320::Mapper320;
+pub use crate::mappers::mapper321::Mapper321;
+pub use crate::mappers::mapper322::Mapper322;
+pub use crate::mappers::mapper323::Mapper323;
+pub use crate::mappers::mapper324::Mapper324;
+pub use crate::mappers::mapper325::Mapper325;
+pub use crate::mappers::mapper326::Mapper326;
+pub use crate::mappers::mapper327::Mapper327;
+pub use crate::mappers::mapper330::Mapper330;
+pub use crate::mappers::mapper332::Mapper332;
+pub use crate::mappers::mapper333::Mapper333;
+pub use crate::mappers::mapper334::Mapper334;
+pub use crate::mappers::mapper335::Mapper335;
+pub use crate::mappers::mapper336::Mapper336;
+pub use crate::mappers::mapper337::Mapper337;
+pub use crate::mappers::mapper338::Mapper338;
+pub use crate::mappers::mapper339::Mapper339;
+pub use crate::mappers::mapper340::Mapper340;
+pub use crate::mappers::mapper341::Mapper341;
+pub use crate::mappers::mapper342::Mapper342;
+pub use crate::mappers::mapper343::Mapper343;
+pub use crate::mappers::mapper344::Mapper344;
+pub use crate::mappers::mapper345::Mapper345;
+pub use crate::mappers::mapper346::Mapper346;
+pub use crate::mappers::mapper347::Mapper347;
+pub use crate::mappers::mapper348::Mapper348;
+pub use crate::mappers::mapper349::Mapper349;
+pub use crate::mappers::mapper350::Mapper350;
+pub use crate::mappers::mapper351::Mapper351;
+pub use crate::mappers::mapper352::Mapper352;
+pub use crate::mappers::mapper353::Mapper353;
+pub use crate::mappers::mapper354::Mapper354;
+pub use crate::mappers::mapper355::Mapper355;
+pub use crate::mappers::mapper356::Mapper356;
+pub use crate::mappers::mapper357::Mapper357;
+pub use crate::mappers::mapper359::Mapper359;
+pub use crate::mappers::mapper360::Mapper360;
+pub use crate::mappers::mapper361::Mapper361;
+pub use crate::mappers::mapper362::Mapper362;
+pub use crate::mappers::mapper363::Mapper363;
+pub use crate::mappers::mapper364::Mapper364;
+pub use crate::mappers::mapper366::Mapper366;
+pub use crate::mappers::mapper367::Mapper367;
+pub use crate::mappers::mapper368::Mapper368;
+pub use crate::mappers::mapper369::Mapper369;
+pub use crate::mappers::mapper370::Mapper370;
+pub use crate::mappers::mapper371::Mapper371;
+pub use crate::mappers::mapper372::Mapper372;
+pub use crate::mappers::mapper373::Mapper373;
+pub use crate::mappers::mapper374::Mapper374;
+pub use crate::mappers::mapper375::Mapper375;
+pub use crate::mappers::mapper376::Mapper376;
+pub use crate::mappers::mapper377::Mapper377;
+pub use crate::mappers::mapper378::Mapper378;
+pub use crate::mappers::mapper379::Mapper379;
+pub use crate::mappers::mapper380::Mapper380;
+pub use crate::mappers::mapper381::Mapper381;
+pub use crate::mappers::mapper382::Mapper382;
+pub use crate::mappers::mapper383::Mapper383;
+pub use crate::mappers::mapper384::Mapper384;
+pub use crate::mappers::mapper581::Mapper581;
+pub use crate::mappers::mapper582::Mapper582;
+pub use crate::mappers::mapper583::Mapper583;
+pub use crate::mappers::mapper584::Mapper584;
+pub use crate::mappers::mapper585::Mapper585;
+pub use crate::mappers::mapper586::Mapper586;
+pub use crate::mappers::mapper587::Mapper587;
+pub use crate::mappers::mapper588::Mapper588;
+pub use crate::mappers::mapper589::Mapper589;
+pub use crate::mappers::mapper590::Mapper590;
+pub use crate::mappers::mapper405::Mapper405;
+pub use crate::mappers::mapper591::Mapper591;
+pub use crate::mappers::mapper592::Mapper592;
+pub use crate::mappers::mapper593::Mapper593;
+pub use crate::mappers::mapper594::Mapper594;
+pub use crate::mappers::mapper595::Mapper595;
+pub use crate::mappers::mapper596::Mapper596;
+pub use crate::mappers::mapper597::Mapper597;
+pub use crate::mappers::mapper598::Mapper598;
+pub use crate::mappers::mapper599::Mapper599;
+pub use crate::mappers::mapper600::Mapper600;
+pub use crate::mappers::mapper601::Mapper601;
+pub use crate::mappers::mapper602::Mapper602;
+pub use crate::mappers::mapper603::Mapper603;
+pub use crate::mappers::mapper604::Mapper604;
+pub use crate::mappers::mapper605::Mapper605;
+pub use crate::mappers::mapper606::Mapper606;
+pub use crate::mappers::mapper607::Mapper607;
+pub use crate::mappers::mapper608::Mapper608;
+pub use crate::mappers::mapper609::Mapper609;
+pub use crate::mappers::mapper610::Mapper610;
+pub use crate::mappers::mapper611::Mapper611;
+pub use crate::mappers::mapper612::Mapper612;
+pub use crate::mappers::mapper613::Mapper613;
+pub use crate::mappers::mapper614::Mapper614;
+pub use crate::mappers::mapper615::Mapper615;
+pub use crate::mappers::mapper616::Mapper616;
+pub use crate::mappers::mapper617::Mapper617;
+pub use crate::mappers::mapper618::Mapper618;
+pub use crate::mappers::mapper619::Mapper619;
+pub use crate::mappers::mapper620::Mapper620;
+pub use crate::mappers::mapper621::Mapper621;
+pub use crate::mappers::mapper622::Mapper622;
+pub use crate::mappers::mapper623::Mapper623;
+pub use crate::mappers::mapper624::Mapper624;
+pub use crate::mappers::mapper625::Mapper625;
+pub use crate::mappers::mapper626::Mapper626;
+pub use crate::mappers::mapper627::Mapper627;
+pub use crate::mappers::mapper756::Mapper756;
+pub use crate::mappers::mapper761::Mapper761;
+pub use crate::mappers::mapper764::Mapper764;
+pub use crate::mappers::mapper767::Mapper767;
+pub use crate::mappers::rainbow::MapperRainbow;
+pub use crate::mappers::mapper800::Mapper800;
+
+pub fn mirror_h_or_v(horizontal: bool, address: u16) -> u16 {
+    if horizontal {
+        (address & 0x33FF) | ((address & 0x0800) >> 1)
+    } else {
+        address & 0x37FF
+    }
+}
+
+/// prg fetch result
+pub struct FetchResult {
+    pub data: u8,
+    pub driven: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExpansionAudioType {
+    None,
+    Fds,
+    Mmc5,
+    Vrc6,
+    Vrc7,
+    Namco163,
+    Sunsoft5b,
+    Nsf,
+    Other,
+}
+
+/// the mapper trait with all its handling templates
+pub trait Mapper: Send {
+    // fetching and storing prg by bus through mapper
+    fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult;
+    fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8);
+
+    // ppu nametable mirroring handling
+    fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16;
+
+    // ppu data fetching by bus through mapper
+    fn fetch_ppu(
+        &mut self,
+        _prg_rom: &[u8],
+        _chr_rom: &[u8],
+        _prg_ram: &[u8],
+        _chr_ram: &[u8],
+        _prg_vram: &[u8],
+        _using_chr_ram: bool,
+        nametable_horizontal_mirroring: bool,
+        _alternative_nametable_arrangement: bool,
+        ppu_address_bus: u16,
+        ppu_octal_latch: u8,
+        _vram: &[u8],
+    ) -> (u8, u16);
+
+    /// VT03 onebus CHR fetch with EVA / BG-sprite routing
+    fn fetch_ppu_with_ctx(
+        &mut self,
+        prg_rom: &[u8],
+        chr_rom: &[u8],
+        prg_ram: &[u8],
+        chr_ram: &[u8],
+        prg_vram: &[u8],
+        using_chr_ram: bool,
+        nametable_horizontal_mirroring: bool,
+        alternative_nametable_arrangement: bool,
+        ppu_address_bus: u16,
+        ppu_octal_latch: u8,
+        vram: &[u8],
+        _ctx: OneBusChrCtx,
+    ) -> (u8, u16) {
+        self.fetch_ppu(
+            prg_rom,
+            chr_rom,
+            prg_ram,
+            chr_ram,
+            prg_vram,
+            using_chr_ram,
+            nametable_horizontal_mirroring,
+            alternative_nametable_arrangement,
+            ppu_address_bus,
+            ppu_octal_latch,
+            vram,
+        )
+    }
+
+    // ppu data storing by bus through mapper
+    fn store_ppu(&mut self, cart: &mut Cartridge, address: u16, data: u8, vram: &mut [u8]) {
+        if address < 0x2000 && cart.using_chr_ram {
+            cart.chr_ram[address as usize & 0x1FFF] = data;
+        } else if address >= 0x2000 && address < 0x3F00 {
+            let mirrored = self.mirror_nametable(cart, address);
+            vram[(mirrored & 0x7FF) as usize] = data;
+        }
+    }
+
+    // ppu clocking via mapper for irqs etc
+    fn ppu_clock(
+        &mut self,
+        _ppu_address_bus: u16,
+        _ppu_a12_prev: bool,
+        _scanline: u16,
+        _dot: u16,
+        _ppu_sprite_x16: bool,
+        _rendering_on: bool,
+    ) -> bool {
+        false
+    }
+    fn cpu_clock(&mut self, _cycles: u8) -> bool { false }
+    fn cpu_clock_irq_level(&self) -> bool { false }
+    fn cpu_clock_rise(&mut self, _ppu_address_bus: u16) -> bool { false }
+
+    fn needs_ppu_clock(&self) -> bool { false }
+    fn needs_cpu_clock(&self) -> bool { false }
+    fn needs_cpu_clock_rise(&self) -> bool { false }
+    fn handles_cpu_write(&self) -> bool { false }
+
+    // save state and load state
+    #[allow(dead_code)]
+    fn save_mapper_registers(&self, cart: &Cartridge) -> Vec<u8>;
+    #[allow(dead_code)]
+    fn load_mapper_registers(&mut self, cart: &mut Cartridge, state: &[u8], start: usize) -> usize;
+
+    // fds disk swapping
+    fn change_disk(&mut self) {}
+    fn disk_inserted(&self) -> bool { false }
+    fn eject_disk(&mut self) {}
+    fn insert_disk(&mut self) {}
+
+    // coin insertion for vs system and dip switch mappers
+    fn insert_coin(&mut self, _coin: u8) {}
+    fn service_button(&mut self) {}
+
+    // dip switch support for vs system and multicart mappers
+    fn get_dip_switches(&self) -> u8 { 0 }
+
+    // VT03 4bpp extended mode detection
+    fn vt03_4bpp_bg(&self) -> bool { false }
+    fn vt03_4bpp_sp(&self) -> bool { false }
+    fn vt03_reg2000_10(&self) -> u8 { 0 }
+    fn is_vt32(&self) -> bool { false }
+    fn is_um6578(&self) -> bool { false }
+    fn is_study_box(&self) -> bool { false }
+    fn is_nsf(&self) -> bool { false }
+    fn nsf_info(&self) -> Option<&crate::nsf::NsfInfo> { None }
+    fn init_nsf_track(&mut self, _track: u8) {}
+    fn um6578_chr(&self) -> u8 { 0 }
+
+    // onebus CPU opcode encryption (mapper 256 submapper 12-15)
+    fn unscramble_opcode(&self, opcode: u8) -> u8 { opcode }
+    fn onebus_cpu_ram_4k(&self) -> bool { false }
+    fn onebus_vt03_ppu(&self) -> bool { false }
+    fn onebus_vt369_ppu(&self) -> bool { false }
+    /// onebus BG/sprite CHR routing
+    fn onebus_chr_routing_ppu(&self) -> bool { false }
+    /// VT369 enhanced PPU
+    fn onebus_vt369_enhanced_ppu(&self) -> bool { false }
+    fn vt369_reg2000(&self, _idx: usize) -> u8 { 0 }
+    fn vt369_reg4100(&self, _idx: usize) -> u8 { 0 }
+    fn vt369_relative(&self) -> usize { 0 }
+    fn vt369_bg_data(&self) -> usize { 0 }
+    fn vt369_spr_data(&self) -> usize { 0 }
+    fn onebus_dma_config(&self) -> (u8, u16, u16) { (0, 0x100, 0x2004) }
+
+    fn set_dip_switches(&mut self, _value: u8) {}
+
+    // barcode scanner input for bandai datach games
+    fn set_barcode(&mut self, _rcode: &[u8]) -> bool { false }
+
+    // controller read adjustment for vs system mappers
+    fn adjust_controller_read(&self, _address: u16, value: u8) -> u8 { value }
+
+    // notify mapper of resolved CPU clock (for audio rate mappers)
+    fn set_cpu_clock(&mut self, _clock: f64) {}
+
+    // expanded audio for mappers with extra audio channels
+    fn audio_sample(&self) -> f32 { 0.0 }
+    fn expansion_audio_type(&self) -> ExpansionAudioType { ExpansionAudioType::Other }
+
+    // famicom study box audio output
+    fn extra_audio(&mut self, _out: &mut Vec<f32>, _count: usize, _host_sample_rate: u32) {}
+
+    // notify mapper of the output (host) audio sample rate
+    fn set_audio_sample_rate(&mut self, _sample_rate: u32) {}
+
+    // irq clearing handler for mmc3-like mappers
+    fn take_irq_ack(&mut self) -> bool {
+        false
+    }
+
+    // post-store hook for mappers with a CPU-side DMA engine
+    fn execute_dma(&mut self, _cart: &mut Cartridge, _ram: &mut [u8], _vram: &mut [u8]) -> bool {
+        false
+    }
+
+    // battery-backed save data handling
+    fn battery_save_data(&self, _cart: &Cartridge) -> Option<Vec<u8>> {
+        None
+    }
+
+    fn load_battery_save(&mut self, _cart: &mut Cartridge, _data: &[u8]) {}
+
+    // hook for CPU writes below $4020 (CPU RAM, APU, etc.)
+    fn handle_cpu_write(&mut self, _address: u16, _data: u8) {}
+
+    fn handle_cpu_read(&mut self, _address: u16) {}
+
+    fn handles_cpu_read(&self) -> bool {
+        false
+    }
+
+    fn has_cpu_ram_override(&self) -> bool {
+        false
+    }
+
+    fn cpu_ram_override(&self, address: u16) -> Option<u8> {
+        let _ = address;
+        None
+    }
+
+    fn cpu_ram_override_store(&mut self, address: u16, data: u8) -> bool {
+        let _ = (address, data);
+        false
+    }
+
+    // and finally mapper reset handling
+    fn reset(&mut self) {}
+
+    fn reset_with_cart(&mut self, _cart: &mut Cartridge) {
+        self.reset();
+    }
+
+    fn initial_pc(&self) -> Option<u16> {
+        None
+    }
+
+    // power cycle reset handling (for mappers that need to differentiate between a reset and a power cycle)
+    fn reset_power_cycle(&mut self) {
+        self.reset();
+    }
+}
+
+
+// the mapper factory
+
+fn prg_ram_size_from_ines2(header: &[u8]) -> usize {
+    if header.len() <= 0x10 || header[0x10] == 0 {
+        return 0;
+    }
+    let volatile = (header[0x10] & 0x0F) as usize;
+    let battery = ((header[0x10] >> 4) & 0x0F) as usize;
+    let mut size = 0;
+    if volatile != 0 {
+        size += 64usize << volatile;
+    }
+    if battery != 0 {
+        size += 64usize << battery;
+    }
+    size
+}
+
+pub fn create_mapper(
+    mapper_id: u16,
+    submapper_id: u8,
+    header: &[u8],
+    rom: &[u8],
+    prg_size: u8,
+    using_chr_ram: bool,
+    has_battery: bool,
+    rom_name: &str,
+    misc_rom: &[u8],
+) -> Result<Box<dyn Mapper>, String> {
+    let mapper: Box<dyn Mapper> = match mapper_id {
+        // plane 0
+        0 => Box::new(MapperNROM::new(NromConfig::for_ines(
+            header,
+            if using_chr_ram { 0 } else { header[5] },
+        ))),
+        1 => Box::new(MapperMMC1::new(Mmc1Config::for_ines(
+            header,
+            rom,
+            mapper_id,
+            submapper_id,
+            prg_size,
+            using_chr_ram,
+            has_battery,
+        ))),
+        2 => Box::new(MapperUxROM::new(UxromConfig::for_ines(
+            header,
+            submapper_id,
+            if using_chr_ram { 0 } else { header[5] },
+        ))),
+        3 => Box::new(MapperCNROM::new(CnromConfig::for_ines(header, submapper_id))),
+        4 => {
+            Box::new(MapperMMC3::new(Mmc3Config::for_ines(
+                header,
+                submapper_id,
+                if using_chr_ram { 0 } else { header[5] },
+                rom,
+                rom_name,
+            )))
+        }
+        5 => Box::new(MapperMMC5::new(Mmc5Config::for_ines(
+            header,
+            rom,
+            has_battery,
+        ))),
+        6 => {
+            let has_trainer = (header.len() > 6 && (header[6] & 4) != 0) || (!misc_rom.is_empty() && misc_rom.len() <= 512);
+            let trainer_data = if header.len() > 6 && (header[6] & 4) != 0 && rom.len() >= 0x10 + 512 {
+                &rom[0x10..0x10 + 512]
+            } else if !misc_rom.is_empty() && misc_rom.len() <= 512 {
+                &misc_rom[..]
+            } else {
+                &[]
+            };
+            Box::new(MapperFfe::new(FfeConfig::mapper6(
+                header,
+                submapper_id,
+                prg_size,
+                has_battery,
+                has_trainer,
+                trainer_data,
+            )))
+        }
+        7 => Box::new(MapperAxROM::new(submapper_id)),
+        8 => {
+            let has_trainer = (header.len() > 6 && (header[6] & 4) != 0) || (!misc_rom.is_empty() && misc_rom.len() <= 512);
+            let trainer_data = if header.len() > 6 && (header[6] & 4) != 0 && rom.len() >= 0x10 + 512 {
+                &rom[0x10..0x10 + 512]
+            } else if !misc_rom.is_empty() && misc_rom.len() <= 512 {
+                &misc_rom[..]
+            } else {
+                &[]
+            };
+            Box::new(Mapper8::new(header, prg_size, has_battery, has_trainer, trainer_data))
+        }
+        9 => Box::new(MapperMMC2::new()),
+        10 => Box::new(MapperMMC4::new()),
+        11 => Box::new(Mapper11::new()),
+        12 => {
+            let has_trainer = (header.len() > 6 && (header[6] & 4) != 0) || (!misc_rom.is_empty() && misc_rom.len() <= 512);
+            let trainer_data = if header.len() > 6 && (header[6] & 4) != 0 && rom.len() >= 0x10 + 512 {
+                &rom[0x10..0x10 + 512]
+            } else if !misc_rom.is_empty() && misc_rom.len() <= 512 {
+                &misc_rom[..]
+            } else {
+                &[]
+            };
+            Box::new(Mapper12::new(
+                header,
+                submapper_id,
+                if using_chr_ram { 0 } else { header[5] },
+                rom,
+                rom_name,
+                prg_size,
+                has_battery,
+                has_trainer,
+                trainer_data,
+            ))
+        }
+        13 => Box::new(MapperCpROM::new()),
+        14 => Box::new(MapperSL1632::new()),
+        15 => Box::new(Mapper15::new()),
+        16 => Box::new(MapperBandai::new(BandaiKind::Mapper16)),
+        17 => {
+            let has_trainer = (header.len() > 6 && (header[6] & 4) != 0) || (!misc_rom.is_empty() && misc_rom.len() <= 512);
+            let trainer_data = if header.len() > 6 && (header[6] & 4) != 0 && rom.len() >= 0x10 + 512 {
+                &rom[0x10..0x10 + 512]
+            } else if !misc_rom.is_empty() && misc_rom.len() <= 512 {
+                &misc_rom[..]
+            } else {
+                &[]
+            };
+            Box::new(MapperFfe::new(FfeConfig::mapper17(header, submapper_id, prg_size, has_battery, has_trainer, trainer_data)))
+        }
+        18 => Box::new(Mapper18::new()),
+        19 => Box::new(Mapper19::with_submapper(submapper_id)),
+    //  20 => Box::new(MapperFDS::new()),  (FDS assignment)
+        21 => Box::new(Vrc2And4::new(VrcVariant::Mapper21, submapper_id)),
+        22 => Box::new(Vrc2And4::new(VrcVariant::Mapper22, submapper_id)),
+        23 => Box::new(Vrc2And4::new(VrcVariant::Mapper23, submapper_id)),
+        24 => Box::new(Vrc6::new(Vrc6Variant::Mapper24)),
+        25 => Box::new(Vrc2And4::new(VrcVariant::Mapper25, submapper_id)),
+        26 => Box::new(Vrc6::new(Vrc6Variant::Mapper26)),
+        27 => Box::new(Mapper27::new()),
+        28 => {
+            let prg_size_16k = if prg_size == 0 { 1 } else { prg_size as usize };
+            Box::new(Mapper28::new(prg_size_16k.next_power_of_two() - 1))
+        }
+        29 => Box::new(Mapper29::new()),
+        30 => Box::new(Mapper30::new(submapper_id, has_battery, header)),
+        31 => Box::new(Mapper31::new()),
+        32 => Box::new(Mapper32::new(submapper_id)),
+        33 => Box::new(Mapper33::new()),
+        34 => {
+            let chr_size = if using_chr_ram { 0 } else { header[5] };
+            let kind = if !misc_rom.is_empty() {
+                Mapper34Kind::Nesticle34
+            } else if submapper_id == 1 || (submapper_id != 2 && chr_size > 1) {
+                Mapper34Kind::NINA001
+            } else {
+                Mapper34Kind::BNROM
+            };
+            Box::new(Mapper34::new(kind))
+        }
+        35 => Box::new(Mapper90::new(Mapper90Variant::Mapper35)),
+        36 => Box::new(Mapper36::new()),
+        37 => Box::new(Mapper37::new(header, rom, rom_name)),
+        38 => Box::new(Mapper38::new()),
+        39 => Box::new(Mapper39::new()),
+        40 => Box::new(Mapper40::new()),
+        41 => Box::new(Mapper41::new()),
+        42 => Box::new(Mapper42::new()),
+        43 => Box::new(Mapper43::new()),
+        44 => Box::new(Mapper44::new(header, rom, rom_name)),
+        45 => Box::new(Mapper45::new(header, rom, rom_name)),
+        46 => Box::new(Mapper46::new()),
+        47 => Box::new(Mapper47::new(header, rom, rom_name)),
+        48 => Box::new(Mapper48::new(header, rom, rom_name)),
+        49 => Box::new(Mapper49::new(header, rom, rom_name)),
+        50 => Box::new(Mapper50::new()),
+        51 => Box::new(Mapper51::new()),
+        52 => Box::new(Mapper52::new(header, rom, rom_name)),
+        53 => {
+            let has_trainer = (rom[6] & 4) != 0;
+            let trainer_len = if has_trainer { 512 } else { 0 };
+            let prg_rom_len = prg_size as usize * 0x4000;
+            let start = 16 + trainer_len;
+            let prg_slice = if start + prg_rom_len <= rom.len() {
+                &rom[start..start + prg_rom_len]
+            } else {
+                rom
+            };
+            Box::new(Mapper53::new(prg_slice))
+        }
+        54 => Box::new(Mapper54::new()),
+        55 => Box::new(Mapper55::new()),
+        56 => Box::new(Mapper56::new()),
+        57 => Box::new(Mapper57::new()),
+        58 => Box::new(Mapper58::new()),
+        59 => Box::new(Mapper59::new()),
+        60 => Box::new(Mapper60::new()),
+        61 => Box::new(Mapper61::new()),
+        62 => Box::new(Mapper62::new()),
+        63 => Box::new(Mapper63::new()),
+        64 => Box::new(Mapper64::new((header[6] & 1) == 0)),
+        65 => Box::new(Mapper65::new((header[6] & 1) == 0)),
+        66 => Box::new(Mapper66::new()),
+        67 => Box::new(Mapper67::new()),
+        68 => Box::new(Mapper68::new()),
+        69 => Box::new(MapperFME7::new()),
+        70 => Box::new(Mapper70::new((header[6] & 1) == 0, false)),
+        71 => Box::new(Mapper71::new(UxromConfig::for_ines(
+            header,
+            submapper_id,
+            if using_chr_ram { 0 } else { header[5] },
+        ))),
+        72 => {
+            let has_trainer = (header[6] & 4) != 0;
+            let trainer_len = if has_trainer { 512 } else { 0 };
+            let prg_rom_len = prg_size as usize * 0x4000;
+            let chr_rom_len = header[5] as usize * 0x2000;
+            let misc_rom = if rom.len() > 0x10 + trainer_len + prg_rom_len + chr_rom_len {
+                rom[0x10 + trainer_len + prg_rom_len + chr_rom_len..].to_vec()
+            } else {
+                Vec::new()
+            };
+            Box::new(Mapper72::new(Mapper72Variant::Mapper72, misc_rom))
+        }
+        73 => Box::new(Mapper73::new()),
+        74 => Box::new(Mapper74::new(header, rom, rom_name)),
+        75 => Box::new(Mapper75::new((header[6] & 1) == 0)),
+        76 => Box::new(Mapper76::mapper76()),
+        77 => Box::new(Mapper77::new()),
+        78 => Box::new(Mapper78::new(submapper_id, (header[6] & 8) != 0)),
+        79 => Box::new(Mapper79::new()),
+        80 => Box::new(Mapper80::mapper80()),
+        81 => Box::new(Mapper81::new()),
+        82 => Box::new(Mapper82::new()),
+        83 => {
+            let mut sub = submapper_id;
+            if sub == 0 && (header[7] & 0x0C) != 0x08 {
+                let chr_bytes = if using_chr_ram { 0 } else { header[5] as usize * 8192 };
+                if chr_bytes >= 1024 * 1024 {
+                    sub = 2;
+                } else if chr_bytes >= 512 * 1024 {
+                    sub = 1;
+                }
+            }
+            Box::new(Mapper83::new(83, sub))
+        }
+    //  84 => Box::new(Mapper40::new()), (no public references found)
+        85 => Box::new(Vrc7::new(submapper_id)),
+        86 => {
+            let has_trainer = (header[6] & 4) != 0;
+            let trainer_len = if has_trainer { 512 } else { 0 };
+            let prg_rom_len = prg_size as usize * 0x4000;
+            let chr_rom_len = header[5] as usize * 0x2000;
+            let misc_rom = if rom.len() > 0x10 + trainer_len + prg_rom_len + chr_rom_len {
+                rom[0x10 + trainer_len + prg_rom_len + chr_rom_len..].to_vec()
+            } else {
+                Vec::new()
+            };
+            Box::new(Mapper86::new(misc_rom))
+        }
+        87 => Box::new(Mapper87::new()),
+        88 => Box::new(Mapper88::mapper88()),
+        89 => Box::new(Mapper89::new()),
+        90 => Box::new(Mapper90::new(Mapper90Variant::Mapper90)),
+        91 => Box::new(Mapper91::new(submapper_id)),
+        92 => {
+            let has_trainer = (header[6] & 4) != 0;
+            let trainer_len = if has_trainer { 512 } else { 0 };
+            let prg_rom_len = prg_size as usize * 0x4000;
+            let chr_rom_len = header[5] as usize * 0x2000;
+            let misc_rom = if rom.len() > 0x10 + trainer_len + prg_rom_len + chr_rom_len {
+                rom[0x10 + trainer_len + prg_rom_len + chr_rom_len..].to_vec()
+            } else {
+                Vec::new()
+            };
+            Box::new(Mapper72::new(Mapper72Variant::Mapper92, misc_rom))
+        }
+        93 => Box::new(Mapper93::new()),
+        94 => Box::new(Mapper94::new(UxromConfig::for_ines(
+            header,
+            submapper_id,
+            if using_chr_ram { 0 } else { header[5] },
+        ))),
+        95 => Box::new(Mapper95::mapper95()),
+        96 => Box::new(Mapper96::new(header)),
+        97 => Box::new(Mapper97::new()),
+    //  98 => Box::new(Mapper40::new()), (no public references found)
+        99 => Box::new(Mapper99::new()),
+        100 => Box::new(Mapper100::new()),
+        101 => Box::new(Mapper101::new()),
+        102 => Box::new(Mapper284::new()),
+        103 => Box::new(Mapper103::new()),
+        104 => Box::new(Mapper104::new()),
+        105 => Box::new(MapperMMC1::new(Mmc1Config::for_ines(
+            header,
+            rom,
+            mapper_id,
+            submapper_id,
+            prg_size,
+            using_chr_ram,
+            has_battery,
+        ))),
+        106 => Box::new(Mapper106::new()),
+        107 => Box::new(Mapper107::new()),
+        108 => Box::new(Mapper108::new()),
+        109 => Box::new(Mapper137::new()),
+        110 => Box::new(Mapper243::new()),
+        111 => Box::new(Mapper111::new(prg_size, header[5] > 0)),
+        112 => Box::new(Mapper112::new()),
+        113 => Box::new(Mapper113::new()),
+        114 => Box::new(Mapper114::new(prg_size, submapper_id)),
+        115 => Box::new(Mapper115::new(prg_size)),
+        116 => Box::new(MapperSL12::new(submapper_id)),
+        117 => Box::new(Mapper117::new()),
+        118 => Box::new(Mapper118::new(Mmc3Config::for_ines(
+            header,
+            submapper_id,
+            if using_chr_ram { 0 } else { header[5] },
+            rom,
+            rom_name,
+        ))),
+        119 => Box::new(Mapper119::new(Mmc3Config::for_ines(
+            header,
+            submapper_id,
+            if using_chr_ram { 0 } else { header[5] },
+            rom,
+            rom_name,
+        ))),
+        120 => Box::new(Mapper120::new()),
+        121 => Box::new(Mapper121::new(
+            Mmc3Config::for_ines(
+                header,
+                submapper_id,
+                if using_chr_ram { 0 } else { header[5] },
+                rom,
+                rom_name,
+            ),
+            prg_size as usize * 0x4000,
+            header[5] as usize * 0x2000,
+        )),
+        122 => Box::new(Mapper122::new()),
+        123 => Box::new(Mapper123::new(prg_size)),
+        124 => Box::new(Mapper124::new(header, rom, rom_name)),
+        125 => Box::new(Mapper125::new()),
+        126 => Box::new(MapperAx5202p::new(Ax5202pVariant::Mapper126)),
+        127 => Box::new(Mapper127::new()),
+        128 => Box::new(Mapper128::new()),
+        129 => Box::new(Mapper58::new()),
+        130 => Box::new(Mapper130::new()),
+        131 => Box::new(Mapper131::new(header, rom, rom_name)),
+        132 => Box::new(Mapper132::new()),
+        133 => Box::new(Mapper133::new()),
+        134 => Box::new(Mapper134::new(header, rom, rom_name)),
+        135 => Box::new(Mapper141::new()),
+        136 => Box::new(Mapper136::new()),
+        137 => Box::new(Mapper137::new()),
+        138 => Box::new(Mapper138::new()),
+        139 => Box::new(Mapper139::new()),
+        140 => Box::new(Mapper140::new()),
+        141 => Box::new(Mapper141::new()),
+        142 => Box::new(Mapper142::new()),
+        143 => Box::new(Mapper143::new()),
+        144 => Box::new(Mapper144::new()),
+        145 => Box::new(Mapper145::new()),
+        146 => Box::new(Mapper79::new()),
+        147 => Box::new(Mapper147::new()),
+        148 => Box::new(Mapper148::new()),
+        149 => Box::new(Mapper149::new()),
+        150 => Box::new(Mapper150::new()),
+        151 => Box::new(Mapper151::new()),
+        152 => Box::new(Mapper70::new((header[6] & 1) == 0, true)),
+        153 => Box::new(MapperBandai::new(BandaiKind::Mapper153)),
+        154 => Box::new(Mapper154::mapper154()),
+        155 => Box::new(MapperMMC1::new(Mmc1Config::for_ines(
+            header,
+            rom,
+            mapper_id,
+            submapper_id,
+            prg_size,
+            using_chr_ram,
+            has_battery,
+        ))),
+        156 => Box::new(Mapper156::new()),
+        157 => Box::new(MapperBandai::new(BandaiKind::Mapper157)),
+        158 => Box::new(Mapper64::new_mapper158()),
+        159 => Box::new(MapperBandai::new(BandaiKind::Mapper159)),
+        160 => Box::new(Mapper90::new(Mapper90Variant::Mapper90)),
+        161 => Box::new(MapperMMC1::new(Mmc1Config::for_ines(
+            header,
+            rom,
+            mapper_id,
+            submapper_id,
+            prg_size,
+            using_chr_ram,
+            has_battery,
+        ))),
+        162 => Box::new(Mapper162::new()),
+        163 => Box::new(Mapper163::new()),
+        164 => {
+            let prg_ram_size = prg_ram_size_from_ines2(header);
+            Box::new(Mapper164::new(prg_ram_size))
+        },
+        165 => Box::new(Mapper165::new()),
+        166 => Box::new(Mapper166::new()),
+        167 => Box::new(Mapper167::new()),
+        168 => Box::new(Mapper168::new()),
+        169 => Box::new(Mapper169::new()),
+        170 => Box::new(Mapper170::new()),
+        171 => Box::new(MapperMMC1::new(Mmc1Config::for_ines(
+            header,
+            rom,
+            mapper_id,
+            submapper_id,
+            prg_size,
+            using_chr_ram,
+            has_battery,
+        ))),
+        172 => Box::new(Mapper172::new()),
+        173 => Box::new(Mapper173::new()),
+        174 => Box::new(Mapper174::new()),
+        175 => Box::new(Mapper175::new()),
+        176 => Box::new(Mapper176::new(Mapper176Config::for_ines(
+            header,
+            submapper_id,
+            rom,
+            prg_size,
+            using_chr_ram,
+            has_battery,
+        ))),
+        177 => Box::new(Mapper177::new()),
+        178 => Box::new(Mapper178::new()),
+        179 => Box::new(Mapper179::new()),
+        180 => Box::new(Mapper180::new(UxromConfig::for_ines(
+            header,
+            submapper_id,
+            if using_chr_ram { 0 } else { header[5] },
+        ))),
+        181 => Box::new(Mapper185::new(Mapper185Config::for_ines(header, submapper_id))),
+        182 => Box::new(Mapper114::new(prg_size, submapper_id)),
+        183 => Box::new(Mapper183::new()),
+        184 => Box::new(Mapper184::new()),
+        185 => Box::new(Mapper185::new(Mapper185Config::for_ines(header, submapper_id))),
+        186 => Box::new(Mapper186::new()),
+        187 => Box::new(Mapper187::new()),
+        188 => Box::new(Mapper188::new()),
+        189 => Box::new(Mapper189::new()),
+        190 => Box::new(Mapper190::new()),
+        191 => Box::new(Mapper191::new()),
+        192 => Box::new(Mapper192::new()),
+        193 => Box::new(Mapper193::new()),
+        194 => Box::new(Mapper194::new()),
+        195 => Box::new(Mapper195::new()),
+        196 => Box::new(Mapper196::new(submapper_id)),
+        197 => Box::new(Mapper197::new(submapper_id)),
+        198 => Box::new(Mapper198::new()),
+        199 => Box::new(Mapper199::new()),
+        200 => Box::new(Mapper200::new()),
+        201 => Box::new(Mapper201::new()),
+        202 => Box::new(Mapper202::new()),
+        203 => Box::new(Mapper203::new()),
+        204 => Box::new(Mapper204::new()),
+        205 => Box::new(Mapper205::new(header, rom, rom_name)),
+        206 => Box::new(Mapper206::new(submapper_id)),
+        207 => Box::new(Mapper207::mapper207()),
+        208 => Box::new(Mapper208::new(header, rom, rom_name)),
+        209 => Box::new(Mapper90::new(Mapper90Variant::Mapper209)),
+        210 => Box::new(Mapper210::new(submapper_id)),
+        211 => Box::new(Mapper90::new(Mapper90Variant::Mapper211)),
+        212 => Box::new(Mapper212::new()),
+        213 => Box::new(Mapper58::new()),
+        214 => Box::new(Mapper214::new()),
+        215 => Box::new(Mapper215::new(header, rom, rom_name)),
+        216 => Box::new(Mapper216::new()),
+        217 => Box::new(Mapper217::new()),
+        218 => Box::new(Mapper218::new()),
+        219 => Box::new(Mapper219::new(header, rom, rom_name)),
+        220 => Box::new(Mapper547::new(header, rom, rom_name)),
+        221 => Box::new(Mapper221::new()),
+        222 => Box::new(Mapper222::new()),
+        223 => Box::new(Mapper199::new()),
+        224 => Box::new(Mapper224::new(header, rom, rom_name)),
+        225 => Box::new(Mapper225::new()),
+        226 => Box::new(Mapper226::new()),
+        227 => Box::new(Mapper227::new()),
+        228 => Box::new(Mapper228::new()),
+        229 => Box::new(Mapper229::new()),
+        230 => Box::new(Mapper230::new()),
+        231 => Box::new(Mapper231::new()),
+        232 => Box::new(Mapper232::new()),
+        233 => Box::new(Mapper233::new()),
+        234 => Box::new(Mapper234::new()),
+        235 => Box::new(Mapper235::new(prg_size as usize)),
+        236 => Box::new(Mapper236::new(using_chr_ram || header[5] > 0)),
+        237 => Box::new(Mapper237::new()),
+        238 => Box::new(Mapper238::new()),
+        239 => Box::new(Mapper239::new()),
+        240 => Box::new(Mapper240::new()),
+        241 => Box::new(Mapper241::new()),
+        242 => Box::new(Mapper242::new()),
+        243 => Box::new(Mapper243::new()),
+        244 => Box::new(Mapper244::new()),
+        245 => Box::new(Mapper245::new()),
+        246 => Box::new(Mapper246::new()),
+    //  247 => Box::new(Mapper247::new()), (unassigned)
+        248 => Box::new(Mapper248::new(prg_size)),
+        249 => Box::new(Mapper249::new()),
+        250 => Box::new(Mapper250::new()),
+        251 => Box::new(Mapper45::new(header, rom, rom_name)),
+        252 => Box::new(Mapper252::new()),
+        253 => Box::new(Mapper253::new()),
+        254 => Box::new(Mapper254::new()),
+        255 => Box::new(Mapper255::new()),
+        // plane 1
+        256 => Box::new(Mapper256::new(
+             Mmc3Config::for_ines(
+                 header,
+                 submapper_id,
+                 if using_chr_ram { 0 } else { header[5] },
+                 rom,
+                 rom_name,
+             ),
+             submapper_id,
+             header,
+         )),
+        257 => {
+            let is_small = if submapper_id == 1 { true } else if submapper_id == 2 { false } else { prg_size < 32 };
+            if is_small { Box::new(Mapper257::new_small()) } else { Box::new(Mapper257::new_large()) }
+        },
+        258 => Box::new(Mapper215::new(header, rom, rom_name)),
+        259 => Box::new(Mapper259::new(header, rom, rom_name)),
+        260 => Box::new(Mapper260::new(header, rom, rom_name)),
+        261 => Box::new(Mapper261::new()),
+        262 => Box::new(Mapper262::new(header, rom, rom_name)),
+        263 => Box::new(Mapper263::new(header, rom, rom_name)),
+        264 => Box::new(Mapper83::new(264, submapper_id)),
+        265 => Box::new(Mapper265::new()),
+        266 => Box::new(Mapper266::new(header, rom, rom_name)),
+        267 => Box::new(Mapper267::new(header, rom, rom_name)),
+        268 => Box::new(Mapper268::new(header, rom, rom_name)),
+        269 => Box::new(Mapper269::new(header, rom, rom_name)),
+        270 => Box::new(Mapper270::new(submapper_id)),
+        271 => Box::new(Mapper271::new()),
+        272 => Box::new(Mapper272::new()),
+        273 => Box::new(Mapper273::new()),
+        274 => Box::new(Mapper274::new()),
+    //  275 => Box::new(Mapper275::new()),  (no public references found)
+    //  276 => Box::new(Mapper276::new()),  (no public references found)
+        277 => Box::new(Mapper277::new()),
+    //  278 => Box::new(Mapper278::new()),  (no public references found)
+    //  279 => Box::new(Mapper279::new()),  (no public references found)
+        280 => Box::new(Mapper280::new(submapper_id)),
+        281 => Box::new(Mapper90::new(Mapper90Variant::Mapper281)),
+        282 => Box::new(Mapper90::new(Mapper90Variant::Mapper282)),
+        283 => Box::new(Mapper283::new()),
+        284 => Box::new(Mapper284::new()),
+        285 => Box::new(Mapper285::new(submapper_id)),
+        286 => Box::new(Mapper286::new()),
+        287 => Box::new(Mapper287::new(header, rom, rom_name)),
+        288 => Box::new(Mapper288::new()),
+        289 => Box::new(Mapper289::new()),
+        290 => Box::new(Mapper290::new()),
+        291 => Box::new(Mapper291::new(header, rom, rom_name)),
+        292 => Box::new(Mapper292::new(header, rom, rom_name)),
+        293 => Box::new(Mapper293::new()),
+        294 => Box::new(Mapper294::new()),
+        295 => Box::new(Mapper90::new(Mapper90Variant::Mapper295)),
+        296 => Box::new(Mapper296::new()),
+        297 => Box::new(Mapper297::new()),
+        298 => Box::new(Mapper298::new()),
+        299 => Box::new(Mapper299::new()),
+        300 => Box::new(Mapper300::new()),
+        301 => Box::new(Mapper242::new()),
+        302 => Box::new(Mapper302::new()),
+        303 => Box::new(Mapper303::new()),
+        304 => Box::new(Mapper304::new()),
+        305 => Box::new(Mapper305::new()),
+        306 => Box::new(Mapper306::new()),
+        307 => Box::new(Mapper307::new()),
+        308 => Box::new(Mapper308::new()),
+        309 => Box::new(Mapper309::new()),
+        310 => Box::new(Mapper310::new()),
+        311 => Box::new(Mapper43::new()),
+        312 => Box::new(Mapper312::new()),
+        313 => Box::new(Mapper313::new(header, rom, rom_name, submapper_id)),
+        314 => Box::new(Mapper314::new(!using_chr_ram)),
+        315 => Box::new(Mapper315::new(header, rom, rom_name)),
+    //  316 => Box::new(Mapper316::new()), (no public references found)
+    //  317 => Box::new(Mapper317::new()), (no public references found)
+    //  318 => Box::new(Mapper318::new()), (no public references found)
+        319 => Box::new(Mapper319::new()),
+        320 => Box::new(Mapper320::new()),
+        321 => Box::new(Mapper321::new(header, rom, rom_name)),
+        322 => Box::new(Mapper322::new(header, rom, rom_name)),
+        323 => Box::new(Mapper323::new()),
+        324 => Box::new(Mapper324::new()),
+        325 => Box::new(Mapper325::new(header, rom, rom_name)),
+        326 => Box::new(Mapper326::new()),
+        327 => Box::new(Mapper327::new(header, rom, rom_name)),
+        328 => Box::new(Mapper328::new()),
+        329 => Box::new(Mapper329::new()),
+        330 => Box::new(Mapper330::new(header, rom, rom_name)),
+        331 => Box::new(Mapper331::new()),
+        332 => Box::new(Mapper332::new(header, rom, rom_name)),
+        333 => Box::new(Mapper333::new(header, rom, rom_name)),
+        334 => Box::new(Mapper334::new(header, rom, rom_name)),
+        335 => Box::new(Mapper335::new(header, rom, rom_name)),
+        336 => Box::new(Mapper336::new(header, rom, rom_name)),
+        337 => Box::new(Mapper337::new(header, rom, rom_name)),
+        338 => Box::new(Mapper338::new(header, rom, rom_name)),
+        339 => Box::new(Mapper339::new(header, rom, rom_name)),
+        340 => Box::new(Mapper340::new(header, rom, rom_name)),
+        341 => Box::new(Mapper341::new(header, rom, rom_name)),
+        342 => Box::new(Mapper342::new(header, rom, rom_name)),
+        343 => Box::new(Mapper343::new(header, rom, rom_name)),
+        344 => Box::new(Mapper344::new(header, rom, rom_name)),
+        345 => Box::new(Mapper345::new(header, rom, rom_name)),
+        346 => Box::new(Mapper346::new(header, rom, rom_name)),
+        347 => Box::new(Mapper347::new(header, rom, rom_name)),
+        348 => Box::new(Mapper348::new(header, rom, rom_name)),
+        349 => Box::new(Mapper349::new(header, rom, rom_name)),
+        350 => Box::new(Mapper350::new(header, rom, rom_name)),
+        351 => Box::new(Mapper351::new(header, rom, rom_name)),
+        352 => Box::new(Mapper352::new(header, rom, rom_name)),
+        353 => Box::new(Mapper353::new(header, rom, rom_name)),
+        354 => Box::new(Mapper354::new(header, rom, rom_name)),
+        355 => Box::new(Mapper355::new(
+            misc_rom.to_vec(),
+            NromConfig::for_ines(header, if using_chr_ram { 0 } else { header[5] }),
+        )),
+        356 => Box::new(Mapper356::new(header, rom, rom_name)),
+        357 => Box::new(Mapper357::new(header, rom, rom_name)),
+        358 => Box::new(Mapper90::new(Mapper90Variant::Mapper358)),
+        359 => Box::new(Mapper359::new(header, rom, rom_name)),
+        360 => Box::new(Mapper360::new(header, rom, rom_name)),
+        361 => Box::new(Mapper361::new(header, rom, rom_name)),
+        362 => Box::new(Mapper362::new(header, rom, rom_name)),
+        363 => Box::new(Mapper363::new(header, rom, rom_name)),
+        364 => Box::new(Mapper364::new(header, rom, rom_name)),
+        365 => Box::new(Mapper365::new()),
+        366 => Box::new(Mapper366::new(header, rom, rom_name)),
+        367 => Box::new(Mapper367::new(header, rom, rom_name)),
+        368 => Box::new(Mapper368::new()),
+        369 => Box::new(Mapper369::new(header, rom, rom_name)),
+        370 => Box::new(Mapper370::new(header, rom, rom_name)),
+        371 => Box::new(Mapper371::new()),
+        372 => Box::new(Mapper372::new(header, rom, rom_name)),
+        373 => Box::new(Mapper373::new(header, rom, rom_name)),
+        374 => Box::new(Mapper374::new(header, rom, rom_name, using_chr_ram, has_battery)),
+        375 => Box::new(Mapper375::new(header, rom, rom_name)),
+        376 => Box::new(Mapper376::new(header, rom, rom_name)),
+        377 => Box::new(Mapper377::new(header, rom, rom_name)),
+        378 => Box::new(Mapper378::new()),
+        379 => Box::new(Mapper379::new()),
+        380 => Box::new(Mapper380::new(header, rom, rom_name)),
+        381 => Box::new(Mapper381::new()),
+        382 => Box::new(Mapper382::new()),
+        383 => Box::new(Mapper383::new(header, rom, rom_name)),
+        384 => Box::new(Mapper384::new()),
+        385 => Box::new(Mapper385::new()),
+        386 => Box::new(Mapper90::new(Mapper90Variant::Mapper386)),
+        387 => Box::new(Mapper90::new(Mapper90Variant::Mapper387)),
+        388 => Box::new(Mapper90::new(Mapper90Variant::Mapper388)),
+        389 => Box::new(Mapper389::new()),
+        390 => Box::new(Mapper390::new()),
+        391 => Box::new(Mapper391::new(header, rom, rom_name)),
+        392 => Box::new(Mapper392::new(header, rom, rom_name)),
+        393 => Box::new(Mapper393::new(header, rom, rom_name)),
+        394 => Box::new(Mapper394::new(header, rom, rom_name)),
+        395 => Box::new(Mapper395::new(header, rom, rom_name)),
+        396 => Box::new(Mapper396::new(submapper_id)),
+        397 => Box::new(Mapper90::new(Mapper90Variant::Mapper397)),
+        398 => Box::new(Mapper398::new()),
+        399 => Box::new(Mapper399::new(submapper_id, header, rom, rom_name)),
+        400 => Box::new(Mapper400::new()),
+        401 => Box::new(Mapper401::new(header, rom, rom_name)),
+        402 => Box::new(Mapper402::new()),
+        403 => Box::new(Mapper403::new()),
+        404 => Box::new(Mapper404::new(header, rom, rom_name, using_chr_ram, has_battery)),
+        405 => Box::new(Mapper405::new(crate::mappers::mapper405::has_24c02_eeprom(header))),
+        406 => Box::new(Mapper406::new(submapper_id, header, rom, rom_name)),
+        407 => Box::new(Mapper407::new()),
+        408 => Box::new(Mapper408::new()),
+        409 => Box::new(Mapper409::new()),
+        410 => Box::new(Mapper410::new(header, rom, rom_name)),
+        411 => Box::new(Mapper411::new(submapper_id, header, rom, rom_name)),
+        412 => Box::new(Mapper412::new(header, rom, rom_name)),
+        413 => Box::new(Mapper413::new()),
+        414 => Box::new(Mapper414::new(header, rom, rom_name)),
+        415 => Box::new(Mapper415::new()),
+        416 => Box::new(Mapper416::new(header, rom, rom_name)),
+        417 => Box::new(Mapper417::new(submapper_id)),
+        418 => Box::new(Mapper418::new()),
+        419 => Box::new(Mapper419::new(submapper_id)),
+        420 => Box::new(Mapper420::new(header, rom, rom_name)),
+        421 => Box::new(Mapper421::new()),
+        422 => Box::new(MapperAx5202p::new(Ax5202pVariant::Mapper422)),
+        423 => Box::new(Mapper423::new()),
+        424 => Box::new(Mapper424::new()),
+        425 => Box::new(Mapper425::new()),
+        426 => Box::new(Mapper426::new(rom)),
+        427 => Box::new(Mapper427::new(submapper_id)),
+        428 => Box::new(Mapper428::new(header, rom, rom_name)),
+        429 => Box::new(Mapper429::new(submapper_id, has_battery)),
+        430 => Box::new(Mapper430::new(header, rom, rom_name)),
+        431 => Box::new(Mapper396::new(submapper_id)),
+        432 => Box::new(Mapper432::new(submapper_id, header, rom, rom_name)),
+        433 => Box::new(Mapper433::new()),
+        434 => Box::new(Mapper434::new()),
+        435 => Box::new(Mapper435::new(submapper_id)),
+        436 => Box::new(Mapper436::new(submapper_id)),
+        437 => Box::new(Mapper437::new()),
+        438 => Box::new(Mapper438::new()),
+        439 => Box::new(Mapper439::new()),
+        440 => Box::new(Mapper440::new()),
+        441 => Box::new(Mapper441::new(header, rom, rom_name)),
+        442 => Box::new(Mapper442::new()),
+        443 => Box::new(Mapper443::new(header, rom, rom_name)),
+        444 => Box::new(Mapper444::new(submapper_id, header, rom, rom_name)),
+        445 => Box::new(Mapper445::new(header, rom, rom_name)),
+        446 => Box::new(Mapper446::new(submapper_id, header, rom, rom_name)),
+        447 => Box::new(Mapper447::new()),
+        448 => Box::new(Mapper448::new()),
+        449 => Box::new(Mapper449::new()),
+        450 => Box::new(Mapper450::new(
+            rom.len() > 0x10 && (rom[7] & 0x0C) == 0x08 && rom[0x0A] == 0,
+        )),
+        451 => Box::new(Mapper451::new(header, rom, prg_size)),
+        452 => Box::new(Mapper452::new(submapper_id == 1)),
+        453 => Box::new(Mapper453::new()),
+        454 => Box::new(Mapper454::new()),
+        455 => Box::new(Mapper455::new(header, rom, rom_name)),
+        456 => Box::new(Mapper456::new()),
+        457 => Box::new(Mapper457::new()),
+        458 => Box::new(Mapper458::new(submapper_id == 1)),
+        459 => Box::new(Mapper459::new()),
+        460 => Box::new(Mapper460::new()),
+        461 => Box::new(Mapper461::new(header, rom, rom_name, using_chr_ram, has_battery)),
+        462 => Box::new(Mapper462::new()),
+        463 => Box::new(Mapper463::new()),
+        464 => Box::new(Mapper464::new()),
+        465 => Box::new(Mapper465::new()),
+        466 => Box::new(Mapper466::new()),
+        467 => Box::new(Mapper467::new(header, rom, rom_name)),
+        468 => Box::new(Mapper468::new(submapper_id, header, rom, rom_name, using_chr_ram, has_battery)),
+        469 => {
+             let has_trainer = (header[6] & 4) != 0;
+             let trainer_len = if has_trainer { 512 } else { 0 };
+             let prg_start = 0x10 + trainer_len;
+             Box::new(Mapper469::new(rom.to_vec(), prg_start))
+        }
+        470 => Box::new(Mapper470::new()),
+        471 => Box::new(Mapper471::new()),
+        472 => Box::new(Mapper472::new(header, rom, rom_name)),
+        473 => Box::new(Mapper473::new(header, rom, rom_name)),
+        474 => Box::new(Mapper474::new(header, rom, rom_name)),
+        475 => Box::new(Mapper475::new(header, rom, rom_name)),
+        476 => Box::new(Mapper476::new()),
+        477 => Box::new(Mapper477::new()),
+        478 => Box::new(Mapper478::new(submapper_id, header, rom, rom_name)),
+        479 => Box::new(Mapper479::new(submapper_id, header, rom, rom_name)),
+        480 => Box::new(Mapper480::new(submapper_id, header, rom, rom_name)),
+        481 => Box::new(Mapper481::new()),
+        482 => Box::new(Mapper482::new()),
+        483 => Box::new(Mapper483::new(header, rom, rom_name, using_chr_ram, has_battery)),
+        484 => Box::new(Mapper484::new(header, rom, rom_name)),
+        485 => Box::new(Mapper485::new()),
+        486 => Box::new(Mapper486::new()),
+        487 => Box::new(Mapper487::new()),
+        488 => Box::new(Mapper488::new()),
+        489 => Box::new(Mapper489::new()),
+        490 => Box::new(Mapper490::new(header, rom, rom_name)),
+        491 => Box::new(Mapper491::new()),
+        492 => Box::new(Mapper492::new()),
+        493 => Box::new(Mapper493::new()),
+        494 => Box::new(Mapper494::new()),
+        495 => Box::new(Mapper495::new()),
+        496 => Box::new(Mapper496::new()),
+        497 => Box::new(Mapper497::new()),
+        498 => Box::new(Mapper498::new(header, rom, rom_name, using_chr_ram, has_battery)),
+        499 => Box::new(Mapper499::new(header, rom, rom_name, using_chr_ram, has_battery)),
+        500 => Box::new(Mapper500::new()),
+        501 => Box::new(Mapper501::new()),
+        502 => Box::new(Mapper502::new()),
+        503 => Box::new(Mapper503::new(header, rom, rom_name)),
+        504 => Box::new(Mapper504::new(header, rom, rom_name)),
+        505 => Box::new(Mapper505::new(header, rom, rom_name)),
+        506 => Box::new(Mapper506::new(header, rom, rom_name)),
+        507 => Box::new(Mapper507::new(header, rom, rom_name)),
+        508 => Box::new(Mapper508::new(header, rom, rom_name)),
+        509 => Box::new(Mapper509::new(header, rom, rom_name)),
+        510 => Box::new(Mapper510::new(header, rom, rom_name)),
+        511 => Box::new(Mapper511::new(header, rom, rom_name)),
+        // plane 3 (wip!)
+        512 => Box::new(Mapper512::new(header, rom, rom_name)),
+        513 => Box::new(Mapper513::new(header, rom, rom_name)),
+        514 => Box::new(Mapper514::new()),
+        515 => Box::new(Mapper515::new(header, rom, rom_name)),
+        516 => Box::new(Mapper516::new(header, rom, rom_name)),
+        517 => Box::new(Mapper517::new(header, rom, rom_name)),
+        518 => Box::new(Mapper518::new(header, rom, rom_name)),
+        519 => Box::new(Mapper519::new(header, rom, rom_name)),
+        520 => Box::new(Mapper520::new(header, rom, rom_name)),
+        521 => Box::new(Mapper521::new(prg_size)),
+        522 => Box::new(Mapper522::new()),
+        523 => Box::new(Mapper523::new(header, rom, prg_size, using_chr_ram, has_battery)),
+        524 => Box::new(Mapper524::new(header, rom, rom_name)),
+        525 => Box::new(Mapper525::new()),
+        526 => Box::new(Mapper526::new(header, rom, rom_name)),
+        527 => Box::new(Mapper527::new(header, rom, rom_name)),
+        528 => Box::new(Mapper528::new(header, rom, rom_name)),
+        529 => Box::new(Mapper529::new(header, rom, rom_name)),
+        530 => Box::new(Mapper530::new(header, rom, rom_name)),
+        531 => Box::new(Mapper531::new(header, rom, rom_name)),
+        532 => Box::new(Mapper19::with_submapper(submapper_id)),
+        533 => Box::new(Mapper533::new()),
+        534 => Box::new(MapperAx5202p::new(Ax5202pVariant::Mapper534)),
+        535 => Box::new(Mapper535::new()),
+        536 => Box::new(Mapper536::new(header, rom, rom_name)),
+        537 => Box::new(Mapper537::new(header, rom, rom_name)),
+        538 => Box::new(Mapper538::new()),
+        539 => Box::new(Mapper539::new()),
+        540 => Box::new(Mapper540::new(header, rom, rom_name)),
+        541 => Box::new(Mapper541::new()),
+        542 => Box::new(Mapper542::new(header, rom, rom_name)),
+        543 => Box::new(Mapper543::new(header, rom, rom_name, using_chr_ram, has_battery)),
+        544 => Box::new(Mapper544::new(header, rom, rom_name)),
+        545 => Box::new(Mapper545::new(header, rom, rom_name)),
+        546 => Box::new(Mapper546::new(header, rom, rom_name, using_chr_ram, has_battery)),
+        547 => Box::new(Mapper547::new(header, rom, rom_name)),
+        548 => Box::new(Mapper548::new()),
+        549 => Box::new(Mapper549::new()),
+        550 => Box::new(Mapper550::new()),
+        551 => Box::new(Mapper551::new()),
+        552 => Box::new(Mapper552::new()),
+        553 => Box::new(Mapper553::new()),
+        554 => Box::new(Mapper554::new()),
+        555 => Box::new(Mapper555::new(
+            header,
+            submapper_id,
+            if using_chr_ram { 0 } else { header[5] },
+            rom,
+            rom_name,
+            has_battery,
+        )),
+        556 => Box::new(Mapper556::new(
+            header,
+            submapper_id,
+            if using_chr_ram { 0 } else { header[5] },
+            rom,
+            rom_name,
+            has_battery,
+        )),
+        557 => Box::new(Mapper557::new()),
+        558 => Box::new(Mapper558::new(header, prg_size)),
+        559 => Box::new(Mapper559::new()),
+        560 => Box::new(Mapper560::new(submapper_id)),
+        561 => {
+            let trainer_src: &[u8] = if (header[6] & 4) != 0 && rom.len() >= 0x10 + 512 {
+                &rom[0x10..0x10 + 512]
+            } else {
+                misc_rom
+            };
+            Box::new(Mapper561::new(submapper_id, (header[6] & 1) != 0, trainer_src))
+        }
+        562 => {
+            let trainer_src: &[u8] = if (header[6] & 4) != 0 && rom.len() >= 0x10 + 512 {
+                &rom[0x10..0x10 + 512]
+            } else {
+                misc_rom
+            };
+            Box::new(Mapper562::new(submapper_id, (header[6] & 1) != 0, trainer_src))
+        }
+        563 => Box::new(Mapper563::new()),
+        564 => Box::new(Mapper564::new()),
+        565 => Box::new(Mapper565::new()),
+        566 => Box::new(Mapper566::new()),
+        567 => Box::new(Mapper567::new()),
+        568 => Box::new(Mapper568::new()),
+        569 => Box::new(Mapper569::new()),
+        570 => Box::new(Mapper570::new()),
+        571 => Box::new(Mapper571::new()),
+        572 => Box::new(Mapper572::new()),
+        573 => Box::new(Mapper573::new()),
+        574 => Box::new(Mapper574::new()),
+        575 => Box::new(Mapper575::new()),
+        576 => Box::new(Mapper576::new()),
+        577 => Box::new(Mapper577::new()),
+        578 => Box::new(Mapper578::new()),
+        579 => Box::new(Mapper579::new()),
+        580 => Box::new(Mapper580::new()),
+        581 => Box::new(Mapper581::new()),
+        582 => Box::new(Mapper582::new()),
+        583 => Box::new(Mapper583::new()),
+        584 => Box::new(Mapper584::new()),
+        585 => Box::new(Mapper585::new()),
+        586 => Box::new(Mapper586::new()),
+        587 => Box::new(Mapper587::new()),
+        588 => Box::new(Mapper588::new()),
+        589 => Box::new(Mapper589::new()),
+        590 => Box::new(Mapper590::new()),
+        591 => Box::new(Mapper591::new()),
+        592 => Box::new(Mapper592::new()),
+        593 => Box::new(Mapper593::new()),
+        594 => Box::new(Mapper594::new()),
+        595 => Box::new(Mapper595::new()),
+        596 => Box::new(Mapper596::new()),
+        597 => Box::new(Mapper597::new()),
+        598 => Box::new(Mapper598::new()),
+        599 => Box::new(Mapper599::new()),
+        600 => Box::new(Mapper600::new()),
+        601 => Box::new(Mapper601::new()),
+        602 => Box::new(Mapper602::new()),
+        603 => Box::new(Mapper603::new()),
+        604 => Box::new(Mapper604::new()),
+        605 => Box::new(Mapper605::new()),
+        606 => Box::new(Mapper606::new()),
+        607 => Box::new(Mapper607::new()),
+        608 => Box::new(Mapper608::new()),
+        609 => Box::new(Mapper609::new()),
+        610 => Box::new(Mapper610::new()),
+        611 => Box::new(Mapper611::new()),
+        612 => Box::new(Mapper612::new()),
+        613 => Box::new(Mapper613::new()),
+        614 => Box::new(Mapper614::new()),
+        615 => Box::new(Mapper615::new()),
+        616 => Box::new(Mapper616::new()),
+        617 => Box::new(Mapper617::new()),
+        618 => Box::new(Mapper618::new()),
+        619 => Box::new(Mapper619::new()),
+        620 => Box::new(Mapper620::new()),
+        621 => Box::new(Mapper621::new(header, rom, rom_name, using_chr_ram, has_battery)),
+        622 => Box::new(Mapper622::new()),
+        623 => Box::new(Mapper623::new()),
+        624 => Box::new(Mapper624::new()),
+        625 => Box::new(Mapper625::new()),
+        626 => Box::new(Mapper626::new()),
+        627 => Box::new(Mapper627::new()),
+    //  628 => Box::new(Mapper628::new()), (unassigned)
+    //  629 => Box::new(Mapper629::new()), (unassigned)
+    //  630 => Box::new(Mapper630::new()), (unassigned)
+    //  631 => Box::new(Mapper631::new()), (unassigned)
+    //  632 => Box::new(Mapper632::new()), (unassigned)
+    //  633 => Box::new(Mapper633::new()), (unassigned)
+    //  634 => Box::new(Mapper634::new()), (unassigned)
+    //  635 => Box::new(Mapper635::new()), (unassigned)
+    //  636 => Box::new(Mapper636::new()), (unassigned)
+    //  637 => Box::new(Mapper637::new()), (unassigned)
+    //  638 => Box::new(Mapper638::new()), (unassigned)
+    //  639 => Box::new(Mapper639::new()), (unassigned)
+    //  640 => Box::new(Mapper640::new()), (unassigned)
+    //  641 => Box::new(Mapper641::new()), (unassigned)
+    //  642 => Box::new(Mapper642::new()), (unassigned)
+    //  643 => Box::new(Mapper643::new()), (unassigned)
+    //  644 => Box::new(Mapper644::new()), (unassigned)
+    //  645 => Box::new(Mapper645::new()), (unassigned)
+    //  646 => Box::new(Mapper646::new()), (unassigned)
+    //  647 => Box::new(Mapper647::new()), (unassigned)
+    //  648 => Box::new(Mapper648::new()), (unassigned)
+    //  649 => Box::new(Mapper649::new()), (unassigned)
+    //  650 => Box::new(Mapper650::new()), (unassigned)
+    //  651 => Box::new(Mapper651::new()), (unassigned)
+    //  652 => Box::new(Mapper652::new()), (unassigned)
+    //  653 => Box::new(Mapper653::new()), (unassigned)
+    //  654 => Box::new(Mapper654::new()), (unassigned)
+    //  655 => Box::new(Mapper655::new()), (unassigned)
+    //  656 => Box::new(Mapper656::new()), (unassigned)
+    //  657 => Box::new(Mapper657::new()), (unassigned)
+    //  658 => Box::new(Mapper658::new()), (unassigned)
+    //  659 => Box::new(Mapper659::new()), (unassigned)
+    //  660 => Box::new(Mapper660::new()), (unassigned)
+    //  661 => Box::new(Mapper661::new()), (unassigned)
+    //  662 => Box::new(Mapper662::new()), (unassigned)
+    //  663 => Box::new(Mapper663::new()), (unassigned)
+    //  664 => Box::new(Mapper664::new()), (unassigned)
+    //  665 => Box::new(Mapper665::new()), (unassigned)
+    //  666 => Box::new(Mapper666::new()), (unassigned)
+    //  667 => Box::new(Mapper667::new()), (unassigned)
+    //  668 => Box::new(Mapper668::new()), (unassigned)
+    //  669 => Box::new(Mapper669::new()), (unassigned)
+    //  670 => Box::new(Mapper670::new()), (unassigned)
+    //  671 => Box::new(Mapper671::new()), (unassigned)
+    //  672 => Box::new(Mapper672::new()), (unassigned)
+    //  673 => Box::new(Mapper673::new()), (unassigned)
+    //  674 => Box::new(Mapper674::new()), (unassigned)
+    //  675 => Box::new(Mapper675::new()), (unassigned)
+    //  676 => Box::new(Mapper676::new()), (unassigned)
+    //  677 => Box::new(Mapper677::new()), (unassigned)
+    //  678 => Box::new(Mapper678::new()), (unassigned)
+    //  679 => Box::new(Mapper679::new()), (unassigned)
+    //  680 => Box::new(Mapper680::new()), (unassigned)
+    //  681 => Box::new(Mapper681::new()), (unassigned)
+        682 => {
+            let is_nes20 = header.len() >= 16 && (header[7] & 0x0C) == 0x08;
+            let has_trainer = header.len() >= 16 && (header[6] & 4) != 0;
+            let trainer_len = if has_trainer { 512 } else { 0 };
+            let prg_len = if is_nes20 && (header[9] & 0x0F) == 0x0F {
+                let lo = header[4] as usize;
+                ((2 * (lo & 3) + 1) << (lo >> 2)) as usize
+            } else if is_nes20 {
+                ((header[4] as usize) | (((header[9] & 0x0F) as usize) << 8)) * 0x4000
+            } else {
+                header[4] as usize * 0x4000
+            };
+
+            let chr_len = if is_nes20 && (header[9] & 0xF0) == 0xF0 {
+                let lo = header[5] as usize;
+                ((2 * (lo & 3) + 1) << (lo >> 2)) as usize
+            } else if is_nes20 {
+                ((header[5] as usize) | (((header[9] & 0xF0) as usize) << 4)) * 0x2000
+            } else {
+                header[5] as usize * 0x2000
+            };
+
+            let prg_start = 16 + trainer_len;
+            let prg_end = (prg_start + prg_len).min(rom.len());
+            let chr_start = prg_end;
+            let chr_end = (chr_start + chr_len).min(rom.len());
+
+            let prg_slice = if prg_start < rom.len() { &rom[prg_start..prg_end] } else { &[] };
+            let chr_slice = if chr_start < rom.len() { &rom[chr_start..chr_end] } else { &[] };
+
+            Box::new(MapperRainbow::for_ines(
+                header,
+                submapper_id,
+                prg_slice,
+                chr_slice,
+                has_battery,
+            ))
+        }
+    //  683 => Box::new(Mapper683::new()), (unassigned)
+    //  684 => Box::new(Mapper684::new()), (unassigned)
+    //  685 => Box::new(Mapper685::new()), (unassigned)
+    //  686 => Box::new(Mapper686::new()), (unassigned)
+    //  687 => Box::new(Mapper687::new()), (unassigned)
+    //  688 => Box::new(Mapper688::new()), (unassigned)
+    //  689 => Box::new(Mapper689::new()), (unassigned)
+    //  690 => Box::new(Mapper690::new()), (unassigned)
+    //  691 => Box::new(Mapper691::new()), (unassigned)
+    //  692 => Box::new(Mapper692::new()), (unassigned)
+    //  693 => Box::new(Mapper693::new()), (unassigned)
+    //  694 => Box::new(Mapper694::new()), (unassigned)
+    //  695 => Box::new(Mapper695::new()), (unassigned)
+    //  696 => Box::new(Mapper696::new()), (unassigned)
+    //  697 => Box::new(Mapper697::new()), (unassigned)
+    //  698 => Box::new(Mapper698::new()), (unassigned)
+    //  699 => Box::new(Mapper699::new()), (unassigned)
+    //  700 => Box::new(Mapper700::new()), (unassigned)
+    //  701 => Box::new(Mapper701::new()), (unassigned)
+    //  702 => Box::new(Mapper702::new()), (unassigned)
+    //  703 => Box::new(Mapper703::new()), (unassigned)
+    //  704 => Box::new(Mapper704::new()), (unassigned)
+    //  705 => Box::new(Mapper705::new()), (unassigned)
+    //  706 => Box::new(Mapper706::new()), (unassigned)
+    //  707 => Box::new(Mapper707::new()), (unassigned)
+    //  708 => Box::new(Mapper708::new()), (unassigned)
+    //  709 => Box::new(Mapper709::new()), (unassigned)
+    //  710 => Box::new(Mapper710::new()), (unassigned)
+    //  711 => Box::new(Mapper711::new()), (unassigned)
+    //  712 => Box::new(Mapper712::new()), (unassigned)
+    //  713 => Box::new(Mapper713::new()), (unassigned)
+    //  714 => Box::new(Mapper714::new()), (unassigned)
+    //  715 => Box::new(Mapper715::new()), (unassigned)
+    //  716 => Box::new(Mapper716::new()), (unassigned)
+    //  717 => Box::new(Mapper717::new()), (unassigned)
+    //  718 => Box::new(Mapper718::new()), (unassigned)
+    //  719 => Box::new(Mapper719::new()), (unassigned)
+    //  720 => Box::new(Mapper720::new()), (unassigned)
+    //  721 => Box::new(Mapper721::new()), (unassigned)
+    //  722 => Box::new(Mapper722::new()), (unassigned)
+    //  723 => Box::new(Mapper723::new()), (unassigned)
+    //  724 => Box::new(Mapper724::new()), (unassigned)
+    //  725 => Box::new(Mapper725::new()), (unassigned)
+    //  726 => Box::new(Mapper726::new()), (unassigned)
+    //  727 => Box::new(Mapper727::new()), (unassigned)
+    //  728 => Box::new(Mapper728::new()), (unassigned)
+    //  729 => Box::new(Mapper729::new()), (unassigned)
+    //  730 => Box::new(Mapper730::new()), (unassigned)
+    //  731 => Box::new(Mapper731::new()), (unassigned)
+    //  732 => Box::new(Mapper732::new()), (unassigned)
+    //  733 => Box::new(Mapper733::new()), (unassigned)
+    //  734 => Box::new(Mapper734::new()), (unassigned)
+    //  735 => Box::new(Mapper735::new()), (unassigned)
+    //  736 => Box::new(Mapper736::new()), (unassigned)
+    //  737 => Box::new(Mapper737::new()), (unassigned)
+    //  738 => Box::new(Mapper738::new()), (unassigned)
+    //  739 => Box::new(Mapper739::new()), (unassigned)
+        740 => Box::new(Mapper489::new()),
+        741 => Box::new(Mapper570::new()),
+        742 => Box::new(Mapper574::new()),
+        743 => Box::new(Mapper586::new()),
+        744 => Box::new(Mapper588::new()),
+        745 => Box::new(Mapper508::new(header, rom, rom_name)),
+        746 => Box::new(Mapper581::new()),
+        747 => Box::new(Mapper509::new(header, rom, rom_name)),
+        748 => Box::new(Mapper492::new()),
+        749 => Box::new(Mapper584::new()),
+        750 => Box::new(Mapper510::new(header, rom, rom_name)),
+        751 => Box::new(Mapper579::new()),
+        752 => Box::new(Mapper461::new(header, rom, rom_name, using_chr_ram, has_battery)),
+        753 => Box::new(Mapper511::new(header, rom, rom_name)),
+    //  754 => Box::new(Mapper754::new()), (unassigned)
+        755 => Box::new(Mapper566::new()),
+        756 => Box::new(Mapper756::new()),
+        757 => Box::new(Mapper567::new()),
+        758 => Box::new(Mapper568::new()),
+        759 => Box::new(Mapper573::new()),
+        760 => {
+            Box::new(MapperMMC3::new(Mmc3Config::for_ines(
+                header,
+                submapper_id,
+                if using_chr_ram { 0 } else { header[5] },
+                rom,
+                rom_name,
+            )))
+        }
+        761 => Box::new(Mapper761::new()),
+        762 => Box::new(Mapper589::new()),
+        763 => Box::new(Mapper61::new()),
+        764 => Box::new(Mapper764::new()),
+        765 => Box::new(Mapper569::new()),
+        766 => Box::new(Mapper499::new(header, rom, rom_name, using_chr_ram, has_battery)),
+        767 => Box::new(Mapper767::new()),
+        // misc mapper
+        800 => Box::new(Mapper800::new()),
+        _ => {
+            return Err(format!("Mapper {} is currently unsupported", mapper_id));
+        }
+    };
+    Ok(mapper)
+}
