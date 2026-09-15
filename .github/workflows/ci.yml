@@ -47,3 +47,9 @@ jobs:
         with:
           name: accunes-${{ matrix.name }}
           path: target/release/accunes
+
+      - name: Ensure target is removable
+        if: always()
+        run: |
+          chmod -R a+w target/ 2>/dev/null || true
+          rm -rf target/ 2>/dev/null || true
