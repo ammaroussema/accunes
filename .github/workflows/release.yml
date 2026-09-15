@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags: ['release*']
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-x64
+          - os: macos-15
+            name: macos-arm64
+          - os: [macos-14, x86_64]
+            name: macos-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install platform dependencies
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            sudo apt-get update
+            sudo apt-get install -y pkg-config libgtk-3-dev libasound2-dev libudev-dev libxkbcommon-dev libwayland-dev libssl-dev
+          else
+            brew update
+            brew install pkg-config gtk+3 libusb openssl
+          fi
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: accunes-${{ matrix.name }}
+          path: target/release/accunes
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p pkg
+          for d in artifacts/accunes-*; do
+            name=$(basename "$d")
+            mkdir -p "pkg/$name"
+            cp "$d" "pkg/$name/accunes"
+            cp -r data "pkg/$name/" 2>/dev/null || true
+            (cd pkg && zip -r "$name.zip" "$name")
+          done
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/accunes-*/accunes
+            pkg/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

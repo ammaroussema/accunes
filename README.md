@@ -36,7 +36,8 @@ a hardware-accurate NES/Famicom/Famiclone emulator written in rust!
 ```sh
 ./package-release.ps1
 ```
-supported profiles: `release` (default, win64) · `debug` · `x32` · `x32debug` · `arm64` · `arm64debug`
+supported profiles: `release`/`debug` (host-native per platform) · `x32` · `x32debug` · `arm64` · `arm64debug` (windows cross) · `linux64` · `linuxarm64` · `macosx64` · `macosarm64`
+
 
 **manual** with cargo:
 ```sh
