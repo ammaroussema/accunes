@@ -38,6 +38,10 @@ jobs:
       - name: Build
         run: cargo build --release
 
+      - name: Clear quarantine attribute (macOS)
+        if: runner.os == 'macOS'
+        run: xattr -cr target/release/accunes
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
