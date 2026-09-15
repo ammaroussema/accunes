@@ -55,14 +55,17 @@ fn main() {
         .nth(3)
         .unwrap();
     
-    let package_dir = target_dir.join("accunes");
-    if package_dir.exists() {
-        std::fs::remove_dir_all(&package_dir).ok();
-    }
-    std::fs::create_dir_all(&package_dir).ok();
-    
-    for file in &["dip.cfg", "accunesicon.ico", "readme.txt"] {
-        copy_file(file, target_dir);
-        copy_file(file, &package_dir);
+    #[cfg(target_os = "windows")]
+    {
+        let package_dir = target_dir.join("accunes");
+        if package_dir.exists() {
+            std::fs::remove_dir_all(&package_dir).ok();
+        }
+        std::fs::create_dir_all(&package_dir).ok();
+        
+        for file in &["dip.cfg", "accunesicon.ico", "readme.txt"] {
+            copy_file(file, target_dir);
+            copy_file(file, &package_dir);
+        }
     }
 }

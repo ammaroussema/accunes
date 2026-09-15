@@ -96,13 +96,18 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $version = [regex]::Match((Get-Content "Cargo.toml" -Raw), 'version = "(.+)"').Groups[1].Value
 
-$PackageDir = Join-Path $ProjectRoot "$TargetDir/accunes"
 $TargetIndex = [array]::IndexOf($BuildArgs, "--target")
 if ($TargetIndex -ge 0) {
     $TargetTriple = $BuildArgs[$TargetIndex + 1]
     $TargetOS = if ($TargetTriple -like "*windows*") { "windows" } elseif ($TargetTriple -like "*apple*") { "macos" } else { "linux" }
 } else {
     $TargetOS = $HostOS
+}
+
+$PackageDir = if ($TargetOS -eq "windows") {
+    Join-Path $ProjectRoot "$TargetDir/accunes"
+} else {
+    Join-Path $ProjectRoot "$TargetDir/accunes-pkg"
 }
 $ExeExt = if ($TargetOS -eq "windows") { ".exe" } else { "" }
 $ExeSource = Join-Path $ProjectRoot "$TargetDir/accunes$ExeExt"
