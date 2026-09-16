@@ -86,6 +86,10 @@ pub struct Emulator {
     pub oam_dma_halt: bool,
     pub dmc_dma_halt: bool,
     pub oam_internal_bus: u8,
+    pub breakpoints: Vec<u16>,
+    pub step_over_target: Option<u16>,
+    pub step_out: bool,
+    pub breakpoint_hit: bool,
 
     pub nmi_pins_signal: bool,
     pub nmi_previous_pins_signal: bool,
@@ -1092,6 +1096,30 @@ impl Emulator {
             current_theme: config::load_theme(),
             cheats: crate::cheats::CheatManager::new(),
             rewind_states: VecDeque::new(),
+            breakpoints: Vec::new(),
+            step_over_target: None,
+            step_out: false,
+            breakpoint_hit: false,
+        }
+    }
+
+    pub fn debug_peek_mem(&mut self, addr: u16) -> u8 {
+        match addr {
+            0x0000..=0x1FFF => self.ram[(addr & self.cpu_ram_mask) as usize],
+            0x2000..=0x3FFF => 0,
+            0x4000..=0x401F => 0,
+            0x4020..=0xFFFF => {
+                if let Some(cart) = self.cart.as_mut() {
+                    let result = cart.with_mapper(|mapper, cart| mapper.fetch_prg(cart, addr));
+                    if result.driven {
+                        result.data
+                    } else {
+                        0xFF
+                    }
+                } else {
+                    0xFF
+                }
+            }
         }
     }
 
@@ -2229,22 +2257,40 @@ impl Emulator {
             if self.is_pal() {
                 while !self.frame_advance_reached_vblank {
                     self.emulator_core_pal();
+                    if self.breakpoint_hit {
+                        break;
+                    }
                 }
                 while self.ppu_scanline != 0 {
+                    if self.breakpoint_hit {
+                        break;
+                    }
                     self.emulator_core_pal();
                 }
             } else if self.is_dendy() {
                 while !self.frame_advance_reached_vblank {
                     self.emulator_core_dendy();
+                    if self.breakpoint_hit {
+                        break;
+                    }
                 }
                 while self.ppu_scanline != 0 {
+                    if self.breakpoint_hit {
+                        break;
+                    }
                     self.emulator_core_dendy();
                 }
             } else {
                 while !self.frame_advance_reached_vblank {
                     self.emulator_core_ntsc();
+                    if self.breakpoint_hit {
+                        break;
+                    }
                 }
                 while self.ppu_scanline != 0 {
+                    if self.breakpoint_hit {
+                        break;
+                    }
                     self.emulator_core_ntsc();
                 }
             }
@@ -2381,7 +2427,7 @@ impl Emulator {
     }
 
     // ntsc core logic
-    fn emulator_core_ntsc(&mut self) {
+    pub fn emulator_core_ntsc(&mut self) {
         self.master_cycle_counter += 1;
         if self.cpu_clock == 12 {
             self.cpu_clock = 0;
@@ -2424,7 +2470,7 @@ impl Emulator {
     }
 
     // pal core logic
-    fn emulator_core_pal(&mut self) {
+    pub fn emulator_core_pal(&mut self) {
         self.master_cycle_counter += 1;
         if self.cpu_clock == 16 {
             self.cpu_clock = 0;
@@ -2467,7 +2513,7 @@ impl Emulator {
     }
 
     // dendy core logic
-    fn emulator_core_dendy(&mut self) {
+    pub fn emulator_core_dendy(&mut self) {
         self.master_cycle_counter += 1;
         if self.cpu_clock == 15 {
             self.cpu_clock = 0;

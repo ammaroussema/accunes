@@ -34,6 +34,7 @@ mod vt32_palette;
 pub mod nsf;
 pub mod nsf_player;
 pub mod cheats;
+pub mod debugger;
 
 use region::Region;
 use emulator::Emulator;
@@ -145,6 +146,7 @@ enum ToolsMenuItem {
     TapeStop,
     EmulationSpeed,
     Rewind,
+    Debug,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -663,7 +665,7 @@ fn clear_auto_hold_port(port: &std::sync::atomic::AtomicU8, latch: &std::sync::a
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-struct MenuState {
+pub struct MenuState {
     hovered_menu: Option<Menu>,
     active_menu: Option<Menu>,
     hovered_file_item: Option<FileMenuItem>,
@@ -675,8 +677,10 @@ struct MenuState {
     show_load_state_submenu: bool,
     show_region_submenu: bool,
     show_speed_submenu: bool,
+    pub show_debug_submenu: bool,
     current_speed: u32,
     hovered_speed_index: Option<usize>,
+    pub hovered_debug_index: Option<usize>,
     current_region: Region,
     show_general_settings: bool,
     show_directories_settings: bool,
@@ -717,6 +721,14 @@ struct MenuState {
     dip_definition: Option<DipGame>,
     show_confirm_exit_dialog: bool,
     show_cheats_window: bool,
+    pub show_debugger_window: bool,
+    pub debugger_scroll_addr: u16,
+    pub debugger_selected_bp: Option<usize>,
+    pub debugger_bp_input: String,
+    pub debugger_bp_caret: usize,
+    pub debugger_seek_input: String,
+    pub debugger_seek_caret: usize,
+    pub debugger_input_focus: usize,
     cheats_selected_index: Option<usize>,
     cheats_scroll: usize,
     show_cheat_edit_dialog: bool,
@@ -749,9 +761,9 @@ struct MenuState {
     hovered_ra_index: Option<usize>,
     show_ra_profile: bool,
     ra_toasts: Vec<(std::time::Instant, ra::RaToast)>,
-    mouse_pos: (usize, usize),
+    pub mouse_pos: (usize, usize),
     menu_height: usize,
-    scale: f32,
+    pub scale: f32,
     dragging_audio_slider: Option<usize>,
     screen_dest_x: usize,
     screen_dest_y: usize,
@@ -781,8 +793,10 @@ impl MenuState {
             show_load_state_submenu: false,
             show_region_submenu: false,
             show_speed_submenu: false,
+            show_debug_submenu: false,
             current_speed: SPEED_DEFAULT,
             hovered_speed_index: None,
+            hovered_debug_index: None,
             current_region: config::load_region(),
             show_general_settings: false,
             show_directories_settings: false,
@@ -823,6 +837,14 @@ impl MenuState {
             dip_definition: None,
             show_confirm_exit_dialog: false,
             show_cheats_window: false,
+            show_debugger_window: false,
+            debugger_scroll_addr: 0x8000,
+            debugger_selected_bp: None,
+            debugger_bp_input: String::new(),
+            debugger_bp_caret: 0,
+            debugger_seek_input: String::new(),
+            debugger_seek_caret: 0,
+            debugger_input_focus: 0,
             cheats_selected_index: None,
             cheats_scroll: 0,
             show_cheat_edit_dialog: false,
@@ -876,27 +898,27 @@ impl MenuState {
 }
 
 #[derive(Clone, Copy)]
-struct UiColors {
-    menu_text: u32,
-    disabled_text: u32,
-    menu_highlight: u32,
-    global_bg: u32,
-    menu_bg: u32,
-    dropdown_bg: u32,
-    window_bg: u32,
-    window_border: u32,
-    close_bg: u32,
-    box_border: u32,
-    box_bg_hover: u32,
-    box_bg_default: u32,
-    slider_track: u32,
-    slider_fill: u32,
-    rebind_border: u32,
-    rebind_bg: u32,
-    btn_sub_label: u32,
-    disabled_btn_bg: u32,
-    btn_border: u32,
-    dip_on_fill: u32,
+pub(crate) struct UiColors {
+    pub(crate) menu_text: u32,
+    pub(crate) disabled_text: u32,
+    pub(crate) menu_highlight: u32,
+    pub(crate) global_bg: u32,
+    pub(crate) menu_bg: u32,
+    pub(crate) dropdown_bg: u32,
+    pub(crate) window_bg: u32,
+    pub(crate) window_border: u32,
+    pub(crate) close_bg: u32,
+    pub(crate) box_border: u32,
+    pub(crate) box_bg_hover: u32,
+    pub(crate) box_bg_default: u32,
+    pub(crate) slider_track: u32,
+    pub(crate) slider_fill: u32,
+    pub(crate) rebind_border: u32,
+    pub(crate) rebind_bg: u32,
+    pub(crate) btn_sub_label: u32,
+    pub(crate) disabled_btn_bg: u32,
+    pub(crate) btn_border: u32,
+    pub(crate) dip_on_fill: u32,
 }
 
 const DARK_COLORS: UiColors = UiColors {
@@ -1083,7 +1105,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.7.2";
+const APP_VERSION: &str = "1.7.3";
 
 fn strip_version_prefix(s: &str) -> &str {
     s.trim_start_matches(|c: char| c.is_ascii_alphabetic())
@@ -1163,7 +1185,7 @@ fn draw_char(buffer: &mut [u32], x: usize, y: usize, width: usize, c: char, colo
     }
 }
 
-fn draw_text(buffer: &mut [u32], x: usize, y: usize, width: usize, text: &str, color: u32, scale: f32) {
+pub(crate) fn draw_text(buffer: &mut [u32], x: usize, y: usize, width: usize, text: &str, color: u32, scale: f32) {
     let char_w = 8.0 * scale;
     for (i, c) in text.chars().enumerate() {
         let cx = x + (i as f32 * char_w).round() as usize;
@@ -1378,7 +1400,7 @@ fn measure_wrapped_height(text: &str, max_w: usize, scale: f32) -> usize {
     lines * line_h
 }
 
-fn draw_rect(buffer: &mut [u32], x: usize, y: usize, w: usize, h: usize, width: usize, color: u32) {
+pub(crate) fn draw_rect(buffer: &mut [u32], x: usize, y: usize, w: usize, h: usize, width: usize, color: u32) {
     for py in y..y + h {
         for px in x..x + w {
             if px < width && py < buffer.len() / width {
@@ -1419,7 +1441,7 @@ fn draw_image_rgba(buffer: &mut [u32], x: usize, y: usize, width: usize, rgba_da
     }
 }
 
-fn point_in_rect(px: usize, py: usize, x: usize, y: usize, w: usize, h: usize) -> bool {
+pub(crate) fn point_in_rect(px: usize, py: usize, x: usize, y: usize, w: usize, h: usize) -> bool {
     px >= x && px < x + w && py >= y && py < y + h
 }
 
@@ -3634,7 +3656,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.7.2")
+        .with_title("AccuNES 1.7.3")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -4417,6 +4439,10 @@ fn main() {
 
                 e.capture_rewind_state();
                 e.core_frame_advance();
+                if e.breakpoint_hit {
+                    e.breakpoint_hit = false;
+                    paused_thread.store(true, Ordering::Relaxed);
+                }
                 ra::do_frame(&e);
                 if ra::take_reset_requested() {
                     e.reset();
@@ -5186,6 +5212,8 @@ fn main() {
                             ms.ra_login_pass.insert(caret, c);
                             ms.ra_login_pass_caret = caret + 1;
                         }
+                    } else if ms.show_debugger_window {
+                        debugger::handle_debugger_char(&mut ms, c);
                     }
                 }
             }
@@ -5378,7 +5406,7 @@ fn main() {
                     }
                 } else if {
                     let ms = menu_state_clone.borrow();
-                    ms.show_cheat_edit_dialog || ms.show_cheat_db_dialog || ms.show_cheats_window
+                    ms.show_cheat_edit_dialog || ms.show_cheat_db_dialog || ms.show_cheats_window || ms.show_debugger_window
                 } {
                     if pressed {
                     let mut ms = menu_state_clone.borrow_mut();
@@ -5559,6 +5587,9 @@ fn main() {
                             }
                             _ => {}
                         }
+                    } else if ms.show_debugger_window {
+                        let mut emu = emu_clone.lock().unwrap();
+                        debugger::handle_debugger_key(&mut ms, &mut emu, &paused_clone, keycode);
                     }
                     }
                 } else {
@@ -6412,6 +6443,7 @@ fn main() {
                                                 *rom_loaded_clone.borrow_mut() = true;
                                                 rom_loaded_flag_clone.store(true, Ordering::Relaxed);
                                                 *current_rom_clone.borrow_mut() = Some(path_str.clone());
+                                                paused_clone.store(false, Ordering::Relaxed);
                                                 if let Some(game) = dip_needed {
                                                     let dip_val = 0u8;
                                                     let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
@@ -6531,6 +6563,7 @@ fn main() {
                                             *rom_loaded_clone.borrow_mut() = true;
                                             rom_loaded_flag_clone.store(true, Ordering::Relaxed);
                                             *current_rom_clone.borrow_mut() = Some(path_str.clone());
+                                            paused_clone.store(false, Ordering::Relaxed);
                                             if let Some(game) = dip_needed {
                                                 let dip_val = 0u8;
                                                 let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
@@ -7835,7 +7868,15 @@ WinitEvent::WindowEvent {
                         ms_mut.dropdown_scroll = cur.clamp(0, max_scroll as i32) as usize;
                     }
                 }
-                if menu_state_clone.borrow().show_cheats_window {
+                if menu_state_clone.borrow().show_debugger_window {
+                    let amount = match delta {
+                        winit::event::MouseScrollDelta::LineDelta(_, y) => (y * 2.0) as i32,
+                        winit::event::MouseScrollDelta::PixelDelta(p) => (p.y / 15.0).round() as i32,
+                    };
+                    let mut ms_mut = menu_state_clone.borrow_mut();
+                    let mut emu = emu_clone.lock().unwrap();
+                    debugger::handle_debugger_scroll(&mut ms_mut, &mut emu, amount);
+                } else if menu_state_clone.borrow().show_cheats_window {
                     let amount = match delta {
                         winit::event::MouseScrollDelta::LineDelta(_, y) => (y * 2.0) as i32,
                         winit::event::MouseScrollDelta::PixelDelta(p) => (p.y / 15.0).round() as i32,
@@ -8095,7 +8136,7 @@ WinitEvent::WindowEvent {
                         || ms.show_expansion_settings || ms.show_hotkeys_settings
                         || ms.show_about || ms.show_error || ms.show_confirm_exit_dialog
                         || ms.show_barcode_input || ms.show_cheats_window || ms.show_cheat_edit_dialog || ms.show_cheat_db_dialog
-                        || ms.show_achievements_window || ms.show_ra_profile || ms.show_ra_login
+                        || ms.show_achievements_window || ms.show_ra_profile || ms.show_ra_login || ms.show_debugger_window
                 };
                 if !is_modal_open {
                     const BIT_MASKS: [u8; 10] = [0x80, 0x40, 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
@@ -8871,6 +8912,11 @@ WinitEvent::WindowEvent {
                         let mut ms_mut = menu_state_clone.borrow_mut();
                         let mut emu = emu_clone.lock().unwrap();
                         handle_cheat_db_click(&mut ms_mut, &mut emu, mx, my, width, height);
+                    } else if ms.show_debugger_window {
+                        drop(ms);
+                        let mut ms_mut = menu_state_clone.borrow_mut();
+                        let mut emu = emu_clone.lock().unwrap();
+                        debugger::handle_debugger_click(&mut ms_mut, &mut emu, &paused_clone, mx, my, width, height);
                     } else if ms.show_cheats_window {
                         drop(ms);
                         let mut ms_mut = menu_state_clone.borrow_mut();
@@ -11072,6 +11118,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                     ms_mut.show_region_submenu = false;
                                     ms_mut.show_speed_submenu = false;
                                     ms_mut.show_ra_submenu = false;
+                                    ms_mut.show_debug_submenu = false;
                                 }
                                 break;
                             }
@@ -11121,6 +11168,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                                     *rom_loaded_clone.borrow_mut() = true;
                                                     rom_loaded_flag_clone.store(true, Ordering::Relaxed);
                                                     *current_rom_clone.borrow_mut() = Some(path_str.clone());
+                                                    paused_clone.store(false, Ordering::Relaxed);
                                                      if let Some(game) = dip_needed {
                                                          let dip_val = 0u8;
                                                          let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
@@ -11250,6 +11298,7 @@ let state_path = config::state_file_path(rom_path, slot + 1);
                                                     *rom_loaded_clone.borrow_mut() = true;
                                                     rom_loaded_flag_clone.store(true, Ordering::Relaxed);
                                                     *current_rom_clone.borrow_mut() = Some(path_str.clone());
+                                                    paused_clone.store(false, Ordering::Relaxed);
                                                              if let Some(game) = dip_needed {
                                                                  let dip_val = 0u8;
                                                                  let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
@@ -11526,7 +11575,7 @@ let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem
                                 let submenu_x = dropdown_x + dropdown_w;
                                 let submenu_w = (150.0 * sc).round() as usize;
                                 let submenu_item_h = (16.0 * sc).round() as usize;
-                                let tools_items = ["Cheats", "Play Tape", "Record Tape", "Stop Tape", "Emulation Speed", "Rewind"];
+                                let tools_items = ["Cheats", "Play Tape", "Record Tape", "Stop Tape", "Emulation Speed", "Rewind", "Debug"];
                                 let tools_positions = calculate_item_positions(&tools_items, dropdown_x, dropdown_y, dropdown_w, sc);
 
                                 if ms_mut.show_speed_submenu {
@@ -11547,6 +11596,32 @@ let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem
                                         if let Some((x, y, w, h)) = tools_positions.get(4) {
                                             if point_in_rect(mx, my, *x, *y, *w, *h) {
                                                 ms_mut.show_speed_submenu = false;
+                                            }
+                                        }
+                                    }
+                                } else if ms_mut.show_debug_submenu {
+                                    let debug_anchor_y = tools_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y);
+                                    let debug_items = ["Debugger"];
+                                    let debug_positions = calculate_submenu_positions(debug_items.len(), submenu_x, debug_anchor_y, submenu_w, submenu_item_h);
+                                    let mut clicked = false;
+                                    for (i, (x, y, w, h)) in debug_positions.iter().enumerate() {
+                                        if point_in_rect(mx, my, *x, *y, *w, *h) {
+                                            if i == 0 {
+                                                ms_mut.show_debugger_window = true;
+                                                paused_clone.store(false, Ordering::Relaxed);
+                                                let pc = emu_clone.lock().unwrap().program_counter;
+                                                ms_mut.debugger_scroll_addr = pc;
+                                            }
+                                            ms_mut.show_debug_submenu = false;
+                                            ms_mut.active_menu = None;
+                                            clicked = true;
+                                            break;
+                                        }
+                                    }
+                                    if !clicked {
+                                        if let Some((x, y, w, h)) = tools_positions.get(6) {
+                                            if point_in_rect(mx, my, *x, *y, *w, *h) {
+                                                ms_mut.show_debug_submenu = false;
                                             }
                                         }
                                     }
@@ -11595,15 +11670,20 @@ let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem
                                                 }
                                                 4 => {
                                                     ms_mut.show_speed_submenu = true;
+                                                    ms_mut.show_debug_submenu = false;
                                                 }
                                                 5 => {
                                                     if *rom_loaded_clone.borrow() {
                                                         emu_clone.lock().unwrap().rewind_one_frame();
                                                     }
                                                 }
+                                                6 => {
+                                                    ms_mut.show_debug_submenu = true;
+                                                    ms_mut.show_speed_submenu = false;
+                                                }
                                                 _ => {}
                                             }
-                                            if i != 4 {
+                                            if i != 4 && i != 6 {
                                                 ms_mut.active_menu = None;
                                             }
                                             break;
@@ -11880,6 +11960,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                                         *rom_loaded_clone.borrow_mut() = true;
                                         rom_loaded_flag_clone.store(true, Ordering::Relaxed);
                                         *current_rom_clone.borrow_mut() = Some(path_str.clone());
+                                        paused_clone.store(false, Ordering::Relaxed);
                                         if let Some(game) = dip_needed {
                                             let dip_val = 0u8;
                                             let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
@@ -12174,14 +12255,14 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                             let submenu_x = dropdown_x + dropdown_w;
                             let submenu_w = (150.0 * sc).round() as usize;
                             let submenu_item_h = (16.0 * sc).round() as usize;
-                            let tools_items = ["Cheats", "Play Tape", "Record Tape", "Stop Tape", "Emulation Speed", "Rewind"];
+                            let tools_items = ["Cheats", "Play Tape", "Record Tape", "Stop Tape", "Emulation Speed", "Rewind", "Debug"];
                             let tools_positions = calculate_item_positions(&tools_items, dropdown_x, dropdown_y, dropdown_w, sc);
 
                             ms_mut.hovered_tools_item = None;
                             for (i, (x, y, w, h)) in tools_positions.iter().enumerate() {
                                 if point_in_rect(mx, my, *x, *y, *w, *h) {
                                     let enabled = match i {
-                                        0 | 4 | 5 => true,
+                                        0 | 4 | 5 | 6 => true,
                                         _ => *rom_loaded_clone.borrow()
                                             && *expansion_type_clone.borrow() == config::ExpansionType::SharpC1Cassette,
                                     };
@@ -12192,7 +12273,8 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                                             2 => ToolsMenuItem::TapeRecord,
                                             3 => ToolsMenuItem::TapeStop,
                                             4 => ToolsMenuItem::EmulationSpeed,
-                                            _ => ToolsMenuItem::Rewind,
+                                            5 => ToolsMenuItem::Rewind,
+                                            _ => ToolsMenuItem::Debug,
                                         });
                                     }
                                     break;
@@ -12211,6 +12293,20 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                                 }
                             } else {
                                 ms_mut.hovered_speed_index = None;
+                            }
+
+                            if ms_mut.show_debug_submenu {
+                                ms_mut.hovered_debug_index = None;
+                                let debug_anchor_y = tools_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y);
+                                let debug_positions = calculate_submenu_positions(1, submenu_x, debug_anchor_y, submenu_w, submenu_item_h);
+                                for (i, (x, y, w, h)) in debug_positions.iter().enumerate() {
+                                    if point_in_rect(mx, my, *x, *y, *w, *h) {
+                                        ms_mut.hovered_debug_index = Some(i);
+                                        break;
+                                    }
+                                }
+                            } else {
+                                ms_mut.hovered_debug_index = None;
                             }
                         }
                         Menu::Help => {
@@ -12287,6 +12383,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                     ms_mut.hovered_speed_index = None;
                     ms_mut.hovered_options_index = None;
                     ms_mut.hovered_recent_index = None;
+                    ms_mut.hovered_debug_index = None;
                 }
                 
                 let cur_frame = emu_frame_count_ui.load(Ordering::Relaxed);
@@ -12308,7 +12405,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                     || ms_mut.show_hotkeys_settings
                     || ms_mut.show_confirm_exit_dialog
                     || ms_mut.show_barcode_input || ms_mut.show_cheats_window || ms_mut.show_cheat_edit_dialog || ms_mut.show_cheat_db_dialog
-                    || ms_mut.show_achievements_window || ms_mut.show_ra_profile || ms_mut.show_ra_login
+                    || ms_mut.show_achievements_window || ms_mut.show_ra_profile || ms_mut.show_ra_login || ms_mut.show_debugger_window
                     || ms_mut.show_error
                     || ms_mut.rebind_button.is_some()
                     || ms_mut.rebind_hotkey.is_some();
@@ -12344,9 +12441,9 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                         } else if lower.ends_with(".fds") || lower.ends_with(".qd") || lower.ends_with(".studybox") || lower.ends_with(".study") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.7.2: {}", filename)
+                        format!("AccuNES 1.7.3: {}", filename)
                     } else {
-                        "AccuNES 1.7.2".to_string()
+                        "AccuNES 1.7.3".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -13006,6 +13103,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                                 ("Stop Tape", ToolsMenuItem::TapeStop),
                                 ("Emulation Speed", ToolsMenuItem::EmulationSpeed),
                                 ("Rewind", ToolsMenuItem::Rewind),
+                                ("Debug", ToolsMenuItem::Debug),
                             ];
                             let text_max_w = dropdown_w.saturating_sub(pad_x * 2);
                             let item_heights: Vec<usize> = items.iter().map(|(name, _)| {
@@ -13016,7 +13114,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                             let mut item_y = dropdown_y;
                             for ((name, item), &ih) in items.iter().zip(item_heights.iter()) {
                                 let enabled = match item {
-                                    ToolsMenuItem::Cheats | ToolsMenuItem::EmulationSpeed => true,
+                                    ToolsMenuItem::Cheats | ToolsMenuItem::EmulationSpeed | ToolsMenuItem::Debug => true,
                                     ToolsMenuItem::Rewind => *rom_loaded_clone.borrow(),
                                     _ => *rom_loaded_clone.borrow()
                                         && *expansion_type_clone.borrow() == config::ExpansionType::SharpC1Cassette,
@@ -13026,7 +13124,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                                 }
                                 let text_color = if enabled { menu_text } else { colors.disabled_text };
                                 draw_text_wrapped(&mut buffer, dropdown_x + pad_x, item_y + pad_y, text_max_w, width, name, text_color, scale);
-                                if item == &ToolsMenuItem::EmulationSpeed {
+                                if item == &ToolsMenuItem::EmulationSpeed || item == &ToolsMenuItem::Debug {
                                     let arrow_x = (dropdown_x + dropdown_w).saturating_sub(pad_x * 2);
                                     draw_text(&mut buffer, arrow_x, item_y + pad_y, width, ">", menu_text, scale);
                                 }
@@ -13052,6 +13150,25 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                                     if SPEED_STEPS[i] == ms.current_speed {
                                         draw_text(&mut buffer, submenu_x + pad_x, iy + pad_y, width, ">", menu_text, scale);
                                     }
+                                }
+                            }
+
+                            if ms.show_debug_submenu {
+                                let submenu_x = dropdown_x + dropdown_w;
+                                let submenu_item_h = (16.0 * scale).round() as usize;
+                                let submenu_w = (150.0 * scale).round() as usize;
+                                let debug_anchor_y = dropdown_y + item_heights.iter().take(6).sum::<usize>();
+                                let debug_items = ["Debugger"];
+                                let debug_h = debug_items.len() * submenu_item_h;
+                                draw_rect(&mut buffer, submenu_x, debug_anchor_y, submenu_w, debug_h, width, dropdown_bg);
+                                let name_x = submenu_x + pad_x;
+                                let name_max_w = submenu_w.saturating_sub(pad_x * 2);
+                                for (i, name) in debug_items.iter().enumerate() {
+                                    let iy = debug_anchor_y + i * submenu_item_h;
+                                    if ms.hovered_debug_index == Some(i) {
+                                        draw_rect(&mut buffer, submenu_x, iy, submenu_w, submenu_item_h, width, menu_highlight);
+                                    }
+                                    draw_text_wrapped(&mut buffer, name_x, iy + pad_y, name_max_w, width, name, menu_text, scale);
                                 }
                             }
                         }
@@ -13187,7 +13304,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.7.2",
+                        "Version: 1.7.3",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
@@ -15871,6 +15988,10 @@ draw_text(&mut buffer, input_display_cb_x + cb_w + input_display_text_gap, input
                 if ms.show_ra_login {
                     render_ra_login(&mut buffer, width, height, &ms, &colors, scale);
                 }
+                if ms.show_debugger_window {
+                    let mut emu = emu_clone.lock().unwrap();
+                    debugger::render_debugger_window(&mut buffer, width, height, &ms, &colors, &mut emu, paused_clone.load(Ordering::Relaxed), scale);
+                }
                 drop(ms);
 
                 {
@@ -15932,6 +16053,7 @@ draw_text(&mut buffer, input_display_cb_x + cb_w + input_display_text_gap, input
                         || ms_state.show_region_submenu
                         || ms_state.show_speed_submenu
                         || ms_state.show_ra_submenu
+                        || ms_state.show_debug_submenu
                         || ms_state.show_general_settings
                         || ms_state.show_directories_settings
                         || ms_state.show_audio_settings
@@ -15947,7 +16069,7 @@ draw_text(&mut buffer, input_display_cb_x + cb_w + input_display_text_gap, input
                         || ms_state.show_dip_switches
                         || ms_state.show_confirm_exit_dialog
                         || ms_state.show_barcode_input || ms_state.show_cheats_window || ms_state.show_cheat_edit_dialog || ms_state.show_cheat_db_dialog
-                        || ms_state.show_achievements_window || ms_state.show_ra_profile || ms_state.show_ra_login;
+                        || ms_state.show_achievements_window || ms_state.show_ra_profile || ms_state.show_ra_login || ms_state.show_debugger_window;
                     let emu_active = *rom_loaded_clone.borrow() && !paused_clone.load(Ordering::Relaxed);
                     let oeka_active = *expansion_type_clone.borrow() == config::ExpansionType::OekaKidsTablet;
                     drop(ms_state);

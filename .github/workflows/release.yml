@@ -40,10 +40,17 @@ jobs:
         if: runner.os == 'macOS'
         run: xattr -cr target/release/accunes
 
+      - name: Get version
+        id: get_version
+        shell: bash
+        run: |
+          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: accunes-${{ matrix.name }}
+          name: accunes-${{ steps.get_version.outputs.version }}-${{ matrix.name }}
           path: target/release/accunes
 
       - name: Ensure target is removable
@@ -56,6 +63,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -67,7 +76,12 @@ jobs:
           for d in artifacts/accunes-*; do
             name=$(basename "$d")
             mkdir -p "pkg/$name"
-            cp "$d" "pkg/$name/accunes"
+            if [ -f "$d" ]; then
+              cp "$d" "pkg/$name/accunes"
+            elif [ -f "$d/accunes" ]; then
+              cp "$d/accunes" "pkg/$name/accunes"
+            fi
+            chmod +x "pkg/$name/accunes"
             cp -r data "pkg/$name/" 2>/dev/null || true
             (cd pkg && zip -r "$name.zip" "$name")
           done

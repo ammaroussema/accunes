@@ -93,6 +93,16 @@ impl Emulator {
 
         // in cycle 0, we fetch the opcode
         if self.operation_cycle == 0 {
+            if self.breakpoints.contains(&self.program_counter)
+                || self.step_over_target == Some(self.program_counter)
+            {
+                self.step_over_target = None;
+                self.breakpoint_hit = true;
+            }
+            if self.step_out && (self.op_code == 0x60 || self.op_code == 0x40) {
+                self.step_out = false;
+                self.breakpoint_hit = true;
+            }
             self.address_bus = self.program_counter;
             let mut opcode = self.fetch(self.address_bus);
             if self.mapper_unscramble_enabled {
