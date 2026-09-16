@@ -2,7 +2,11 @@ name: Release
 
 on:
   push:
-    tags: ['release']
+    tags:
+      - 'release*'
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -76,11 +80,7 @@ jobs:
           for d in artifacts/accunes-*; do
             name=$(basename "$d")
             mkdir -p "pkg/$name"
-            if [ -f "$d" ]; then
-              cp "$d" "pkg/$name/accunes"
-            elif [ -f "$d/accunes" ]; then
-              cp "$d/accunes" "pkg/$name/accunes"
-            fi
+            cp -r "$d"/* "pkg/$name/"
             chmod +x "pkg/$name/accunes"
             cp -r data "pkg/$name/" 2>/dev/null || true
             (cd pkg && zip -r "$name.zip" "$name")
@@ -90,7 +90,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/accunes-*/accunes
             pkg/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
