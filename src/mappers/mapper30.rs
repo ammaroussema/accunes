@@ -283,6 +283,7 @@ impl Mapper for Mapper30 {
                     prg_chr_crc32: 0,
                     is_vs_system: false,
                     tv_system: crate::region::TvSystem::Unknown,
+                    is_nes20: false,
                 },
                 address,
             );

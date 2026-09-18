@@ -87,6 +87,7 @@ pub struct Cartridge {
     pub is_vs_system: bool,
 
     pub tv_system: TvSystem,
+    pub is_nes20: bool,
 }
 
 impl Cartridge {
@@ -203,6 +204,7 @@ impl Cartridge {
                 prg_chr_crc32: overall_crc,
                 is_vs_system: false,
                 tv_system,
+                is_nes20: false,
             };
 
             println!("Loaded NSF Audio: {} ({} songs)", cartridge.name, total_songs);
@@ -325,6 +327,7 @@ impl Cartridge {
                 prg_chr_crc32: fds_overall_crc,
                 is_vs_system: false,
                 tv_system: TvSystem::Unknown,
+                is_nes20: false,
             };
             
             let mut cartridge = cartridge;
@@ -385,6 +388,7 @@ impl Cartridge {
                 prg_chr_crc32: overall_crc,
                 is_vs_system: false,
                 tv_system: TvSystem::Unknown,
+                is_nes20: false,
             };
 
             println!("Loaded Study Box tape: {}", cartridge.name);
@@ -720,6 +724,7 @@ impl Cartridge {
                 prg_chr_crc32: unif_prg_chr_crc,
                 is_vs_system: false,
                 tv_system: TvSystem::Unknown,
+                is_nes20: false,
             };
 
             println!("Loaded UNIF ROM: {} (Board: {}, Mapper: {})", cartridge.name, mapper_name, memory_mapper);
@@ -1213,6 +1218,7 @@ impl Cartridge {
             prg_chr_crc32: i_nes_game_crc32,
             is_vs_system,
             tv_system,
+            is_nes20,
         };
 
         cartridge.reset_mapper();

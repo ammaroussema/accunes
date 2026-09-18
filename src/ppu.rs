@@ -429,7 +429,7 @@ impl Emulator {
         }
     }
 
-    fn um6578_read_ppu(&self, addr: u16) -> u8 {
+    pub(crate) fn um6578_read_ppu(&self, addr: u16) -> u8 {
         if addr < 0x2000 {
             let bank = (addr >> 10) as usize;
             self.um6578_vram[bank][(addr & 0x3FF) as usize]

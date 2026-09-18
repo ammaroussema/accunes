@@ -243,7 +243,7 @@ pub fn load_ra_hardcore() -> bool {
             }
         }
     }
-    false
+    true
 }
 
 #[allow(dead_code)]

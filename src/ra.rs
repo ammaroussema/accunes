@@ -8,6 +8,11 @@ use std::sync::{Arc, LazyLock, Mutex};
 pub const RC_CONSOLE_NINTENDO: u32 = 7;
 
 pub const RC_CLIENT_EVENT_ACHIEVEMENT_TRIGGERED: u32 = 1;
+pub const RC_CLIENT_EVENT_ACHIEVEMENT_CHALLENGE_INDICATOR_SHOW: u32 = 5;
+pub const RC_CLIENT_EVENT_ACHIEVEMENT_CHALLENGE_INDICATOR_HIDE: u32 = 6;
+pub const RC_CLIENT_EVENT_ACHIEVEMENT_PROGRESS_INDICATOR_SHOW: u32 = 7;
+pub const RC_CLIENT_EVENT_ACHIEVEMENT_PROGRESS_INDICATOR_HIDE: u32 = 8;
+pub const RC_CLIENT_EVENT_ACHIEVEMENT_PROGRESS_INDICATOR_UPDATE: u32 = 9;
 pub const RC_CLIENT_EVENT_RESET: u32 = 14;
 
 #[allow(dead_code)]
@@ -79,6 +84,9 @@ fn rc_client_get_hardcore_enabled(client: *const rc_client_opaque) -> i32;
         grouping: i32,
     ) -> *mut RcClientAchievementList;
     fn rc_client_destroy_achievement_list(list: *mut RcClientAchievementList);
+    fn rc_client_progress_size(client: *const rc_client_opaque) -> usize;
+    fn rc_client_serialize_progress_sized(client: *mut rc_client_opaque, buffer: *mut u8, buffer_size: usize) -> i32;
+    fn rc_client_deserialize_progress_sized(client: *mut rc_client_opaque, serialized: *const u8, serialized_size: usize) -> i32;
 }
 
 #[repr(C)]
@@ -288,8 +296,9 @@ fn perform_http(url: &str, post_data: Option<&str>) -> Result<Vec<u8>, String> {
         Some(data) => agent
             .post(url)
             .set("Content-Type", "application/x-www-form-urlencoded")
+            .set("User-Agent", "AccuNES/v1.7.4")
             .send_string(data),
-        None => agent.get(url).call(),
+        None => agent.get(url).set("User-Agent", "AccuNES/v1.7.4").call(),
     };
 
     match result {
@@ -345,6 +354,43 @@ unsafe extern "C" fn event_handler(event: *const RcClientEvent, _client: *mut rc
             RESET_REQUESTED.store(true, Ordering::Relaxed);
             println!("[RA] Reset requested (hardcore rules violated)");
         }
+        RC_CLIENT_EVENT_ACHIEVEMENT_CHALLENGE_INDICATOR_SHOW => {
+            if !event.achievement.is_null() {
+                let a = &*event.achievement;
+                let ind = RaChallengeIndicator {
+                    id: a.id,
+                    title: cstr_lossy(a.title),
+                    badge_url: cstr_lossy(a.badge_url),
+                    measured_progress: cstr_fixed(&a.measured_progress),
+                };
+                let mut list = CHALLENGE_INDICATORS.lock().unwrap();
+                if !list.iter().any(|c| c.id == ind.id) {
+                    list.push(ind);
+                }
+            }
+        }
+        RC_CLIENT_EVENT_ACHIEVEMENT_CHALLENGE_INDICATOR_HIDE => {
+            if !event.achievement.is_null() {
+                let id = (*event.achievement).id;
+                CHALLENGE_INDICATORS.lock().unwrap().retain(|c| c.id != id);
+            }
+        }
+        RC_CLIENT_EVENT_ACHIEVEMENT_PROGRESS_INDICATOR_SHOW
+        | RC_CLIENT_EVENT_ACHIEVEMENT_PROGRESS_INDICATOR_UPDATE => {
+            if !event.achievement.is_null() {
+                let a = &*event.achievement;
+                *PROGRESS_INDICATOR.lock().unwrap() = Some(RaProgressIndicator {
+                    id: a.id,
+                    title: cstr_lossy(a.title),
+                    badge_url: cstr_lossy(a.badge_url),
+                    measured_progress: cstr_fixed(&a.measured_progress),
+                    measured_percent: a.measured_percent,
+                });
+            }
+        }
+        RC_CLIENT_EVENT_ACHIEVEMENT_PROGRESS_INDICATOR_HIDE => {
+            *PROGRESS_INDICATOR.lock().unwrap() = None;
+        }
         _ => {}
     }
 }
@@ -361,6 +407,65 @@ static TOASTS: Mutex<Vec<RaToast>> = Mutex::new(Vec::new());
 
 pub fn take_toasts() -> Vec<RaToast> {
     std::mem::take(&mut TOASTS.lock().unwrap())
+}
+
+pub struct RaChallengeIndicator {
+    pub id: u32,
+    pub title: String,
+    pub badge_url: String,
+    pub measured_progress: String,
+}
+
+pub struct RaProgressIndicator {
+    pub id: u32,
+    pub title: String,
+    pub badge_url: String,
+    pub measured_progress: String,
+    pub measured_percent: f32,
+}
+
+static CHALLENGE_INDICATORS: Mutex<Vec<RaChallengeIndicator>> = Mutex::new(Vec::new());
+static PROGRESS_INDICATOR: Mutex<Option<RaProgressIndicator>> = Mutex::new(None);
+
+pub fn get_challenge_indicators_snapshot() -> Vec<(u32, String, String, String)> {
+    CHALLENGE_INDICATORS.lock().unwrap().iter().map(|c| (c.id, c.title.clone(), c.badge_url.clone(), c.measured_progress.clone())).collect()
+}
+
+pub fn get_progress_indicator_snapshot() -> Option<(u32, String, String, String, f32)> {
+    PROGRESS_INDICATOR.lock().unwrap().as_ref().map(|p| (p.id, p.title.clone(), p.badge_url.clone(), p.measured_progress.clone(), p.measured_percent))
+}
+
+pub fn serialize_progress() -> Vec<u8> {
+    let client = client_ptr();
+    if client.is_null() || !game_loaded() {
+        return Vec::new();
+    }
+    unsafe {
+        let size = rc_client_progress_size(client);
+        if size == 0 {
+            return Vec::new();
+        }
+        let mut buf = vec![0u8; size];
+        let res = rc_client_serialize_progress_sized(client, buf.as_mut_ptr(), size);
+        if res == 0 {
+            buf
+        } else {
+            Vec::new()
+        }
+    }
+}
+
+pub fn deserialize_progress(data: &[u8]) {
+    if data.is_empty() {
+        return;
+    }
+    let client = client_ptr();
+    if client.is_null() || !game_loaded() {
+        return;
+    }
+    unsafe {
+        rc_client_deserialize_progress_sized(client, data.as_ptr(), data.len());
+    }
 }
 
 pub struct RaAchievement {

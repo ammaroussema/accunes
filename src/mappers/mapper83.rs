@@ -300,6 +300,7 @@ impl Mapper for Mapper83 {
                 is_vs_system: false,
                 mapper_chip: crate::cartridge::MapperSlot::new(Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default()))),
                 tv_system: crate::region::TvSystem::Unknown,
+                is_nes20: false,
             };
             let mirrored = self.mirror_nametable(&dummy, address);
             new_addr_bus |= vram[(mirrored & 0x7FF) as usize] as u16;

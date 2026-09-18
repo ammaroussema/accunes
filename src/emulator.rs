@@ -1123,6 +1123,135 @@ impl Emulator {
         }
     }
 
+    pub fn debug_peek_ppu(&mut self, addr: u16) -> u8 {
+        let addr = addr & 0x3FFF;
+        if addr >= 0x3F00 {
+            let mut pal_addr = (addr & 0x1F) as usize;
+            if (pal_addr & 3) == 0 {
+                pal_addr &= 0x0F;
+            }
+            self.palette_ram[pal_addr]
+        } else if self.is_um6578_cart {
+            self.um6578_read_ppu(addr)
+        } else if let Some(cart) = self.cart.as_mut() {
+            let (data, _) = cart.mapper_chip.fetch_ppu_with_ctx(
+                &cart.prg_rom,
+                &cart.chr_rom,
+                &cart.prg_ram,
+                &cart.chr_ram,
+                &cart.prg_vram,
+                cart.using_chr_ram,
+                cart.nametable_horizontal_mirroring,
+                cart.alternative_nametable_arrangement,
+                addr,
+                (addr & 0xFF) as u8,
+                &self.vram,
+                self.ppu_onebus_chr,
+            );
+            data
+        } else {
+            0
+        }
+    }
+
+    pub fn debug_peek_chr_tables(&mut self, table0: &mut [u8; 4096], table1: &mut [u8; 4096]) {
+        let saved_mapper_state = self.cart.as_ref().map(|c| c.mapper_chip.save_mapper_registers(c));
+        for i in 0..4096 {
+            table0[i] = self.debug_peek_ppu(i as u16);
+        }
+        for i in 0..4096 {
+            table1[i] = self.debug_peek_ppu((0x1000 + i) as u16);
+        }
+        if let Some(state) = saved_mapper_state {
+            if let Some(cart) = self.cart.as_mut() {
+                cart.with_mapper(|mapper, cart| mapper.load_mapper_registers(cart, &state, 0));
+            }
+        }
+    }
+
+    pub fn debug_peek_palette_ram(&self) -> [u8; 32] {
+        let mut out = [0u8; 32];
+        for i in 0..32 {
+            let mut pal_addr = i & 0x1F;
+            if (pal_addr & 3) == 0 {
+                pal_addr &= 0x0F;
+            }
+            out[i] = self.palette_ram[pal_addr];
+        }
+        out
+    }
+
+    pub fn debug_peek_nametables(&mut self, nts: &mut [[u8; 1024]; 4]) {
+        let saved_mapper_state = self.cart.as_ref().map(|c| c.mapper_chip.save_mapper_registers(c));
+        for nt in 0..4 {
+            let base = 0x2000 + (nt as u16 * 0x400);
+            for i in 0..1024 {
+                nts[nt][i] = self.debug_peek_ppu(base + i as u16);
+            }
+        }
+        if let Some(state) = saved_mapper_state {
+            if let Some(cart) = self.cart.as_mut() {
+                cart.with_mapper(|mapper, cart| mapper.load_mapper_registers(cart, &state, 0));
+            }
+        }
+    }
+
+    pub fn debug_get_scroll(&self) -> (usize, usize) {
+        let r = if self.ppu_v != 0 { self.ppu_v } else { self.ppu_t };
+        let xpos = ((((r & 0x400) >> 2) | ((r & 0x1F) << 3)) as usize + self.ppu_fine_x_scroll as usize) % 512;
+        let mut ypos = (((r & 0x3E0) >> 2) | ((r & 0x7000) >> 12)) as usize;
+        if (r & 0x800) != 0 {
+            ypos += 240;
+        }
+        ypos %= 480;
+        (xpos, ypos)
+    }
+
+    pub fn debug_get_mirroring_desc(&self) -> &'static str {
+        if let Some(cart) = self.cart.as_ref() {
+            if cart.alternative_nametable_arrangement {
+                "Four-Screen"
+            } else if cart.nametable_horizontal_mirroring {
+                "Horizontal"
+            } else {
+                "Vertical"
+            }
+        } else {
+            "None"
+        }
+    }
+
+    pub fn debug_get_rom_format(&self) -> &'static str {
+        if let Some(cart) = self.cart.as_ref() {
+            let name_lower = cart.name.to_lowercase();
+            if cart.memory_mapper == 0x1000 || name_lower.ends_with(".nsf") || name_lower.ends_with(".nsfe") {
+                "NSF"
+            } else if !cart.fds_disks.is_empty() || name_lower.ends_with(".fds") {
+                "FDS"
+            } else if name_lower.ends_with(".unf") || name_lower.ends_with(".unif") {
+                "UNIF"
+            } else if name_lower.ends_with(".studybox") || name_lower.ends_with(".study") {
+                "Study Box"
+            } else if cart.is_nes20 {
+                "NES 2.0"
+            } else {
+                "iNES 1.0"
+            }
+        } else {
+            "None"
+        }
+    }
+
+    pub fn debug_get_region_hz(&self) -> &'static str {
+        if self.is_pal() {
+            "PAL (50.01 Hz)"
+        } else if self.is_dendy() {
+            "Dendy (50.01 Hz)"
+        } else {
+            "NTSC (60.10 Hz)"
+        }
+    }
+
     pub fn load_cartridge(&mut self, cart: Cartridge) {
         self.rewind_states.clear();
         self.lag_frames = 0;
@@ -3079,6 +3208,9 @@ impl Emulator {
         out.push(self.mahjong_gekitou_strobe);
         out.push(self.ppu_oam_read_latch);
         out.push(self.oam2_reset_signal);
+        let ra_progress = crate::ra::serialize_progress();
+        out.extend_from_slice(&(ra_progress.len() as u32).to_le_bytes());
+        out.extend_from_slice(&ra_progress);
         out
     }
 
@@ -3815,8 +3947,15 @@ impl Emulator {
         if p < data.len() { self.mahjong_gekitou_bits = data[p]; p+=1; }
         if p < data.len() { self.mahjong_gekitou_bit_ptr = data[p]; p+=1; }
         if p < data.len() { self.mahjong_gekitou_strobe = data[p]; }
-        if p < data.len() { self.ppu_oam_read_latch = data[p]; }
-        if p < data.len() { self.oam2_reset_signal = data[p]; }
+        if p < data.len() { self.ppu_oam_read_latch = data[p]; p+=1; }
+        if p < data.len() { self.oam2_reset_signal = data[p]; p+=1; }
+        if p + 4 <= data.len() {
+            let ra_len = u32::from_le_bytes([data[p], data[p+1], data[p+2], data[p+3]]) as usize;
+            p += 4;
+            if p + ra_len <= data.len() {
+                crate::ra::deserialize_progress(&data[p..p + ra_len]);
+            }
+        }
         Ok(())
     }
 }
