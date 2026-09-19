@@ -38,6 +38,8 @@ pub mod debugger;
 pub mod ppu_viewer;
 pub mod nametable_viewer;
 pub mod status_viewer;
+pub mod header_editor;
+pub mod ram_search;
 
 use region::Region;
 use emulator::Emulator;
@@ -732,6 +734,45 @@ pub struct MenuState {
     pub debugger_seek_input: String,
     pub debugger_seek_caret: usize,
     pub debugger_input_focus: usize,
+    pub show_header_window: bool,
+    pub show_ram_search_window: bool,
+    pub ram_search_scroll: usize,
+    pub ram_search_selected: Option<usize>,
+    pub ram_search_focus: usize,
+    pub ram_search_val_caret: usize,
+    pub ram_search_addr_caret: usize,
+    pub ram_search_changes_caret: usize,
+    pub ram_search_diffby_caret: usize,
+    pub ram_search_modby_caret: usize,
+    pub header_edit_path: Option<String>,
+    pub header_edit_orig: [u8; 16],
+    pub header_ines20: bool,
+    pub header_mapper: String,
+    pub header_submapper: String,
+    pub header_prg_rom: String,
+    pub header_prg_ram: String,
+    pub header_prg_nvram: String,
+    pub header_chr_rom: String,
+    pub header_chr_ram: String,
+    pub header_chr_nvram: String,
+    pub header_mirroring: usize,
+    pub header_region: usize,
+    pub header_system: usize,
+    pub header_vs_system: usize,
+    pub header_vs_ppu: usize,
+    pub header_extend_console: usize,
+    pub header_input_device: usize,
+    pub header_misc_roms: String,
+    pub header_trainer: bool,
+    pub header_battery: bool,
+    pub header_unofficial: bool,
+    pub header_unofficial_prg_ram: bool,
+    pub header_unofficial_region: bool,
+    pub header_unofficial_bus: bool,
+    pub header_focus: usize,
+    pub header_caret: usize,
+    pub header_hex: String,
+    pub header_status: String,
     pub show_ppu_viewer_window: bool,
     pub ppu_viewer_pal_table0: usize,
     pub ppu_viewer_pal_table1: usize,
@@ -870,6 +911,45 @@ impl MenuState {
             debugger_seek_input: String::new(),
             debugger_seek_caret: 0,
             debugger_input_focus: 0,
+            show_header_window: false,
+            show_ram_search_window: false,
+            ram_search_scroll: 0,
+            ram_search_selected: None,
+            ram_search_focus: 0,
+            ram_search_val_caret: 0,
+            ram_search_addr_caret: 0,
+            ram_search_changes_caret: 0,
+            ram_search_diffby_caret: 0,
+            ram_search_modby_caret: 0,
+            header_edit_path: None,
+            header_edit_orig: [0u8; 16],
+            header_ines20: false,
+            header_mapper: String::new(),
+            header_submapper: String::new(),
+            header_prg_rom: String::new(),
+            header_prg_ram: String::new(),
+            header_prg_nvram: String::new(),
+            header_chr_rom: String::new(),
+            header_chr_ram: String::new(),
+            header_chr_nvram: String::new(),
+            header_mirroring: 0,
+            header_region: 0,
+            header_system: 0,
+            header_vs_system: 0,
+            header_vs_ppu: 0,
+            header_extend_console: 0,
+            header_input_device: 0,
+            header_misc_roms: String::new(),
+            header_trainer: false,
+            header_battery: false,
+            header_unofficial: false,
+            header_unofficial_prg_ram: false,
+            header_unofficial_region: false,
+            header_unofficial_bus: false,
+            header_focus: 0,
+            header_caret: 0,
+            header_hex: String::new(),
+            header_status: String::new(),
             show_ppu_viewer_window: false,
             ppu_viewer_pal_table0: 0,
             ppu_viewer_pal_table1: 0,
@@ -1152,7 +1232,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.7.4";
+const APP_VERSION: &str = "1.7.5";
 
 fn strip_version_prefix(s: &str) -> &str {
     s.trim_start_matches(|c: char| c.is_ascii_alphabetic())
@@ -1172,9 +1252,24 @@ fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     std::cmp::Ordering::Equal
 }
 
+const ELLIPSIS_GLYPH: [u8; 8] = [
+    0b00000000,
+    0b00000000,
+    0b00000000,
+    0b00000000,
+    0b00000000,
+    0b01010100,
+    0b01010100,
+    0b00000000,
+];
+
 fn draw_char(buffer: &mut [u32], x: usize, y: usize, width: usize, c: char, color: u32, scale: f32) {
     if width == 0 { return; }
-    let glyph = font8x8::BASIC_FONTS.get(c);
+    let glyph = match font8x8::BASIC_FONTS.get(c) {
+        Some(g) => Some(g),
+        None if c == '…' => Some(ELLIPSIS_GLYPH),
+        None => None,
+    };
     if let Some(glyph) = glyph {
         let size = (8.0 * scale).round() as usize;
         if size == 0 { return; }
@@ -3703,7 +3798,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.7.4")
+        .with_title("AccuNES 1.7.5")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -4428,6 +4523,7 @@ fn main() {
                     match cmd {
                         EmuCommand::Exit => { return; }
                         EmuCommand::LoadCartridge(cart) => {
+                            ram_search::invalidate();
                             ra::unload_game();
                             e.save_turbo_file();
                             e.save_battle_box();
@@ -4463,6 +4559,7 @@ fn main() {
                         }
                         EmuCommand::SavePrgRam => { e.save_prg_ram(); e.save_turbo_file(); e.save_battle_box(); }
                         EmuCommand::ClearCart => {
+                            ram_search::invalidate();
                             ra::unload_game();
                             e.save_turbo_file();
                             e.save_battle_box();
@@ -4486,6 +4583,7 @@ fn main() {
 
                 e.capture_rewind_state();
                 e.core_frame_advance();
+                ram_search::on_frame(&mut e);
                 if e.breakpoint_hit {
                     e.breakpoint_hit = false;
                     paused_thread.store(true, Ordering::Relaxed);
@@ -5261,6 +5359,10 @@ fn main() {
                         }
                     } else if ms.show_debugger_window {
                         debugger::handle_debugger_char(&mut ms, c);
+                    } else if ms.show_header_window {
+                        header_editor::handle_header_editor_char(&mut ms, c);
+                    } else if ms.show_ram_search_window {
+                        ram_search::handle_ram_search_char(&mut ms, c);
                     }
                 }
             }
@@ -5453,7 +5555,7 @@ fn main() {
                     }
                 } else if {
                     let ms = menu_state_clone.borrow();
-                    ms.show_cheat_edit_dialog || ms.show_cheat_db_dialog || ms.show_cheats_window || ms.show_debugger_window || ms.show_ppu_viewer_window || ms.show_nametable_viewer_window || ms.show_status_window
+                    ms.show_cheat_edit_dialog || ms.show_cheat_db_dialog || ms.show_cheats_window || ms.show_debugger_window || ms.show_ppu_viewer_window || ms.show_nametable_viewer_window || ms.show_header_window || ms.show_ram_search_window || ms.show_status_window
                 } {
                     if pressed {
                     let mut ms = menu_state_clone.borrow_mut();
@@ -5641,6 +5743,11 @@ fn main() {
                         ppu_viewer::handle_ppu_viewer_key(&mut ms, keycode);
                     } else if ms.show_nametable_viewer_window {
                         nametable_viewer::handle_nametable_viewer_key(&mut ms, keycode);
+                    } else if ms.show_header_window {
+                        header_editor::handle_header_editor_key(&mut ms, keycode);
+                    } else if ms.show_ram_search_window {
+                        let mut emu = emu_clone.lock().unwrap();
+                        ram_search::handle_ram_search_key(&mut ms, &mut emu, keycode);
                     } else if ms.show_status_window {
                         let emu = emu_clone.lock().unwrap();
                         status_viewer::handle_status_viewer_key(&mut ms, &emu, keycode);
@@ -7941,6 +8048,13 @@ WinitEvent::WindowEvent {
                     let mut ms_mut = menu_state_clone.borrow_mut();
                     let mut emu = emu_clone.lock().unwrap();
                     debugger::handle_debugger_scroll(&mut ms_mut, &mut emu, amount);
+                } else if menu_state_clone.borrow().show_ram_search_window {
+                    let amount = match delta {
+                        winit::event::MouseScrollDelta::LineDelta(_, y) => (y * 2.0) as i32,
+                        winit::event::MouseScrollDelta::PixelDelta(p) => (p.y / 15.0).round() as i32,
+                    };
+                    let mut ms_mut = menu_state_clone.borrow_mut();
+                    ram_search::handle_ram_search_scroll(&mut ms_mut, amount);
                 } else if menu_state_clone.borrow().show_cheats_window {
                     let amount = match delta {
                         winit::event::MouseScrollDelta::LineDelta(_, y) => (y * 2.0) as i32,
@@ -8209,7 +8323,7 @@ WinitEvent::WindowEvent {
                         || ms.show_about || ms.show_error || ms.show_confirm_exit_dialog
                         || ms.show_barcode_input || ms.show_cheats_window || ms.show_cheat_edit_dialog || ms.show_cheat_db_dialog
                         || ms.show_achievements_window || ms.show_ra_profile || ms.show_ra_login || ms.show_debugger_window
-                        || ms.show_ppu_viewer_window || ms.show_nametable_viewer_window || ms.show_status_window
+                        || ms.show_ppu_viewer_window || ms.show_nametable_viewer_window || ms.show_header_window || ms.show_ram_search_window || ms.show_status_window
                 };
                 if !is_modal_open {
                     const BIT_MASKS: [u8; 10] = [0x80, 0x40, 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
@@ -9012,6 +9126,23 @@ WinitEvent::WindowEvent {
                         let scale = (height as f32 / 480.0).max(0.525);
                         let mut ms_mut = menu_state_clone.borrow_mut();
                         nametable_viewer::handle_nametable_viewer_click(&mut ms_mut, button, mx, my, width, height, scale);
+                    } else if ms.show_header_window {
+                        drop(ms);
+                        let window_size = window.inner_size();
+                        let width = window_size.width as usize;
+                        let height = window_size.height as usize;
+                        let scale = (height as f32 / 480.0).max(0.525);
+                        let mut ms_mut = menu_state_clone.borrow_mut();
+                        header_editor::handle_header_editor_click(&mut ms_mut, button, mx, my, width, height, scale);
+                    } else if ms.show_ram_search_window {
+                        drop(ms);
+                        let window_size = window.inner_size();
+                        let width = window_size.width as usize;
+                        let height = window_size.height as usize;
+                        let scale = (height as f32 / 480.0).max(0.525);
+                        let mut ms_mut = menu_state_clone.borrow_mut();
+                        let mut emu = emu_clone.lock().unwrap();
+                        ram_search::handle_ram_search_click(&mut ms_mut, &mut emu, button, mx, my, width, height, scale);
                     } else if ms.show_status_window {
                         drop(ms);
                         let window_size = window.inner_size();
@@ -11718,12 +11849,12 @@ let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem
                                     }
                                 } else if ms_mut.show_debug_submenu {
                                     let debug_anchor_y = tools_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y);
-                                    let debug_items = ["Debugger", "PPU Viewer", "Nametables", "Status"];
+                                    let debug_items = ["Debugger", "PPU Viewer", "Nametables", "Header", "RAM Search", "Status"];
                                     let debug_positions = calculate_submenu_positions(debug_items.len(), submenu_x, debug_anchor_y, submenu_w, submenu_item_h);
                                     let mut clicked = false;
                                     for (i, (x, y, w, h)) in debug_positions.iter().enumerate() {
                                         if point_in_rect(mx, my, *x, *y, *w, *h) {
-                                            if i < 3 && ra::hardcore_active() {
+                                            if i < 5 && ra::hardcore_active() {
                                                 ms_mut.show_error = true;
                                                 ms_mut.error_message = "Debug tools are not available in Hardcore mode.".to_string();
                                             } else {
@@ -11737,6 +11868,41 @@ let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem
                                                 } else if i == 2 {
                                                     ms_mut.show_nametable_viewer_window = true;
                                                 } else if i == 3 {
+                                                    match ms_mut.header_edit_path.clone() {
+                                                        Some(p) => {
+                                                            if let Err(e) = header_editor::load_header_into_state(&mut ms_mut, &p) {
+                                                                ms_mut.show_error = true;
+                                                                ms_mut.error_message = e;
+                                                                ms_mut.show_header_window = false;
+                                                            } else {
+                                                                ms_mut.show_header_window = true;
+                                                            }
+                                                        }
+                                                        None => {
+                                                            if let Some(path) = rfd::FileDialog::new()
+                                                                .add_filter("NES ROM", &["nes"])
+                                                                .add_filter("All files", &["*"])
+                                                                .pick_file()
+                                                            {
+                                                                let path_str = path.to_string_lossy().to_string();
+                                                                if let Err(e) = header_editor::load_header_into_state(&mut ms_mut, &path_str) {
+                                                                    ms_mut.show_error = true;
+                                                                    ms_mut.error_message = e;
+                                                                    ms_mut.show_header_window = false;
+                                                                } else {
+                                                                    ms_mut.show_header_window = true;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                } else if i == 4 {
+                                                    ms_mut.show_ram_search_window = true;
+                                                    ms_mut.ram_search_scroll = 0;
+                                                    ms_mut.ram_search_selected = None;
+                                                    ms_mut.ram_search_focus = 0;
+                                                    let mut emu = emu_clone.lock().unwrap();
+                                                    ram_search::open_window(&mut emu);
+                                                } else if i == 5 {
                                                     ms_mut.show_status_window = true;
                                                 }
                                             }
@@ -12065,6 +12231,14 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                         let (mx, my) = menu_state_clone.borrow().mouse_pos;
                         let mut ms_mut = menu_state_clone.borrow_mut();
                         nametable_viewer::handle_nametable_viewer_click(&mut ms_mut, button, mx, my, width, height, scale);
+                    } else if menu_state_clone.borrow().show_header_window {
+                        let window_size = window.inner_size();
+                        let width = window_size.width as usize;
+                        let height = window_size.height as usize;
+                        let scale = (height as f32 / 480.0).max(0.525);
+                        let (mx, my) = menu_state_clone.borrow().mouse_pos;
+                        let mut ms_mut = menu_state_clone.borrow_mut();
+                        header_editor::handle_header_editor_click(&mut ms_mut, button, mx, my, width, height, scale);
                     } else if menu_state_clone.borrow().show_status_window {
                         let window_size = window.inner_size();
                         let width = window_size.width as usize;
@@ -12457,7 +12631,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                             if ms_mut.show_debug_submenu {
                                 ms_mut.hovered_debug_index = None;
                                 let debug_anchor_y = tools_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y);
-                                let debug_items = ["Debugger", "PPU Viewer", "Nametables", "Status"];
+                                let debug_items = ["Debugger", "PPU Viewer", "Nametables", "Header", "RAM Search", "Status"];
                                 let debug_positions = calculate_submenu_positions(debug_items.len(), submenu_x, debug_anchor_y, submenu_w, submenu_item_h);
                                 for (i, (x, y, w, h)) in debug_positions.iter().enumerate() {
                                     if point_in_rect(mx, my, *x, *y, *w, *h) {
@@ -12568,6 +12742,8 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                     || ms_mut.show_achievements_window || ms_mut.show_ra_profile || ms_mut.show_ra_login || ms_mut.show_debugger_window
                     || ms_mut.show_ppu_viewer_window
                     || ms_mut.show_nametable_viewer_window
+                    || ms_mut.show_header_window
+                    || ms_mut.show_ram_search_window
                     || ms_mut.show_status_window
                     || ms_mut.show_error
                     || ms_mut.rebind_button.is_some()
@@ -12604,9 +12780,9 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                         } else if lower.ends_with(".fds") || lower.ends_with(".qd") || lower.ends_with(".studybox") || lower.ends_with(".study") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.7.4: {}", filename)
+                        format!("AccuNES 1.7.5: {}", filename)
                     } else {
-                        "AccuNES 1.7.4".to_string()
+                        "AccuNES 1.7.5".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -13323,14 +13499,14 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                                 let submenu_item_h = (16.0 * scale).round() as usize;
                                 let submenu_w = (150.0 * scale).round() as usize;
                                 let debug_anchor_y = dropdown_y + item_heights.iter().take(6).sum::<usize>();
-                                let debug_items = ["Debugger", "PPU Viewer", "Nametables", "Status"];
+                                let debug_items = ["Debugger", "PPU Viewer", "Nametables", "Header", "RAM Search", "Status"];
                                 let debug_h = debug_items.len() * submenu_item_h;
                                 draw_rect(&mut buffer, submenu_x, debug_anchor_y, submenu_w, debug_h, width, dropdown_bg);
                                 let name_x = submenu_x + pad_x;
                                 let name_max_w = submenu_w.saturating_sub(pad_x * 2);
                                 for (i, name) in debug_items.iter().enumerate() {
                                     let iy = debug_anchor_y + i * submenu_item_h;
-                                    let is_blocked = i < 3 && ra::hardcore_active();
+                                    let is_blocked = i < 5 && ra::hardcore_active();
                                     let item_color = if is_blocked { colors.disabled_text } else { menu_text };
                                     if ms.hovered_debug_index == Some(i) && !is_blocked {
                                         draw_rect(&mut buffer, submenu_x, iy, submenu_w, submenu_item_h, width, menu_highlight);
@@ -13471,7 +13647,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.7.4",
+                        "Version: 1.7.5",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
@@ -16167,6 +16343,12 @@ draw_text(&mut buffer, input_display_cb_x + cb_w + input_display_text_gap, input
                     let mut emu = emu_clone.lock().unwrap();
                     nametable_viewer::render_nametable_viewer_window(&mut buffer, width, height, &ms, &colors, &mut emu, scale);
                 }
+                if ms.show_header_window {
+                    header_editor::render_header_editor_window(&mut buffer, width, height, &ms, &colors, scale);
+                }
+                if ms.show_ram_search_window {
+                    ram_search::render_ram_search_window(&mut buffer, width, height, &ms, &colors, scale);
+                }
                 if ms.show_status_window {
                     let mut emu = emu_clone.lock().unwrap();
                     status_viewer::render_status_window(&mut buffer, width, height, &ms, &colors, &mut emu, scale);
@@ -16318,6 +16500,8 @@ draw_text(&mut buffer, input_display_cb_x + cb_w + input_display_text_gap, input
                         || ms_state.show_achievements_window || ms_state.show_ra_profile || ms_state.show_ra_login || ms_state.show_debugger_window
                         || ms_state.show_ppu_viewer_window
                         || ms_state.show_nametable_viewer_window
+                        || ms_state.show_header_window
+                        || ms_state.show_ram_search_window
                         || ms_state.show_status_window;
                     let emu_active = *rom_loaded_clone.borrow() && !paused_clone.load(Ordering::Relaxed);
                     let oeka_active = *expansion_type_clone.borrow() == config::ExpansionType::OekaKidsTablet;
