@@ -680,6 +680,7 @@ pub struct Emulator {
     pub current_theme: String,
     pub cheats: crate::cheats::CheatManager,
     pub rewind_states: VecDeque<Vec<u8>>,
+    pub(crate) movie: crate::movie::MovieEngine,
 }
 
 const REWIND_MAX_STATES: usize = 2400;
@@ -703,6 +704,15 @@ impl Emulator {
                         }
                         ram[i] = 0x0F;
                     }
+                }
+            }
+            config::InitialRam::Fceux => {
+                for i in 0..0x2000usize {
+                    let v = if (i & 4) != 0 { 0xFF } else { 0x00 };
+                    if i < 0x800 {
+                        vram[i] = v;
+                    }
+                    ram[i] = v;
                 }
             }
             config::InitialRam::Zero => {
@@ -1096,6 +1106,7 @@ impl Emulator {
             current_theme: config::load_theme(),
             cheats: crate::cheats::CheatManager::new(),
             rewind_states: VecDeque::new(),
+            movie: crate::movie::MovieEngine::new(),
             breakpoints: Vec::new(),
             step_over_target: None,
             step_out: false,
@@ -2360,6 +2371,9 @@ impl Emulator {
 
     // autofire gating
     pub fn controller_sampled(&self, raw: u8) -> u8 {
+        if self.movie.is_providing_input() {
+            return raw;
+        }
         if self.autofire_enabled.load(Ordering::Relaxed) && !self.rapid_alternator {
             raw & !0x03
         } else {
@@ -2367,8 +2381,117 @@ impl Emulator {
         }
     }
 
+    fn movie_capture_frame(&self) -> crate::movie::FrameInput {
+        crate::movie::FrameInput {
+            ports: vec![
+                crate::movie::nes_pad_byte_to_vec(self.controller_port1.load(Ordering::Relaxed)),
+                crate::movie::nes_pad_byte_to_vec(self.controller_port2.load(Ordering::Relaxed)),
+                crate::movie::nes_pad_byte_to_vec(self.controller_port3.load(Ordering::Relaxed)),
+                crate::movie::nes_pad_byte_to_vec(self.controller_port4.load(Ordering::Relaxed)),
+            ],
+        }
+    }
+
+    fn movie_inject_frame(&mut self, input: &crate::movie::FrameInput) {
+        for (pi, d) in self.movie.file.devices.iter().enumerate() {
+            if d.kind != "NES_PAD" {
+                continue;
+            }
+            let buttons = match input.ports.get(pi) {
+                Some(b) => b,
+                None => continue,
+            };
+            let byte = crate::movie::nes_pad_vec_to_byte(buttons);
+            match d.slot.as_str() {
+                "port1" => self.controller_port1.store(byte, Ordering::Relaxed),
+                "port2" => self.controller_port2.store(byte, Ordering::Relaxed),
+                "port3" => self.controller_port3.store(byte, Ordering::Relaxed),
+                "port4" => self.controller_port4.store(byte, Ordering::Relaxed),
+                "adapter1" => self.expansion_adapter_ports[0].store(byte, Ordering::Relaxed),
+                "adapter2" => self.expansion_adapter_ports[1].store(byte, Ordering::Relaxed),
+                "adapter3" => self.expansion_adapter_ports[2].store(byte, Ordering::Relaxed),
+                "adapter4" => self.expansion_adapter_ports[3].store(byte, Ordering::Relaxed),
+                _ => {}
+            }
+        }
+    }
+
+    fn apply_movie_event(&mut self, ev: &crate::movie::AcmEvent) {
+        match ev.kind {
+            crate::movie::AcmEventKind::SoftReset | crate::movie::AcmEventKind::HardReset => self.reset(),
+            crate::movie::AcmEventKind::Power => self.power_cycle(crate::config::load_initial_ram()),
+            crate::movie::AcmEventKind::FdsInsert => self.insert_disk(),
+            crate::movie::AcmEventKind::FdsEject => self.eject_disk(),
+            crate::movie::AcmEventKind::FdsSwapSide => self.change_disk(),
+        }
+    }
+
+    fn snapshot_movie_rom_info(&mut self) {
+        if let Some(cart) = &self.cart {
+            self.movie.file.rom_title = cart.name.clone();
+            self.movie.file.rom_hash = format!("crc32:{:08X}", cart.prg_rom_crc32);
+        }
+    }
+
+    pub fn movie_start_recording(&mut self) {
+        let power_on = self.movie.file.power_on;
+        self.movie.start_new_recording();
+        self.movie.file.power_on = power_on;
+        if power_on {
+            self.movie.record_event(crate::movie::AcmEventKind::Power);
+            self.power_cycle(crate::config::load_initial_ram());
+        }
+        self.snapshot_movie_rom_info();
+    }
+
+    pub fn movie_rom_mismatch_warning(&self) -> Option<String> {
+        let file = &self.movie.file;
+        let current = self.cart.as_ref().map(|c| (c.name.as_str(), format!("crc32:{:08X}", c.prg_rom_crc32)));
+        crate::movie::rom_mismatch_warning(
+            &file.rom_title,
+            &file.rom_hash,
+            current.as_ref().map(|(n, h)| (&n[..], h.as_str())),
+        )
+    }
+
     // run one frame!
     pub fn core_frame_advance(&mut self) {
+        crate::movie::LIVE_INPUT_LOCK.store(
+            self.movie.read_only && self.movie.is_providing_input(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        // movie capture/inject (frame-aligned, pre-sampled raw input)
+        match self.movie.mode {
+            crate::movie::MovieMode::Recording => {
+                let input = self.movie_capture_frame();
+                self.movie.file.frames.push(input);
+                self.movie.cursor += 1;
+                self.movie.dirty = true;
+            }
+            crate::movie::MovieMode::Playing => {
+                for ev in self.movie.events_at(self.movie.cursor) {
+                    self.apply_movie_event(&ev);
+                }
+                let input = self.movie.input_at(self.movie.cursor);
+                self.movie_inject_frame(&input);
+                self.movie.cursor = (self.movie.cursor + 1).min(self.movie.file.frames.len() as u64);
+            }
+            crate::movie::MovieMode::RecordingFromPlayback => {
+                if self.movie.cursor < self.movie.file.frames.len() as u64 {
+                    for ev in self.movie.events_at(self.movie.cursor) {
+                        self.apply_movie_event(&ev);
+                    }
+                    let input = self.movie.input_at(self.movie.cursor);
+                    self.movie_inject_frame(&input);
+                } else {
+                    let input = self.movie_capture_frame();
+                    self.movie.file.frames.push(input);
+                    self.movie.dirty = true;
+                }
+                self.movie.cursor += 1;
+            }
+            crate::movie::MovieMode::None => {}
+        }
         let mut bogo = self.zapper_bogo.load(Ordering::Relaxed);
         while bogo > 0 {
             match self.zapper_bogo.compare_exchange_weak(bogo, bogo - 1, Ordering::Relaxed, Ordering::Relaxed) {
@@ -2707,6 +2830,9 @@ impl Emulator {
         let b = pixel & 0xFF;
         (r as u32 + g as u32 + b as u32) >= 300
     }
+
+    const STATE_MOVIE_MAGIC: &[u8; 4] = b"ACM!";
+const STATE_MOVIE_TRAILER_LEN: usize = Self::STATE_MOVIE_MAGIC.len() + 1 + 8 + 4 + 4;
 
     pub fn save_state_to_bytes(&self) -> Vec<u8> {
         let mut out = Vec::new();
@@ -3211,6 +3337,11 @@ impl Emulator {
         let ra_progress = crate::ra::serialize_progress();
         out.extend_from_slice(&(ra_progress.len() as u32).to_le_bytes());
         out.extend_from_slice(&ra_progress);
+        out.extend_from_slice(Self::STATE_MOVIE_MAGIC);
+        out.push(if self.movie.active() { 1 } else { 0 });
+        out.extend_from_slice(&self.movie.cursor.to_le_bytes());
+        out.extend_from_slice(&(self.movie.file.frames.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(self.movie.file.events.len() as u32).to_le_bytes());
         out
     }
 
@@ -3956,6 +4087,181 @@ impl Emulator {
                 crate::ra::deserialize_progress(&data[p..p + ra_len]);
             }
         }
+        self.movie_validate_savestate_trailer(data)?;
         Ok(())
+    }
+
+    fn movie_validate_savestate_trailer(&mut self, data: &[u8]) -> Result<(), String> {
+        let len = data.len();
+        let mut magic_pos = None;
+        if len >= Self::STATE_MOVIE_TRAILER_LEN {
+            let search_start = len.saturating_sub(Self::STATE_MOVIE_TRAILER_LEN + 8);
+            if let Some(rel) = data[search_start..]
+                .windows(Self::STATE_MOVIE_MAGIC.len())
+                .position(|w| w == Self::STATE_MOVIE_MAGIC)
+            {
+                let abs = search_start + rel;
+                if abs + Self::STATE_MOVIE_TRAILER_LEN == len {
+                    magic_pos = Some(abs);
+                }
+            }
+        }
+        let Some(magic) = magic_pos else {
+            if self.movie.is_providing_input() {
+                return Err("Cannot load this save state while a movie is playing — it was created without movie context and would desynchronize the movie.".to_string());
+            }
+            return Ok(());
+        };
+        let mut ofs = magic + Self::STATE_MOVIE_MAGIC.len();
+        let active = data[ofs] != 0;
+        ofs += 1;
+        let cursor = u64::from_le_bytes(data[ofs..ofs + 8].try_into().unwrap());
+        ofs += 8;
+        let frames = u32::from_le_bytes(data[ofs..ofs + 4].try_into().unwrap());
+        ofs += 4;
+        let events = u32::from_le_bytes(data[ofs..ofs + 4].try_into().unwrap());
+        if !active {
+            return Ok(());
+        }
+        let mv = &mut self.movie;
+        if mv.is_providing_input() {
+            if mv.file.frames.len() as u32 != frames || mv.file.events.len() as u32 != events {
+                return Err("Cannot load this save state — it belongs to a different movie file and would desynchronize playback.".to_string());
+            }
+            if mv.mode == crate::movie::MovieMode::RecordingFromPlayback && !mv.read_only {
+                let f = (cursor as usize).min(mv.file.frames.len());
+                mv.file.frames.truncate(f);
+                mv.file.events.retain(|ev| ev.frame < f as u64);
+                mv.cursor = f as u64;
+                mv.mode = crate::movie::MovieMode::Recording;
+                mv.file.rerecords += 1;
+                mv.dirty = true;
+            } else {
+                mv.cursor = cursor.min(mv.file.frames.len() as u64);
+            }
+        } else if mv.mode == crate::movie::MovieMode::Recording && mv.has_movie() {
+            if mv.read_only {
+                mv.mode = crate::movie::MovieMode::Playing;
+                mv.cursor = cursor.min(mv.file.frames.len() as u64);
+            } else {
+                let f = (cursor as usize).min(mv.file.frames.len());
+                mv.file.frames.truncate(f);
+                mv.file.events.retain(|ev| ev.frame < f as u64);
+                mv.cursor = f as u64;
+                mv.file.rerecords += 1;
+                mv.dirty = true;
+            }
+        } else if mv.has_movie() {
+            mv.cursor = cursor.min(mv.file.frames.len() as u64);
+        } else {
+            return Err("Cannot load this save state — it contains movie data, but no movie is loaded. Load the matching movie first.".to_string());
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::movie::{AcmEventKind, FrameInput};
+
+    fn emu_with_movie_frames(frames: usize, cursor: u64) -> Emulator {
+        let mut e = Emulator::new();
+        e.movie.begin_recording();
+        for _ in 0..frames {
+            e.movie.file.frames.push(FrameInput::empty(4));
+        }
+        e.movie.cursor = cursor;
+        e
+    }
+
+    #[test]
+    fn trailer_magic_at_end() {
+        let e = emu_with_movie_frames(5, 4);
+        let bytes = e.save_state_to_bytes();
+        assert_eq!(&bytes[bytes.len()-21..bytes.len()-17], b"ACM!");
+    }
+
+    #[test]
+    fn savestate_roundtrip_restores_movie_cursor() {
+        let mut e = emu_with_movie_frames(5, 4);
+        let bytes = e.save_state_to_bytes();
+        e.movie.begin_playing();
+        e.movie.cursor = 99;
+        e.load_state_from_bytes(&bytes).expect("load");
+        assert_eq!(e.movie.cursor, 4);
+    }
+
+    #[test]
+    fn savestate_desync_guard_rejects_other_movie() {
+        let bytes = emu_with_movie_frames(5, 4).save_state_to_bytes();
+        let mut e = emu_with_movie_frames(3, 2);
+        e.movie.begin_playing();
+        assert!(e.load_state_from_bytes(&bytes).is_err());
+        assert_eq!(e.movie.cursor, 2);
+    }
+
+    #[test]
+    fn old_format_savestate_blocked_during_playback() {
+        let bytes = emu_with_movie_frames(5, 4).save_state_to_bytes();
+        let truncated = &bytes[..bytes.len() - Emulator::STATE_MOVIE_TRAILER_LEN];
+        let mut e = emu_with_movie_frames(5, 4);
+        e.movie.begin_playing();
+        assert!(e.load_state_from_bytes(truncated).is_err());
+    }
+
+    #[test]
+    fn old_format_savestate_allowed_without_movie() {
+        let mut e = Emulator::new();
+        e.movie.begin_recording();
+        for _ in 0..3 { e.movie.file.frames.push(FrameInput::empty(4)); }
+        let bytes = e.save_state_to_bytes();
+        let truncated = &bytes[..bytes.len() - Emulator::STATE_MOVIE_TRAILER_LEN];
+        e.movie.begin_playing();
+        assert!(e.load_state_from_bytes(truncated).is_err());
+        e.movie.stop();
+        assert!(e.load_state_from_bytes(truncated).is_ok());
+    }
+
+    #[test]
+    fn savestate_with_movie_requires_loaded_movie() {
+        let bytes = emu_with_movie_frames(5, 4).save_state_to_bytes();
+        let mut e = Emulator::new();
+        assert!(e.load_state_from_bytes(&bytes).is_err());
+    }
+
+    #[test]
+    fn savestate_load_during_recording_resumes_recording_at_cursor() {
+        let mut e = emu_with_movie_frames(5, 5);
+        let bytes = e.save_state_to_bytes();
+        e.movie.file.frames.push(FrameInput::empty(4));
+        e.movie.cursor = 6;
+        e.load_state_from_bytes(&bytes).expect("resume recording");
+        assert_eq!(e.movie.mode, crate::movie::MovieMode::Recording);
+        assert_eq!(e.movie.cursor, 5);
+        assert_eq!(e.movie.file.frames.len(), 5);
+    }
+
+    #[test]
+    fn savestate_load_during_recording_with_read_only_begins_playback() {
+        let mut e = emu_with_movie_frames(5, 5);
+        let bytes = e.save_state_to_bytes();
+        e.movie.file.frames.push(FrameInput::empty(4));
+        e.movie.cursor = 6;
+        e.movie.read_only = true;
+        e.load_state_from_bytes(&bytes).expect("begin playback");
+        assert_eq!(e.movie.mode, crate::movie::MovieMode::Playing);
+        assert_eq!(e.movie.cursor, 5);
+        assert_eq!(e.movie.file.frames.len(), 6);
+    }
+
+    #[test]
+    fn movie_start_recording_power_cycles_when_power_on() {
+        let mut e = Emulator::new();
+        e.movie.file.power_on = true;
+        e.movie_start_recording();
+        assert!(e.movie.file.power_on);
+        assert_eq!(e.movie.mode, crate::movie::MovieMode::Recording);
+        assert!(e.movie.file.events.iter().any(|ev| ev.kind == AcmEventKind::Power));
     }
 }

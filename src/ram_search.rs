@@ -765,8 +765,8 @@ pub(crate) fn compute_ram_search_layout(width: usize, height: usize, scale: f32)
     let btn_w = u(112.0);
     let btn_h = u(15.0);
     let btn_gap = u(5.0);
-    let mut btn = [(0usize, 0usize, 0usize, 0usize); 6];
-    for i in 0..6 {
+    let mut btn = [(0usize, 0usize, 0usize, 0usize); 7];
+    for i in 0..7 {
         btn[i] = (btn_x, list_y + i * (btn_h + btn_gap), btn_w, btn_h);
     }
 
@@ -834,8 +834,8 @@ pub(crate) fn compute_ram_search_layout(width: usize, height: usize, scale: f32)
     let map = |r: (usize, usize, usize, usize)| -> (usize, usize, usize, usize) {
         (win_x + r.0, win_y + r.1, r.2, r.3)
     };
-    let mut m_btn = [(0usize, 0usize, 0usize, 0usize); 6];
-    for i in 0..6 {
+    let mut m_btn = [(0usize, 0usize, 0usize, 0usize); 7];
+    for i in 0..7 {
         m_btn[i] = map(btn[i]);
     }
     let mut m_ops = [(0usize, 0usize, 0usize, 0usize); 6];
@@ -905,7 +905,7 @@ pub(crate) struct RamSearchLayout {
     pub rows_visible: usize,
     pub col_x: [usize; 4],
     pub col_w: [usize; 4],
-    pub btn: [(usize, usize, usize, usize); 6],
+    pub btn: [(usize, usize, usize, usize); 7],
     pub ops: [(usize, usize, usize, usize); 6],
     pub op_ids: [u8; 6],
     pub cmp: [(usize, usize, usize, usize); 6],
@@ -1033,13 +1033,14 @@ pub(crate) fn render_ram_search_window(
         }
     }
 
-    let btn_labels: [&str; 6] = [
+    let btn_labels: [&str; 7] = [
         "Search",
         "Reset",
         "Eliminate",
         if st.undo_type == 2 { "Redo" } else { "Undo" },
         "Clear Counts",
         "Add Cheat",
+        "Watch",
     ];
     let btn_enabled = [
         true,
@@ -1048,8 +1049,9 @@ pub(crate) fn render_ram_search_window(
         st.undo_type > 0,
         true,
         ms.ram_search_selected.is_some() && count > 0,
+        ms.ram_search_selected.is_some() && count > 0,
     ];
-    for i in 0..6 {
+    for i in 0..7 {
         let (bx, by, bw, bh) = l.btn[i];
         let enabled = btn_enabled[i];
         let hover = enabled && point_in_rect(mx, my, bx, by, bw, bh);
@@ -1219,8 +1221,8 @@ pub(crate) fn handle_ram_search_click(
         return;
     }
 
-    let btn_ids = [BTN_SEARCH, BTN_RESET, BTN_ELIMINATE, BTN_UNDO, BTN_CLEAR, BTN_ADDCHEAT];
-    for i in 0..6 {
+    let btn_ids = [BTN_SEARCH, BTN_RESET, BTN_ELIMINATE, BTN_UNDO, BTN_CLEAR, BTN_ADDCHEAT, BTN_WATCH];
+    for i in 0..7 {
         let (bx, by, bw, bh) = l.btn[i];
         if point_in_rect(mx, my, bx, by, bw, bh) {
             match btn_ids[i] {
@@ -1278,6 +1280,21 @@ pub(crate) fn handle_ram_search_click(
                     }
                     let mut st = RAM_STATE.lock().unwrap();
                     st.note = format!("Added cheat at {:04X}", hw);
+                }
+                BTN_WATCH => {
+                    let Some(item) = ms.ram_search_selected else { return };
+                    let req = {
+                        let st = RAM_STATE.lock().unwrap();
+                        st.item_info(item as u32).map(|(hw, _)| (hw as u16, st.vsize() as u8, st.rs_t == b's'))
+                    };
+                    let Some((hw, size, signed)) = req else { return };
+                    if let Some(idx) = crate::ram_watch::add_from_search(hw, size, signed) {
+                        ms.ram_watch_selected = Some(idx);
+                        ms.ram_watch_scroll = 0;
+                        ms.show_ram_watch_window = true;
+                        let mut st = RAM_STATE.lock().unwrap();
+                        st.note = format!("Added watch at {:04X}", hw);
+                    }
                 }
                 _ => {}
             }
@@ -1386,6 +1403,7 @@ const BTN_ELIMINATE: usize = 2;
 const BTN_UNDO: usize = 3;
 const BTN_CLEAR: usize = 4;
 const BTN_ADDCHEAT: usize = 5;
+const BTN_WATCH: usize = 6;
 
 pub(crate) fn handle_ram_search_scroll(ms: &mut MenuState, amount: i32) {
     let count = {

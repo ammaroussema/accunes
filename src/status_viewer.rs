@@ -985,6 +985,55 @@ pub(crate) fn build_status_lines(emu: &Emulator, ms: &MenuState) -> Vec<Formatte
     });
 
     lines.push(FormattedStatusLine {
+        text: "--- MOVIE ---".to_string(),
+        kind: StatusLineKind::Header,
+    });
+
+    let mode_str = match emu.movie.mode {
+        crate::movie::MovieMode::None => "Inactive",
+        crate::movie::MovieMode::Recording => "Recording",
+        crate::movie::MovieMode::Playing => "Playback",
+        crate::movie::MovieMode::RecordingFromPlayback => "Recording from playback",
+    };
+    lines.push(FormattedStatusLine {
+        text: format!("Mode:         {}", mode_str),
+        kind: StatusLineKind::LabelValue,
+    });
+    if emu.movie.active() {
+        lines.push(FormattedStatusLine {
+            text: format!("Read-only:    {}", if emu.movie.read_only { "Yes" } else { "No" }),
+            kind: StatusLineKind::LabelValue,
+        });
+        lines.push(FormattedStatusLine {
+            text: format!("Frames:       {}", emu.movie.file.frames.len()),
+            kind: StatusLineKind::LabelValue,
+        });
+        lines.push(FormattedStatusLine {
+            text: format!("Position:     {}", emu.movie.cursor),
+            kind: StatusLineKind::LabelValue,
+        });
+        lines.push(FormattedStatusLine {
+            text: format!("Rerecords:    {}", emu.movie.file.rerecords),
+            kind: StatusLineKind::LabelValue,
+        });
+        lines.push(FormattedStatusLine {
+            text: format!("Power on:     {}", if emu.movie.file.power_on { "Yes" } else { "No" }),
+            kind: StatusLineKind::LabelValue,
+        });
+        if let Some(p) = &emu.movie.last_play_path {
+            lines.push(FormattedStatusLine {
+                text: format!("Path:         {}", p),
+                kind: StatusLineKind::LabelValue,
+            });
+        }
+    } else {
+        lines.push(FormattedStatusLine {
+            text: "No movie active.".to_string(),
+            kind: StatusLineKind::Info,
+        });
+    }
+
+    lines.push(FormattedStatusLine {
         text: "--- MESSAGE LOG ---".to_string(),
         kind: StatusLineKind::Header,
     });

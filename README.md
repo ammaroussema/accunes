@@ -4,9 +4,9 @@ a hardware-accurate NES/Famicom/Famiclone emulator written in rust!
 
 ## Features
 
-- **cycle-accurate 6502 cpu** — every legal and illegal opcode, all addressing modes, interrupts, dma and open-bus edge cases
-- **scanline-accurate ppu** — sprite/background rendering, accurate vblank and nmi timing, sprite evaluation, oam dma edge cases
-- **accurate apu** — all channels, irqs, dmc, controller strobing, clocking and dmc dma edge cases
+- **cycle-accurate 6502 cpu** - every legal and illegal opcode, all addressing modes, interrupts, dma and open-bus edge cases
+- **scanline-accurate ppu** - sprite/background rendering, accurate vblank and nmi timing, sprite evaluation, oam dma edge cases
+- **accurate apu** - all channels, irqs, dmc, controller strobing, clocking and dmc dma edge cases
 - passes **all accuracycoin tests (144/144)** and **all blargg tests**!
 - supports **~646 mappers**!
 - accurate **vs system, pal and dendy** behavior!
@@ -15,6 +15,7 @@ a hardware-accurate NES/Famicom/Famiclone emulator written in rust!
 - **save states**, **per-game save slots**, **quick save / quick load**
 - **battery-backed ram** saving for games that need it
 - **rewind** — savestate rewinding!
+- **tas movies** - built-in tas movie system with custom format (.acm/.acmb) and compatability with .fm2 tases!
 - **cheats** a built-in cheat database! 
 - **video filters** scanline, lcd grid, xbrz, hq, scale, sai, super sai, super eagle, prescale, blargg ntsc, bisqwit ntsc and pal video filters! 
 - **achievements** integrated retroachievements support!
@@ -85,7 +86,7 @@ if you have feedback or ideas, feel free to send them through github!
 
 ## Credits
 - [Oussema Ammar](https://github.com/ammaroussema): hello! this is me! i made the emulator :D
-- [FCEUX](https://fceux.com): very helpful in understanding vs system, pal and dendy! also some obscure mappers, video filters, controllers and audio config!
+- [FCEUX](https://fceux.com): very helpful in understanding vs system, pal and dendy! also some obscure mappers, video filters, controllers, audio config and .fm2 tas file format support!
 - [Mesen](https://www.mesen.ca/): very helpful for obscure mappers, NSF/NSFe mapper, cheats, video filters, audio config, controllers and video config!
 - [Nestopia](http://0ldsk00l.ca/nestopia/): very helpful for obscure mappers!
 - [NintendulatorNRS](https://www.qmtpro.com/~nes/nintendulator/): very useful for ALOT of obscure mappers, controllers and controller configs!

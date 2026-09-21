@@ -190,6 +190,64 @@ pub fn save_region(region: Region) {
     upsert_config("region", name);
 }
 
+pub fn load_movie_read_only() -> bool {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("movie_read_only=") {
+                let v = value.trim().to_lowercase();
+                return v == "1" || v == "true" || v == "yes";
+            }
+        }
+    }
+    false
+}
+
+pub fn save_movie_read_only(value: bool) {
+    upsert_config("movie_read_only", if value { "1" } else { "0" });
+}
+
+pub fn load_movie_last_playback() -> Option<String> {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("movie_last_playback=") {
+                let v = value.trim().to_string();
+                if !v.is_empty() {
+                    return Some(v);
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn save_movie_last_playback(path: &str) {
+    upsert_config("movie_last_playback", path);
+}
+
+pub fn load_movies_dir() -> String {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix("movies_dir=") {
+                let v = value.trim().to_string();
+                if !v.is_empty() {
+                    return v;
+                }
+            }
+        }
+    }
+    String::new()
+}
+
+pub fn save_movies_dir(dir: &str) {
+    upsert_config("movies_dir", dir);
+}
+
 pub fn load_ra_username() -> Option<String> {
     let path = config_path();
     if let Ok(content) = std::fs::read_to_string(&path) {
@@ -290,6 +348,7 @@ pub fn save_check_updates_on_startup(enabled: bool) {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum InitialRam {
     Default,
+    Fceux,
     Zero,
     AllFF,
     Random,
@@ -302,6 +361,7 @@ pub fn load_initial_ram() -> InitialRam {
             let trimmed = line.trim();
             if let Some(value) = trimmed.strip_prefix("initial_ram=") {
                 match value.trim().to_lowercase().as_str() {
+                    "fceux" => return InitialRam::Fceux,
                     "0x00" | "00" | "zero" => return InitialRam::Zero,
                     "0xff" | "ff" | "allff" => return InitialRam::AllFF,
                     "random" => return InitialRam::Random,
@@ -316,6 +376,7 @@ pub fn load_initial_ram() -> InitialRam {
 pub fn save_initial_ram(mode: InitialRam) {
     let s = match mode {
         InitialRam::Default => "default",
+        InitialRam::Fceux => "fceux",
         InitialRam::Zero => "0x00",
         InitialRam::AllFF => "0xFF",
         InitialRam::Random => "random",
@@ -324,9 +385,21 @@ pub fn save_initial_ram(mode: InitialRam) {
 }
 
 impl InitialRam {
+    pub fn from_token(s: &str) -> Option<InitialRam> {
+        match s.trim().to_lowercase().as_str() {
+            "default" => Some(InitialRam::Default),
+            "fceux" => Some(InitialRam::Fceux),
+            "0x00" | "00" | "zero" => Some(InitialRam::Zero),
+            "0xff" | "ff" | "allff" => Some(InitialRam::AllFF),
+            "random" => Some(InitialRam::Random),
+            _ => None,
+        }
+    }
+
     pub fn next(self) -> Self {
         match self {
-            InitialRam::Default => InitialRam::Zero,
+            InitialRam::Default => InitialRam::Fceux,
+            InitialRam::Fceux => InitialRam::Zero,
             InitialRam::Zero => InitialRam::AllFF,
             InitialRam::AllFF => InitialRam::Random,
             InitialRam::Random => InitialRam::Default,
@@ -336,6 +409,7 @@ impl InitialRam {
     pub fn label(self) -> &'static str {
         match self {
             InitialRam::Default => "Default",
+            InitialRam::Fceux => "FCEUX",
             InitialRam::Zero => "0x00",
             InitialRam::AllFF => "0xFF",
             InitialRam::Random => "Random",
@@ -3115,7 +3189,7 @@ pub fn clear_vb_bindings(prefix: &str) {
     }
 }
 
-pub const HOTKEY_COUNT: usize = 35;
+pub const HOTKEY_COUNT: usize = 46;
 
 pub const HOTKEY_LABELS: [&str; HOTKEY_COUNT] = [
     "Open ROM",
@@ -3153,6 +3227,17 @@ pub const HOTKEY_LABELS: [&str; HOTKEY_COUNT] = [
     "Decrease Speed",
     "Reset Speed",
     "Rewind",
+    "Record Movie",
+    "Stop Movie",
+    "Play Movie",
+    "Toggle Movie Read-Only",
+    "Re-record Info",
+    "Movie Backtrack Start",
+    "Movie Backtrack -1",
+    "Movie Backtrack +1",
+    "Movie Backtrack Prev Input",
+    "Movie Backtrack Next Input",
+    "Movie Re-record From Here",
 ];
 
 pub const HOTKEY_CONFIG_KEYS: [&str; HOTKEY_COUNT] = [
@@ -3191,6 +3276,17 @@ pub const HOTKEY_CONFIG_KEYS: [&str; HOTKEY_COUNT] = [
     "hotkey_speed_down",
     "hotkey_reset_speed",
     "hotkey_rewind",
+    "hotkey_movie_record",
+    "hotkey_movie_stop",
+    "hotkey_movie_play",
+    "hotkey_movie_read_only",
+    "hotkey_movie_info",
+    "hotkey_movie_backtrack_start",
+    "hotkey_movie_backtrack_prev",
+    "hotkey_movie_backtrack_next",
+    "hotkey_movie_backtrack_prev_input",
+    "hotkey_movie_backtrack_next_input",
+    "hotkey_movie_rerecord",
 ];
 
 pub const DEFAULT_HOTKEYS: [&str; HOTKEY_COUNT] = [
@@ -3229,6 +3325,17 @@ pub const DEFAULT_HOTKEYS: [&str; HOTKEY_COUNT] = [
     "\"-\"",
     "",
     "F8",
+    "F9",
+    "F10",
+    "F11",
+    "F12",
+    "Shift + F9",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
 ];
 
 pub fn load_hotkeys() -> [String; HOTKEY_COUNT] {
