@@ -783,6 +783,10 @@ pub struct MenuState {
     pub hovered_debug_index: Option<usize>,
     pub show_movie_submenu: bool,
     pub hovered_movie_index: Option<usize>,
+    pub show_movie_backtrack_submenu: bool,
+    pub hovered_movie_backtrack_index: Option<usize>,
+    pub show_movie_io_submenu: bool,
+    pub hovered_movie_io_index: Option<usize>,
     current_region: Region,
     show_general_settings: bool,
     show_directories_settings: bool,
@@ -973,6 +977,10 @@ impl MenuState {
             hovered_debug_index: None,
             show_movie_submenu: false,
             hovered_movie_index: None,
+            show_movie_backtrack_submenu: false,
+            hovered_movie_backtrack_index: None,
+            show_movie_io_submenu: false,
+            hovered_movie_io_index: None,
             current_region: config::load_region(),
             show_general_settings: false,
             show_directories_settings: false,
@@ -1353,7 +1361,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.7.6";
+const APP_VERSION: &str = "1.7.7";
 
 fn strip_version_prefix(s: &str) -> &str {
     s.trim_start_matches(|c: char| c.is_ascii_alphabetic())
@@ -3727,6 +3735,8 @@ fn clamp_submenu_x(dropdown_x: usize, dropdown_w: usize, submenu_w: usize, win_w
     let right_side = dropdown_x.saturating_add(dropdown_w);
     if right_side.saturating_add(submenu_w) <= win_w {
         right_side
+    } else if dropdown_x >= submenu_w {
+        dropdown_x.saturating_sub(submenu_w)
     } else {
         win_w.saturating_sub(submenu_w)
     }
@@ -3954,7 +3964,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.7.6")
+        .with_title("AccuNES 1.7.7")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -4714,8 +4724,23 @@ fn main() {
                             }
                             e.power_cycle(mode);
                         }
-                        EmuCommand::InsertCoin(n) => { e.insert_coin(n); }
-                        EmuCommand::ServiceButton => { e.service_button(); }
+                        EmuCommand::InsertCoin(n) => {
+                            if e.movie.active() {
+                                let ev = if n == 0 {
+                                    crate::movie::AcmEventKind::VsInsertCoin1
+                                } else {
+                                    crate::movie::AcmEventKind::VsInsertCoin2
+                                };
+                                e.movie.record_event(ev);
+                            }
+                            e.insert_coin(n);
+                        }
+                        EmuCommand::ServiceButton => {
+                            if e.movie.active() {
+                                e.movie.record_event(crate::movie::AcmEventKind::VsService);
+                            }
+                            e.service_button();
+                        }
                         EmuCommand::ChangeDisk => {
                             if e.movie.active() {
                                 e.movie.record_event(crate::movie::AcmEventKind::FdsSwapSide);
@@ -11784,6 +11809,8 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                     ms_mut.show_ra_submenu = false;
                                     ms_mut.show_debug_submenu = false;
                                     ms_mut.show_movie_submenu = false;
+                                    ms_mut.show_movie_backtrack_submenu = false;
+                                    ms_mut.show_movie_io_submenu = false;
                                 }
                                 break;
                             }
@@ -12137,9 +12164,9 @@ let state_path = config::state_file_path(rom_path, slot + 1);
                                 } else {
                                     "Insert Disk"
                                 };
-                                let nes_items = [pause_text, "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", disk_label, "Swap Disk", "Input Barcode", "Reset", "Power Cycle"];
+                                let nes_items = [pause_text, "Frame Advance", "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", disk_label, "Swap Disk", "Input Barcode", "Reset", "Power Cycle"];
                                 let nes_positions = calculate_item_positions(&nes_items, dropdown_x, dropdown_y, dropdown_w, sc);
-let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::InputBarcode, NesMenuItem::Reset, NesMenuItem::PowerCycle];
+                                let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::InputBarcode, NesMenuItem::Reset, NesMenuItem::PowerCycle];
                                 
                                 for (i, (x, y, w, h)) in nes_positions.iter().enumerate() {
                                     if point_in_rect(mx, my, *x, *y, *w, *h) {
@@ -12376,38 +12403,191 @@ let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem
                                         "Save Movie",
                                         "Save Movie As...",
                                         "Play Movie...",
-                                        "Toggle Read-Only",
-                                        "Re-record Info",
-                                        "Backtrack to Start",
-                                        "Backtrack to End",
-                                        "Backtrack -1",
-                                        "Backtrack +1",
-                                        "Backtrack Prev Input",
-                                        "Backtrack Next Input",
-                                        "Re-record From Here",
+                                        "Backtrack",
+                                        "Import / Export",
+                                        "Read-Only",
                                         "Power Cycle on Start",
-                                        "Import FM2...",
-                                        "Export FM2...",
+                                        "Movie Info",
                                     ];
-let (_, _, movie_positions) = movie_submenu_layout(&movie_items, dropdown_x, dropdown_w, movie_anchor_y, sc, width);
+                                    let (movie_x, movie_w, movie_positions) = movie_submenu_layout(&movie_items, dropdown_x, dropdown_w, movie_anchor_y, sc, width);
+                                    let backtrack_items = [
+                                        "To Start",
+                                        "To End",
+                                        "Frame -1",
+                                        "Frame +1",
+                                        "Prev Input Change",
+                                        "Next Input Change",
+                                        "Re-record From Here",
+                                    ];
+                                    let bt_anchor_y = movie_positions.get(5).map(|p| p.1).unwrap_or(movie_anchor_y);
+                                    let (_, _, bt_positions) = movie_submenu_layout(&backtrack_items, movie_x, movie_w, bt_anchor_y, sc, width);
+
+                                    let io_items = [
+                                        "Import FM2 / FM3...",
+                                        "Export FM2...",
+                                        "Export FM3...",
+                                    ];
+                                    let io_anchor_y = movie_positions.get(6).map(|p| p.1).unwrap_or(movie_anchor_y);
+                                    let (_, _, io_positions) = movie_submenu_layout(&io_items, movie_x, movie_w, io_anchor_y, sc, width);
+
                                     let mut clicked = false;
-                                    for (i, (x, y, w, h)) in movie_positions.iter().enumerate() {
-                                        if point_in_rect(mx, my, *x, *y, *w, *h) {
-                                            let can_act = !ra::hardcore_active() && match i {
-                                                0 => *rom_loaded_clone.borrow(),
-                                                1 => emu_clone.lock().unwrap().movie.active(),
-                                                2 => emu_clone.lock().unwrap().movie.has_movie(),
-                                                3 => emu_clone.lock().unwrap().movie.has_movie(),
-                                                4 => *rom_loaded_clone.borrow(),
-                                                5 => emu_clone.lock().unwrap().movie.active(),
-                                                6 => true,
-                                                14 => true,
-                                                15 => *rom_loaded_clone.borrow(),
-                                                16 => emu_clone.lock().unwrap().movie.has_movie(),
-                                                _ => emu_clone.lock().unwrap().movie.active(),
-                                            };
-                                            if can_act {
-                                                match i {
+
+                                    if ms_mut.show_movie_backtrack_submenu {
+                                        for (i, (x, y, w, h)) in bt_positions.iter().enumerate() {
+                                            if point_in_rect(mx, my, *x, *y, *w, *h) {
+                                                let can_act = !ra::hardcore_active() && emu_clone.lock().unwrap().movie.active();
+                                                if can_act {
+                                                    match i {
+                                                        0 => emu_clone.lock().unwrap().movie.seek_start(),
+                                                        1 => emu_clone.lock().unwrap().movie.seek_end(),
+                                                        2 => emu_clone.lock().unwrap().movie.backtrack_prev_frame(),
+                                                        3 => emu_clone.lock().unwrap().movie.backtrack_next_frame(),
+                                                        4 => emu_clone.lock().unwrap().movie.backtrack_prev_input_change(),
+                                                        5 => emu_clone.lock().unwrap().movie.backtrack_next_input_change(),
+                                                        6 => emu_clone.lock().unwrap().movie.re_record_from_here(),
+                                                        _ => {}
+                                                    }
+                                                    ms_mut.show_movie_backtrack_submenu = false;
+                                                    ms_mut.show_movie_io_submenu = false;
+                                                    ms_mut.show_movie_submenu = false;
+                                                    ms_mut.active_menu = None;
+                                                    clicked = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if !clicked && ms_mut.show_movie_io_submenu {
+                                        for (i, (x, y, w, h)) in io_positions.iter().enumerate() {
+                                            if point_in_rect(mx, my, *x, *y, *w, *h) {
+                                                let can_act = !ra::hardcore_active() && match i {
+                                                    0 => *rom_loaded_clone.borrow(),
+                                                    1 | 2 => emu_clone.lock().unwrap().movie.has_movie(),
+                                                    _ => false,
+                                                };
+                                                if can_act {
+                                                    match i {
+                                                        0 => {
+                                                            let movies_dir = config::load_movies_dir();
+                                                            let dlg = rfd::FileDialog::new()
+                                                                .add_filter("FM2/FM3 Movie or Project", &["fm2", "fm3"])
+                                                                .add_filter("FM2 Movie", &["fm2"])
+                                                                .add_filter("FM3 TAS Editor Project", &["fm3"])
+                                                                .add_filter("All files", &["*"]);
+                                                            let dlg = if movies_dir.is_empty() { dlg } else { dlg.set_directory(&movies_dir) };
+                                                            if let Some(p) = dlg.pick_file() {
+                                                                remember_movies_dir(&p);
+                                                                match std::fs::read(&p) {
+                                                                    Ok(bytes) => {
+                                                                        match crate::fm2::import_from_fm(&bytes) {
+                                                                            Ok(file) => {
+                                                                                let is_fm3 = p.to_string_lossy().to_lowercase().ends_with(".fm3") || file.emulator.starts_with("FM3");
+                                                                                let mut e = emu_clone.lock().unwrap();
+                                                                                e.movie.adopt_import(file);
+                                                                                if e.movie.file.power_on {
+                                                                                    let ram = crate::movie::movie_initial_ram(&e.movie.file);
+                                                                                    e.power_cycle(ram);
+                                                                                }
+                                                                                if let Some(warn) = e.movie_rom_mismatch_warning() {
+                                                                                    ms_mut.show_error = true;
+                                                                                    ms_mut.error_message = warn;
+                                                                                }
+                                                                                let label = if is_fm3 { "FM3 TAS Editor project" } else { "FM2 movie" };
+                                                                                status_viewer::log_status_message(&mut ms_mut, format!("Imported {}: {}", label, p.to_string_lossy()));
+                                                                            }
+                                                                            Err(err) => {
+                                                                                ms_mut.show_error = true;
+                                                                                ms_mut.error_message = err;
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    Err(e) => {
+                                                                        ms_mut.show_error = true;
+                                                                        ms_mut.error_message = format!("Failed to read {}: {}", p.to_string_lossy(), e);
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        1 => {
+                                                            let movies_dir = config::load_movies_dir();
+                                                            let dlg = rfd::FileDialog::new()
+                                                                .set_file_name("movie.fm2")
+                                                                .add_filter("FM2 Movie", &["fm2"]);
+                                                            let dlg = if movies_dir.is_empty() { dlg } else { dlg.set_directory(&movies_dir) };
+                                                            if let Some(p) = dlg.save_file() {
+                                                                remember_movies_dir(&p);
+                                                                let mut fname = p.to_string_lossy().to_string();
+                                                                if !fname.to_lowercase().ends_with(".fm2") {
+                                                                    fname.push_str(".fm2");
+                                                                }
+                                                                let text = crate::fm2::export_to_fm2(&emu_clone.lock().unwrap().movie.file);
+                                                                match std::fs::write(&fname, text) {
+                                                                    Ok(()) => {
+                                                                        status_viewer::log_status_message(&mut ms_mut, format!("Exported FM2 movie: {}", fname));
+                                                                    }
+                                                                    Err(e) => {
+                                                                        ms_mut.show_error = true;
+                                                                        ms_mut.error_message = format!("Failed to write {}: {}", fname, e);
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        2 => {
+                                                            let movies_dir = config::load_movies_dir();
+                                                            let dlg = rfd::FileDialog::new()
+                                                                .set_file_name("project.fm3")
+                                                                .add_filter("FM3 TAS Editor Project", &["fm3"]);
+                                                            let dlg = if movies_dir.is_empty() { dlg } else { dlg.set_directory(&movies_dir) };
+                                                            if let Some(p) = dlg.save_file() {
+                                                                remember_movies_dir(&p);
+                                                                let mut fname = p.to_string_lossy().to_string();
+                                                                if !fname.to_lowercase().ends_with(".fm3") {
+                                                                    fname.push_str(".fm3");
+                                                                }
+                                                                let data = crate::fm2::export_to_fm3(&emu_clone.lock().unwrap().movie.file);
+                                                                match std::fs::write(&fname, data) {
+                                                                    Ok(()) => {
+                                                                        status_viewer::log_status_message(&mut ms_mut, format!("Exported FM3 project: {}", fname));
+                                                                    }
+                                                                    Err(e) => {
+                                                                        ms_mut.show_error = true;
+                                                                        ms_mut.error_message = format!("Failed to write {}: {}", fname, e);
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        _ => {}
+                                                    }
+                                                    ms_mut.show_movie_backtrack_submenu = false;
+                                                    ms_mut.show_movie_io_submenu = false;
+                                                    ms_mut.show_movie_submenu = false;
+                                                    ms_mut.active_menu = None;
+                                                    clicked = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if !clicked {
+                                        for (i, (x, y, w, h)) in movie_positions.iter().enumerate() {
+                                            if point_in_rect(mx, my, *x, *y, *w, *h) {
+                                                let can_act = !ra::hardcore_active() && match i {
+                                                    0 => *rom_loaded_clone.borrow(),
+                                                    1 => emu_clone.lock().unwrap().movie.active(),
+                                                    2 => emu_clone.lock().unwrap().movie.has_movie(),
+                                                    3 => emu_clone.lock().unwrap().movie.has_movie(),
+                                                    4 => *rom_loaded_clone.borrow(),
+                                                    5 => emu_clone.lock().unwrap().movie.active(),
+                                                    6 => true,
+                                                    7 => emu_clone.lock().unwrap().movie.active(),
+                                                    8 => true,
+                                                    9 => true,
+                                                    _ => false,
+                                                };
+                                                if can_act {
+                                                    match i {
                                                     0 => {
                                                         let has_unsaved = emu_clone.lock().unwrap().movie.has_unsaved_content();
                                                         if has_unsaved {
@@ -12487,8 +12667,11 @@ let (_, _, movie_positions) = movie_submenu_layout(&movie_items, dropdown_x, dro
                                                     4 => {
                                                         let movies_dir = config::load_movies_dir();
                                                         let dlg = rfd::FileDialog::new()
+                                                            .add_filter("Movie & Project Files", &["acm", "acmb", "fm2", "fm3"])
                                                             .add_filter("AccuNES Movie", &["acm"])
                                                             .add_filter("AccuNES Binary Movie", &["acmb"])
+                                                            .add_filter("FCEUX Movie", &["fm2"])
+                                                            .add_filter("TAS Editor Project", &["fm3"])
                                                             .add_filter("All files", &["*"]);
                                                         let dlg = if movies_dir.is_empty() { dlg } else { dlg.set_directory(&movies_dir) };
                                                         if let Some(path) = dlg.pick_file() {
@@ -12507,116 +12690,49 @@ let (_, _, movie_positions) = movie_submenu_layout(&movie_items, dropdown_x, dro
                                                             }
                                                         }
                                                     }
-5 => {
+                                                    5 => {
+                                                        ms_mut.show_movie_backtrack_submenu = !ms_mut.show_movie_backtrack_submenu;
+                                                        ms_mut.show_movie_io_submenu = false;
+                                                    }
+                                                    6 => {
+                                                        ms_mut.show_movie_io_submenu = !ms_mut.show_movie_io_submenu;
+                                                        ms_mut.show_movie_backtrack_submenu = false;
+                                                    }
+                                                    7 => {
                                                         let mut e = emu_clone.lock().unwrap();
                                                         let nv = !e.movie.read_only;
                                                         e.movie.set_read_only(nv);
                                                         config::save_movie_read_only(nv);
                                                     }
-                                                    6 => {
+                                                    8 => {
+                                                        let mut e = emu_clone.lock().unwrap();
+                                                        e.movie.file.power_on = !e.movie.file.power_on;
+                                                    }
+                                                    9 => {
                                                         let e = emu_clone.lock().unwrap();
                                                         ms_mut.movie_info_text = e.movie.describe();
                                                         ms_mut.show_movie_info = true;
                                                     }
-                                                    7 => {
-                                                        emu_clone.lock().unwrap().movie.seek_start();
-                                                    }
-                                                    8 => {
-                                                        emu_clone.lock().unwrap().movie.seek_end();
-                                                    }
-                                                    9 => {
-                                                        emu_clone.lock().unwrap().movie.backtrack_prev_frame();
-                                                    }
-                                                    10 => {
-                                                        emu_clone.lock().unwrap().movie.backtrack_next_frame();
-                                                    }
-                                                    11 => {
-                                                        emu_clone.lock().unwrap().movie.backtrack_prev_input_change();
-                                                    }
-                                                    12 => {
-                                                        emu_clone.lock().unwrap().movie.backtrack_next_input_change();
-                                                    }
-                                                    13 => {
-                                                        emu_clone.lock().unwrap().movie.re_record_from_here();
-                                                    }
-                                                    14 => {
-                                                        let mut e = emu_clone.lock().unwrap();
-                                                        e.movie.file.power_on = !e.movie.file.power_on;
-                                                    }
-                                                    15 => {
-                                                        let movies_dir = config::load_movies_dir();
-                                                        let dlg = rfd::FileDialog::new()
-                                                            .add_filter("FM2 Movie", &["fm2"])
-                                                            .add_filter("All files", &["*"]);
-                                                        let dlg = if movies_dir.is_empty() { dlg } else { dlg.set_directory(&movies_dir) };
-                                                        if let Some(p) = dlg.pick_file() {
-                                                            remember_movies_dir(&p);
-                                                            match std::fs::read_to_string(&p) {
-                                                                Ok(text) => {
-                                                                    match crate::fm2::import_from_fm2(&text) {
-                                                                        Ok(file) => {
-                                                                            let mut e = emu_clone.lock().unwrap();
-                                                                            e.movie.adopt_import(file);
-                                                                            if e.movie.file.power_on {
-                                                                                let ram = crate::movie::movie_initial_ram(&e.movie.file);
-                                                                                e.power_cycle(ram);
-                                                                            }
-                                                                            if let Some(warn) = e.movie_rom_mismatch_warning() {
-                                                                                ms_mut.show_error = true;
-                                                                                ms_mut.error_message = warn;
-                                                                            }
-                                                                            status_viewer::log_status_message(&mut ms_mut, format!("Imported FM2 movie: {}", p.to_string_lossy()));
-                                                                        }
-                                                                        Err(err) => {
-                                                                            ms_mut.show_error = true;
-                                                                            ms_mut.error_message = err;
-                                                                        }
-                                                                    }
-                                                                }
-                                                                Err(e) => {
-                                                                    ms_mut.show_error = true;
-                                                                    ms_mut.error_message = format!("Failed to read {}: {}", p.to_string_lossy(), e);
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                    16 => {
-                                                        let movies_dir = config::load_movies_dir();
-                                                        let dlg = rfd::FileDialog::new()
-                                                            .set_file_name("movie.fm2")
-                                                            .add_filter("FM2 Movie", &["fm2"]);
-                                                        let dlg = if movies_dir.is_empty() { dlg } else { dlg.set_directory(&movies_dir) };
-                                                        if let Some(p) = dlg.save_file() {
-                                                            remember_movies_dir(&p);
-                                                            let mut fname = p.to_string_lossy().to_string();
-                                                            if !fname.to_lowercase().ends_with(".fm2") {
-                                                                fname.push_str(".fm2");
-                                                            }
-                                                            let text = crate::fm2::export_to_fm2(&emu_clone.lock().unwrap().movie.file);
-                                                            match std::fs::write(&fname, text) {
-                                                                Ok(()) => {
-                                                                    status_viewer::log_status_message(&mut ms_mut, format!("Exported FM2 movie: {}", fname));
-                                                                }
-                                                                Err(e) => {
-                                                                    ms_mut.show_error = true;
-                                                                    ms_mut.error_message = format!("Failed to write {}: {}", fname, e);
-                                                                }
-                                                            }
-                                                        }
-                                                    }
                                                     _ => {}
                                                 }
-                                                ms_mut.show_movie_submenu = false;
-                                                ms_mut.active_menu = None;
+                                                if i != 5 && i != 6 {
+                                                    ms_mut.show_movie_backtrack_submenu = false;
+                                                    ms_mut.show_movie_io_submenu = false;
+                                                    ms_mut.show_movie_submenu = false;
+                                                    ms_mut.active_menu = None;
+                                                }
                                                 clicked = true;
                                                 break;
                                             }
                                         }
                                     }
-                                    if !clicked {
+                                }
+                                if !clicked {
                                         if let Some((x, y, w, h)) = tools_positions.get(7) {
                                             if point_in_rect(mx, my, *x, *y, *w, *h) {
                                                 ms_mut.show_movie_submenu = false;
+                                                ms_mut.show_movie_backtrack_submenu = false;
+                                                ms_mut.show_movie_io_submenu = false;
                                             }
                                         }
                                     }
@@ -12667,6 +12783,8 @@ let (_, _, movie_positions) = movie_submenu_layout(&movie_items, dropdown_x, dro
                                                     ms_mut.show_speed_submenu = true;
                                                     ms_mut.show_debug_submenu = false;
                                                     ms_mut.show_movie_submenu = false;
+                                                    ms_mut.show_movie_backtrack_submenu = false;
+                                                    ms_mut.show_movie_io_submenu = false;
                                                 }
                                                 5 => {
                                                     if *rom_loaded_clone.borrow() && !ra::hardcore_active() {
@@ -12677,9 +12795,13 @@ let (_, _, movie_positions) = movie_submenu_layout(&movie_items, dropdown_x, dro
                                                     ms_mut.show_debug_submenu = true;
                                                     ms_mut.show_speed_submenu = false;
                                                     ms_mut.show_movie_submenu = false;
+                                                    ms_mut.show_movie_backtrack_submenu = false;
+                                                    ms_mut.show_movie_io_submenu = false;
                                                 }
                                                 7 => {
                                                     ms_mut.show_movie_submenu = true;
+                                                    ms_mut.show_movie_backtrack_submenu = false;
+                                                    ms_mut.show_movie_io_submenu = false;
                                                     ms_mut.show_speed_submenu = false;
                                                     ms_mut.show_debug_submenu = false;
                                                 }
@@ -13255,7 +13377,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                             } else {
                                 "Insert Disk"
                             };
-                            let nes_items = [pause_text, "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", disk_label, "Swap Disk", "Input Barcode", "Reset", "Power Cycle"];
+                            let nes_items = [pause_text, "Frame Advance", "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", disk_label, "Swap Disk", "Input Barcode", "Reset", "Power Cycle"];
                             let nes_positions = calculate_item_positions(&nes_items, dropdown_x, dropdown_y, dropdown_w, sc);
                             let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::InputBarcode, NesMenuItem::Reset, NesMenuItem::PowerCycle];
                             
@@ -13361,28 +13483,84 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                                     "Save Movie",
                                     "Save Movie As...",
                                     "Play Movie...",
-                                    "Toggle Read-Only",
-                                    "Re-record Info",
-                                    "Backtrack to Start",
-                                    "Backtrack to End",
-                                    "Backtrack -1",
-                                    "Backtrack +1",
-                                    "Backtrack Prev Input",
-                                    "Backtrack Next Input",
-                                    "Re-record From Here",
+                                    "Backtrack",
+                                    "Import / Export",
+                                    "Read-Only",
                                     "Power Cycle on Start",
-                                    "Import FM2...",
-                                    "Export FM2...",
+                                    "Movie Info",
                                 ];
-                                let (_, _, movie_positions) = movie_submenu_layout(&movie_items, dropdown_x, dropdown_w, movie_anchor_y, sc, width);
-                                for (i, (x, y, w, h)) in movie_positions.iter().enumerate() {
-                                    if point_in_rect(mx, my, *x, *y, *w, *h) {
-                                        ms_mut.hovered_movie_index = Some(i);
-                                        break;
+                                let (movie_x, movie_w, movie_positions) = movie_submenu_layout(&movie_items, dropdown_x, dropdown_w, movie_anchor_y, sc, width);
+                                let backtrack_items = [
+                                    "To Start",
+                                    "To End",
+                                    "Frame -1",
+                                    "Frame +1",
+                                    "Prev Input Change",
+                                    "Next Input Change",
+                                    "Re-record From Here",
+                                ];
+                                let bt_anchor_y = movie_positions.get(5).map(|p| p.1).unwrap_or(movie_anchor_y);
+                                let (_, _, bt_positions) = movie_submenu_layout(&backtrack_items, movie_x, movie_w, bt_anchor_y, sc, width);
+
+                                let io_items = [
+                                    "Import FM2 / FM3...",
+                                    "Export FM2...",
+                                    "Export FM3...",
+                                ];
+                                let io_anchor_y = movie_positions.get(6).map(|p| p.1).unwrap_or(movie_anchor_y);
+                                let (_, _, io_positions) = movie_submenu_layout(&io_items, movie_x, movie_w, io_anchor_y, sc, width);
+
+                                let mut in_child_submenu = false;
+                                if ms_mut.show_movie_backtrack_submenu {
+                                    ms_mut.hovered_movie_backtrack_index = None;
+                                    for (i, (x, y, w, h)) in bt_positions.iter().enumerate() {
+                                        if point_in_rect(mx, my, *x, *y, *w, *h) {
+                                            ms_mut.hovered_movie_backtrack_index = Some(i);
+                                            ms_mut.hovered_movie_index = Some(5);
+                                            in_child_submenu = true;
+                                            break;
+                                        }
+                                    }
+                                } else {
+                                    ms_mut.hovered_movie_backtrack_index = None;
+                                }
+
+                                if ms_mut.show_movie_io_submenu {
+                                    ms_mut.hovered_movie_io_index = None;
+                                    for (i, (x, y, w, h)) in io_positions.iter().enumerate() {
+                                        if point_in_rect(mx, my, *x, *y, *w, *h) {
+                                            ms_mut.hovered_movie_io_index = Some(i);
+                                            ms_mut.hovered_movie_index = Some(6);
+                                            in_child_submenu = true;
+                                            break;
+                                        }
+                                    }
+                                } else {
+                                    ms_mut.hovered_movie_io_index = None;
+                                }
+
+                                if !in_child_submenu {
+                                    for (i, (x, y, w, h)) in movie_positions.iter().enumerate() {
+                                        if point_in_rect(mx, my, *x, *y, *w, *h) {
+                                            ms_mut.hovered_movie_index = Some(i);
+                                            if i == 5 {
+                                                ms_mut.show_movie_backtrack_submenu = true;
+                                                ms_mut.show_movie_io_submenu = false;
+                                            } else if i == 6 {
+                                                ms_mut.show_movie_io_submenu = true;
+                                                ms_mut.show_movie_backtrack_submenu = false;
+                                            } else {
+                                                ms_mut.show_movie_backtrack_submenu = false;
+                                                ms_mut.show_movie_io_submenu = false;
+                                            }
+                                            break;
+                                        }
                                     }
                                 }
                             } else {
                                 ms_mut.hovered_movie_index = None;
+                                ms_mut.hovered_movie_backtrack_index = None;
+                                ms_mut.hovered_movie_io_index = None;
                             }
                         }
                         Menu::Help => {
@@ -13525,9 +13703,9 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                         } else if lower.ends_with(".fds") || lower.ends_with(".qd") || lower.ends_with(".studybox") || lower.ends_with(".study") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.7.6: {}", filename)
+                        format!("AccuNES 1.7.7: {}", filename)
                     } else {
-                        "AccuNES 1.7.6".to_string()
+                        "AccuNES 1.7.7".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -14294,24 +14472,18 @@ let submenu_item_h = (16.0 * scale).round() as usize;
                                     "Save Movie",
                                     "Save Movie As...",
                                     "Play Movie...",
-                                    "Toggle Read-Only",
-                                    "Re-record Info",
-                                    "Backtrack to Start",
-                                    "Backtrack to End",
-                                    "Backtrack -1",
-                                    "Backtrack +1",
-                                    "Backtrack Prev Input",
-                                    "Backtrack Next Input",
-                                    "Re-record From Here",
+                                    "Backtrack",
+                                    "Import / Export",
+                                    "Read-Only",
                                     "Power Cycle on Start",
-                                    "Import FM2...",
-                                    "Export FM2...",
+                                    "Movie Info",
                                 ];
                                 let (submenu_x, submenu_w, movie_positions) = movie_submenu_layout(&movie_items, dropdown_x, dropdown_w, movie_anchor_y, scale, width);
                                 let movie_h = movie_positions.iter().map(|p| p.3).sum::<usize>();
                                 draw_rect(&mut buffer, submenu_x, movie_anchor_y, submenu_w, movie_h, width, dropdown_bg);
-                                let name_x = submenu_x + pad_x;
-                                let name_max_w = submenu_w.saturating_sub(pad_x * 2);
+                                let indicator_gap = (10.0 * scale).round() as usize;
+                                let name_x = submenu_x + pad_x + indicator_gap;
+                                let name_max_w = submenu_w.saturating_sub(name_x - submenu_x + pad_x);
                                 for (i, name) in movie_items.iter().enumerate() {
                                     let (_, iy, _, ih) = movie_positions[i];
                                     let enabled = !ra::hardcore_active() && match i {
@@ -14322,27 +14494,85 @@ let submenu_item_h = (16.0 * scale).round() as usize;
                                         4 => *rom_loaded_clone.borrow(),
                                         5 => emu_clone.lock().unwrap().movie.active(),
                                         6 => true,
-                                        14 => true,
-                                        15 => *rom_loaded_clone.borrow(),
-                                        16 => emu_clone.lock().unwrap().movie.has_movie(),
-                                        _ => emu_clone.lock().unwrap().movie.active(),
+                                        7 => emu_clone.lock().unwrap().movie.active(),
+                                        8 => true,
+                                        9 => true,
+                                        _ => false,
                                     };
                                     let item_color = if enabled { menu_text } else { colors.disabled_text };
-                                    if ms.hovered_movie_index == Some(i) && enabled {
+                                    let is_hovered = ms.hovered_movie_index == Some(i)
+                                        || (i == 5 && ms.show_movie_backtrack_submenu)
+                                        || (i == 6 && ms.show_movie_io_submenu);
+                                    if is_hovered && enabled {
                                         draw_rect(&mut buffer, submenu_x, iy, submenu_w, ih, width, menu_highlight);
                                     }
                                     draw_text_wrapped(&mut buffer, name_x, iy + pad_y, name_max_w, width, name, item_color, scale);
-                                    if i == 5 || i == 14 {
-                                        let on = if i == 5 {
+                                    if i == 5 || i == 6 {
+                                        let arrow_x = (submenu_x + submenu_w).saturating_sub(pad_x * 2);
+                                        draw_text(&mut buffer, arrow_x, iy + pad_y, width, ">", item_color, scale);
+                                    } else if i == 7 || i == 8 {
+                                        let on = if i == 7 {
                                             emu_clone.lock().unwrap().movie.read_only
                                         } else {
                                             emu_clone.lock().unwrap().movie.file.power_on
                                         };
-                                        let marker = if on { "[x]" } else { "[ ]" };
-                                        let char_w = (8.0 * scale).round() as usize;
-                                        let marker_w = marker.chars().count() * char_w;
-                                        let mx = submenu_x + submenu_w - pad_x - marker_w;
-                                        draw_text(&mut buffer, mx, iy + pad_y, width, marker, item_color, scale);
+                                        if on {
+                                            draw_text(&mut buffer, submenu_x + pad_x, iy + pad_y, width, ">", item_color, scale);
+                                        }
+                                    }
+                                }
+
+                                if ms.show_movie_backtrack_submenu {
+                                    let backtrack_items = [
+                                        "To Start",
+                                        "To End",
+                                        "Frame -1",
+                                        "Frame +1",
+                                        "Prev Input Change",
+                                        "Next Input Change",
+                                        "Re-record From Here",
+                                    ];
+                                    let bt_anchor_y = movie_positions.get(5).map(|p| p.1).unwrap_or(movie_anchor_y);
+                                    let (bt_x, bt_w, bt_positions) = movie_submenu_layout(&backtrack_items, submenu_x, submenu_w, bt_anchor_y, scale, width);
+                                    let bt_h = bt_positions.iter().map(|p| p.3).sum::<usize>();
+                                    draw_rect(&mut buffer, bt_x, bt_anchor_y, bt_w, bt_h, width, dropdown_bg);
+                                    let bt_name_x = bt_x + pad_x;
+                                    let bt_name_max_w = bt_w.saturating_sub(pad_x * 2);
+                                    for (i, name) in backtrack_items.iter().enumerate() {
+                                        let (_, iy, _, ih) = bt_positions[i];
+                                        let enabled = !ra::hardcore_active() && emu_clone.lock().unwrap().movie.active();
+                                        let item_color = if enabled { menu_text } else { colors.disabled_text };
+                                        if ms.hovered_movie_backtrack_index == Some(i) && enabled {
+                                            draw_rect(&mut buffer, bt_x, iy, bt_w, ih, width, menu_highlight);
+                                        }
+                                        draw_text_wrapped(&mut buffer, bt_name_x, iy + pad_y, bt_name_max_w, width, name, item_color, scale);
+                                    }
+                                }
+
+                                if ms.show_movie_io_submenu {
+                                    let io_items = [
+                                        "Import FM2 / FM3...",
+                                        "Export FM2...",
+                                        "Export FM3...",
+                                    ];
+                                    let io_anchor_y = movie_positions.get(6).map(|p| p.1).unwrap_or(movie_anchor_y);
+                                    let (io_x, io_w, io_positions) = movie_submenu_layout(&io_items, submenu_x, submenu_w, io_anchor_y, scale, width);
+                                    let io_h = io_positions.iter().map(|p| p.3).sum::<usize>();
+                                    draw_rect(&mut buffer, io_x, io_anchor_y, io_w, io_h, width, dropdown_bg);
+                                    let io_name_x = io_x + pad_x;
+                                    let io_name_max_w = io_w.saturating_sub(pad_x * 2);
+                                    for (i, name) in io_items.iter().enumerate() {
+                                        let (_, iy, _, ih) = io_positions[i];
+                                        let enabled = !ra::hardcore_active() && match i {
+                                            0 => *rom_loaded_clone.borrow(),
+                                            1 | 2 => emu_clone.lock().unwrap().movie.has_movie(),
+                                            _ => false,
+                                        };
+                                        let item_color = if enabled { menu_text } else { colors.disabled_text };
+                                        if ms.hovered_movie_io_index == Some(i) && enabled {
+                                            draw_rect(&mut buffer, io_x, iy, io_w, ih, width, menu_highlight);
+                                        }
+                                        draw_text_wrapped(&mut buffer, io_name_x, iy + pad_y, io_name_max_w, width, name, item_color, scale);
                                     }
                                 }
                             }
@@ -14479,7 +14709,7 @@ let submenu_item_h = (16.0 * scale).round() as usize;
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.7.6",
+                        "Version: 1.7.7",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
@@ -17395,6 +17625,9 @@ draw_text(&mut buffer, input_display_cb_x + cb_w + input_display_text_gap, input
                         || ms_state.show_speed_submenu
                         || ms_state.show_ra_submenu
                         || ms_state.show_debug_submenu
+                        || ms_state.show_movie_submenu
+                        || ms_state.show_movie_backtrack_submenu
+                        || ms_state.show_movie_io_submenu
                         || ms_state.show_general_settings
                         || ms_state.show_directories_settings
                         || ms_state.show_audio_settings

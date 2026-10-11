@@ -40,6 +40,9 @@ pub(crate) enum AcmEventKind {
     FdsInsert,
     FdsEject,
     FdsSwapSide,
+    VsInsertCoin1,
+    VsInsertCoin2,
+    VsService,
 }
 
 impl AcmEventKind {
@@ -51,6 +54,9 @@ impl AcmEventKind {
             AcmEventKind::FdsInsert => "FDS_INSERT",
             AcmEventKind::FdsEject => "FDS_EJECT",
             AcmEventKind::FdsSwapSide => "FDS_SWAP",
+            AcmEventKind::VsInsertCoin1 => "VS_COIN1",
+            AcmEventKind::VsInsertCoin2 => "VS_COIN2",
+            AcmEventKind::VsService => "VS_SERVICE",
         }
     }
 
@@ -62,6 +68,9 @@ impl AcmEventKind {
             "FDS_INSERT" => Some(AcmEventKind::FdsInsert),
             "FDS_EJECT" => Some(AcmEventKind::FdsEject),
             "FDS_SWAP" => Some(AcmEventKind::FdsSwapSide),
+            "VS_COIN1" => Some(AcmEventKind::VsInsertCoin1),
+            "VS_COIN2" => Some(AcmEventKind::VsInsertCoin2),
+            "VS_SERVICE" => Some(AcmEventKind::VsService),
             _ => None,
         }
     }
@@ -127,6 +136,55 @@ pub(crate) struct Subtitle {
     pub text: String,
 }
 
+pub(crate) fn guid_from_bytes(b: &[u8; 16]) -> String {
+    format!(
+        "{:02X}{:02X}{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
+        b[0], b[1], b[2], b[3],
+        b[4], b[5],
+        b[6], b[7],
+        b[8], b[9],
+        b[10], b[11], b[12], b[13], b[14], b[15]
+    )
+}
+
+pub(crate) fn guid_to_bytes(guid: &str) -> [u8; 16] {
+    let hex: String = guid.chars().filter(|c| c.is_ascii_hexdigit()).collect();
+    if hex.len() == 32 {
+        let mut b = [0u8; 16];
+        for i in 0..16 {
+            if let Ok(v) = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16) {
+                b[i] = v;
+            }
+        }
+        return b;
+    }
+    let mut b = [0u8; 16];
+    for (i, c) in guid.bytes().enumerate() {
+        b[i % 16] ^= c;
+    }
+    b
+}
+
+pub(crate) fn generate_guid() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let pid = std::process::id() as u64;
+    let mut s0 = (nanos as u64) ^ 0x517cc1b727220a95;
+    let mut s1 = ((nanos >> 64) as u64) ^ count.wrapping_mul(0x9e3779b97f4a7c15) ^ pid;
+    s0 ^= s0 << 13; s0 ^= s0 >> 7; s0 ^= s0 << 17;
+    s1 ^= s1 << 13; s1 ^= s1 >> 7; s1 ^= s1 << 17;
+    let b0 = s0.to_le_bytes();
+    let b1 = s1.to_le_bytes();
+    let mut bytes = [0u8; 16];
+    bytes[..8].copy_from_slice(&b0);
+    bytes[8..].copy_from_slice(&b1);
+    bytes[6] = (bytes[6] & 0x0F) | 0x40;
+    bytes[8] = (bytes[8] & 0x3F) | 0x80;
+    guid_from_bytes(&bytes)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct MovieFile {
     pub format: u32,
@@ -138,6 +196,7 @@ pub(crate) struct MovieFile {
     pub author: String,
     pub comment: String,
     pub power_on: bool,
+    pub guid: String,
     pub settings: Vec<(String, String)>,
     pub devices: Vec<DevicePort>,
     pub frames: Vec<FrameInput>,
@@ -158,6 +217,7 @@ impl MovieFile {
             author: String::new(),
             comment: String::new(),
             power_on: false,
+            guid: generate_guid(),
             settings: Vec::new(),
             devices: Vec::new(),
             frames: Vec::new(),
@@ -203,6 +263,7 @@ impl MovieFile {
         out.push_str(&format!("[author] {}\n", escape(&self.author)));
         out.push_str(&format!("[comment] {}\n", escape(&self.comment)));
         out.push_str(&format!("[powerOn] {}\n", if self.power_on { "1" } else { "0" }));
+        out.push_str(&format!("[guid] {}\n", self.guid));
         for (k, v) in &self.settings {
             out.push_str(&format!("[setting] {}={}\n", escape(k), escape(v)));
         }
@@ -294,6 +355,7 @@ impl MovieFile {
                     "author" => f.author = unescape(rest),
                     "comment" => f.comment = unescape(rest),
                     "powerOn" => f.power_on = parse_bool(rest, line_no)?,
+                    "guid" => f.guid = rest.trim().to_string(),
                     "setting" => {
                         f.settings.push(split_setting(rest, line_no)?);
                     }
@@ -412,8 +474,12 @@ impl MovieFile {
         w.str(&self.rom_hash);
         w.str(&self.author);
         w.str(&self.comment);
-        w.u32(self.settings.len() as u32);
-        for (k, v) in &self.settings {
+        let mut settings = self.settings.clone();
+        if !settings.iter().any(|(k, _)| k == "guid") {
+            settings.push(("guid".to_string(), self.guid.clone()));
+        }
+        w.u32(settings.len() as u32);
+        for (k, v) in &settings {
             w.str(k);
             w.str(v);
         }
@@ -501,6 +567,9 @@ impl MovieFile {
             let k = r.str()?;
             let v = r.str()?;
             f.settings.push((k, v));
+        }
+        if let Some((_, g)) = f.settings.iter().find(|(k, _)| k == "guid") {
+            f.guid = g.clone();
         }
         let nd = r.u32()? as usize;
         for _ in 0..nd {
@@ -758,6 +827,9 @@ fn kind_index(k: AcmEventKind) -> u8 {
         AcmEventKind::FdsInsert => 3,
         AcmEventKind::FdsEject => 4,
         AcmEventKind::FdsSwapSide => 5,
+        AcmEventKind::VsInsertCoin1 => 6,
+        AcmEventKind::VsInsertCoin2 => 7,
+        AcmEventKind::VsService => 8,
     }
 }
 
@@ -769,6 +841,9 @@ fn kind_from_index(i: u8) -> Option<AcmEventKind> {
         3 => Some(AcmEventKind::FdsInsert),
         4 => Some(AcmEventKind::FdsEject),
         5 => Some(AcmEventKind::FdsSwapSide),
+        6 => Some(AcmEventKind::VsInsertCoin1),
+        7 => Some(AcmEventKind::VsInsertCoin2),
+        8 => Some(AcmEventKind::VsService),
         _ => None,
     }
 }
@@ -945,12 +1020,26 @@ impl MovieEngine {
     }
 
     pub(crate) fn load_playback_from_disk(&mut self, path: &str) -> Result<(), String> {
-        let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        let file = MovieFile::parse_text(&text)?;
+        let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+        let lower = path.to_lowercase();
+        let file = if lower.ends_with(".fm2") || lower.ends_with(".fm3") {
+            crate::fm2::import_from_fm(&bytes)?
+        } else if bytes.starts_with(ACM_BINARY_MAGIC.as_bytes()) {
+            MovieFile::parse_binary(&bytes)?
+        } else if let Ok(text) = std::str::from_utf8(&bytes) {
+            if text.starts_with("version 2") || text.starts_with("version 3") {
+                crate::fm2::import_from_fm(&bytes)?
+            } else {
+                MovieFile::parse_text(text)?
+            }
+        } else {
+            MovieFile::parse_binary(&bytes)?
+        };
         self.file = file;
         self.cursor = 0;
         self.dirty = false;
         self.mode = MovieMode::Playing;
+        self.read_only = true;
         self.last_play_path = Some(path.to_string());
         self.current_path = Some(path.to_string());
         Ok(())
@@ -961,6 +1050,7 @@ impl MovieEngine {
         self.cursor = 0;
         self.dirty = false;
         self.mode = MovieMode::Playing;
+        self.read_only = true;
         self.current_path = None;
     }
 
@@ -1103,31 +1193,71 @@ pub(crate) fn movie_initial_ram(file: &MovieFile) -> crate::config::InitialRam {
     crate::config::load_initial_ram()
 }
 
+fn normalize_title(s: &str) -> String {
+    let mut t = s.trim().to_ascii_lowercase();
+    for ext in &[".nes", ".fds", ".unf", ".unif", ".nsf", ".fm2", ".fm3", ".acm", ".acmb"] {
+        if t.ends_with(ext) {
+            t.truncate(t.len() - ext.len());
+            break;
+        }
+    }
+    if let Some(pos) = t.rfind(|c| c == '/' || c == '\\') {
+        t = t[pos + 1..].to_string();
+    }
+    t
+}
+
+pub(crate) fn titles_match(a: &str, b: &str) -> bool {
+    if a.is_empty() || b.is_empty() {
+        return false;
+    }
+    let na = normalize_title(a);
+    let nb = normalize_title(b);
+    if na == nb {
+        return true;
+    }
+    if !na.is_empty() && !nb.is_empty() && (na.starts_with(&nb) || nb.starts_with(&na)) {
+        return true;
+    }
+    false
+}
+
 pub(crate) fn rom_mismatch_warning(
     recorded_title: &str,
     recorded_hash: &str,
-    loaded: Option<(&str, &str)>,
+    cur_name: &str,
+    candidate_hashes: &[&str],
+    display_hash: &str,
 ) -> Option<String> {
-    let can_check = !recorded_hash.is_empty() || !recorded_title.is_empty();
+    let is_zero_hash = recorded_hash.is_empty()
+        || recorded_hash == "0"
+        || recorded_hash == "crc32:00000000"
+        || recorded_hash.strip_prefix("crc32:").map(|h| h.chars().all(|c| c == '0')).unwrap_or(false)
+        || recorded_hash.strip_prefix("md5:").map(|h| h.chars().all(|c| c == '0')).unwrap_or(false);
+
+    let can_check = (!is_zero_hash && !recorded_hash.is_empty()) || !recorded_title.is_empty();
     if !can_check {
         return None;
     }
-    let (cur_name, cur_hash) = match loaded {
-        Some(n) => n,
-        None => {
-            return Some("WARNING: This movie was recorded for a specific ROM, but no ROM is currently loaded.".to_string());
-        }
-    };
-    let hash_matches = !recorded_hash.is_empty() && recorded_hash.eq_ignore_ascii_case(cur_hash);
-    let title_matches = !recorded_title.is_empty() && recorded_title.eq_ignore_ascii_case(cur_name);
+
+    let hash_matches = !is_zero_hash && candidate_hashes.iter().any(|&h| h.eq_ignore_ascii_case(recorded_hash));
+    let title_matches = !recorded_title.is_empty() && titles_match(recorded_title, cur_name);
+
     if hash_matches || title_matches {
         return None;
     }
+
+    let show_rec_hash = if is_zero_hash || recorded_hash.is_empty() {
+        "(unknown)".to_string()
+    } else {
+        recorded_hash.to_string()
+    };
+
     Some(format!(
         "WARNING: This movie was recorded for a different ROM.\n\nMovie ROM: {}\nMovie hash: {}\nLoaded ROM: {}\nLoaded hash: {}",
         if recorded_title.is_empty() { "(unknown)" } else { recorded_title },
-        if recorded_hash.is_empty() { "(unknown)" } else { recorded_hash },
+        show_rec_hash,
         cur_name,
-        cur_hash,
+        display_hash,
     ))
 }

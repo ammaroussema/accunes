@@ -31,6 +31,7 @@ fields (`key value`, separated by whitespace; the value is the rest of the line,
 | `[author]` | `feos` | Author name. |
 | `[comment]` | `RTA-ish TAS` | Free-form comment. |
 | `[powerOn]` | `1` | `1` = power-cycle the console when the movie starts; `0` = don't. |
+| `[guid]` | `4E347A83-149B-4D88-927F-E2090FDFE214` | 128-bit UUID identifying this movie session. |
 | `[setting]` | `autofire=3` | Free-form `key=value` setting; repeatable. |
 
 `[romHash]` uses the `crc32:XXXXXXXX` form (uppercase hex). The same hash is what the Import/Export
@@ -93,6 +94,9 @@ F<FRAMEHEX> <NAME>
 | `FDS_INSERT` | FDS disk inserted |
 | `FDS_EJECT` | FDS disk ejected |
 | `FDS_SWAP` | FDS disk side swapped |
+| `VS_COIN1` | VS System Coin 1 inserted |
+| `VS_COIN2` | VS System Coin 2 inserted |
+| `VS_SERVICE` | VS System Service button pressed |
 
 Example:
 
@@ -212,6 +216,9 @@ Events: `u64 frame` then `u8 kind index`:
 | 3 | FdsInsert |
 | 4 | FdsEject |
 | 5 | FdsSwapSide |
+| 6 | VsInsertCoin1 |
+| 7 | VsInsertCoin2 |
+| 8 | VsService |
 
 Chapters: `u64 frame`, then name string. Subtitles: `u64 start`, `u64 end`, then text string
 (`end` must be ≥ `start`).
@@ -220,8 +227,7 @@ Chapters: `u64 frame`, then name string. Subtitles: `u64 start`, `u64 end`, then
 
 ## Movie savestates
 
-Every AccuNES savestate ends with a fixed 21-byte **movie trailer**, so a state can only be loaded
-into a session whose movie context matches (prevents silent desync):
+Every AccuNES savestate ends with a fixed 37-byte **movie trailer** (or legacy 21-byte trailer), ensuring that a savestate can only be loaded into a matching movie context while enabling seeking and re-recording:
 
 | Offset | Size | Field |
 |--------|------|-------|
@@ -230,34 +236,41 @@ into a session whose movie context matches (prevents silent desync):
 | 5 | 8 | `u64` movie cursor (input-frame index) |
 | 13 | 4 | `u32` recorded frames count |
 | 17 | 4 | `u32` recorded events count |
+| 21 | 16 | `[u8; 16]` movie GUID (128-bit session identifier) |
 
 Because the trailer is located at a fixed offset from the *end* of the state, readers do not need to
 know the internal state layout to validate it. Load behavior:
 
 - **No trailer** (any file/state older than this feature): the state may only be loaded while no
-  movie is actively providing input, otherwise loading is refused (it would desynchronize the
-  movie).
-- **Trailer, `active = 0`**: the state carries no movie context; loaded normally.
+  movie is actively providing input; otherwise loading is refused to prevent silent desync.
+- **Trailer, `active = 0`**: the state carries no movie context; loaded normally when not in movie playback.
 - **Trailer, `active = 1`**:
-  - Movie currently providing input: the state's frames/events counts must exactly match the current
-    movie, else loading is refused (the state belongs to a different movie).
-  - A movie is loaded but not active: the cursor (and, when playing, the frame/event counts) is
-    restored. If resuming playback with re-record capability and the movie is not read-only, the
-    session switches to recording from the saved cursor (rerecords incremented).
-  - No movie loaded: loading is refused until the matching movie is loaded.
-
+  - **Identity verification**: if a 16-byte GUID is present in the trailer, it must match the currently loaded movie's GUID. For legacy 21-byte trailers without GUID, the frame and event counts are checked against the current movie. Loading a state saved for a different movie is rejected.
+  - **Playback seeking**: when playing a movie, loading any savestate saved during that movie session restores `cursor` to the saved position as long as `cursor <= movie.frames.len()`.
+  - **Re-recording**: when recording, loading an earlier savestate truncates all recorded frames and events beyond that cursor, moves `cursor` back to the saved point, increments the `rerecords` counter, and continues recording.
+  - **No movie loaded**: loading is refused until the matching movie is loaded.
 
 ---
 
 ## FM2 compatibility
 
-AccuNES can **import** and **export** the FCEUX FM2 text format:
+AccuNES can **import** and **export** the standard FCEUX native FM2 text format:
 
 - **Headers written/read:** `version`, `emuVersion`, `rerecordCount`, `palFlag`, `romFilename` /
-  `romName`, `romChecksum` (FCEUX decimal CRC32), `fourscore`, `port0`–`port3`, `comment`,
-  `subtitles`, `author`, `startsFromSavestate`, `savestateBinaryInput`. On import, `romName` takes
-  precedence over `romFilename`.
-- **Frames:** only `gamepad` ports are supported. FM2's per-frame column order
-  `R, L, D, U, Start, Select, B, A` maps positionally onto AccuNES's `NES_PAD` buttons
-  (`S`↔Start, `T`↔Select), one gamepad per FM2 port.
+  `romName`, `romChecksum` (FCEUX decimal CRC32), `guid` (UUID), `fourscore` (0 or 1), `port0`–`port3`,
+  `comment`, `subtitles`, `author`, `startsFromSavestate` (0 for power-on, 1 for savestate), `savestateBinaryInput`.
+  On import, `romName` takes precedence over `romFilename`.
+- **Frames:** standard FCEUX pipe-and-mnemonic format:
+  ```
+  |<commands>|<port0>|<port1>|...|
+  ```
+  - **Commands column (bitmask):**
+    - Bit 0 (`1`): Soft reset
+    - Bit 1 (`2`): Power cycle / hard reset
+    - Bit 2 (`4`): FDS insert / eject disk
+    - Bit 3 (`8`): FDS swap disk side
+    - Bit 4 (`16`): VS System Coin 1
+    - Bit 5 (`32`): VS System Coin 2
+    - Bit 6 (`64`): VS System Service button
+  - **Gamepad columns:** uses standard FCEUX `RLDUTSBA` / `.` mnemonics (`R`ight, `L`eft, `D`own, `U`p, S`t`art, `S`elect, `B`, `A`), mapping directly to AccuNES controller inputs. AccuNES also supports importing legacy comma-separated columns and raw binary strings.
 - **Regions:** `palFlag` maps to `PAL`/`NTSC`; the legacy region is otherwise `AUTO`.

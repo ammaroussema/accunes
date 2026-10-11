@@ -7,7 +7,7 @@ a hardware-accurate NES/Famicom/Famiclone emulator written in rust!
 - **cycle-accurate 6502 cpu** - every legal and illegal opcode, all addressing modes, interrupts, dma and open-bus edge cases
 - **scanline-accurate ppu** - sprite/background rendering, accurate vblank and nmi timing, sprite evaluation, oam dma edge cases
 - **accurate apu** - all channels, irqs, dmc, controller strobing, clocking and dmc dma edge cases
-- passes **all accuracycoin tests (144/144)** and **all blargg tests**!
+- passes **all accuracycoin tests (146/146)** and **all blargg tests**!
 - supports **~646 mappers**!
 - accurate **vs system, pal and dendy** behavior!
 - **nsf/nsfe** playback!
