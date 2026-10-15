@@ -1361,7 +1361,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.7.7";
+const APP_VERSION: &str = "1.7.8";
 
 fn strip_version_prefix(s: &str) -> &str {
     s.trim_start_matches(|c: char| c.is_ascii_alphabetic())
@@ -3964,7 +3964,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.7.7")
+        .with_title("AccuNES 1.7.8")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -13703,9 +13703,9 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                         } else if lower.ends_with(".fds") || lower.ends_with(".qd") || lower.ends_with(".studybox") || lower.ends_with(".study") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.7.7: {}", filename)
+                        format!("AccuNES 1.7.8: {}", filename)
                     } else {
-                        "AccuNES 1.7.7".to_string()
+                        "AccuNES 1.7.8".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -14709,7 +14709,7 @@ let submenu_item_h = (16.0 * scale).round() as usize;
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.7.7",
+                        "Version: 1.7.8",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };

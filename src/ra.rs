@@ -1,4 +1,22 @@
 // the retroachievements api integration!!!
+
+#[cfg(target_arch = "wasm32")]
+pub fn compute_ra_hashes(_filepath: &str, _rom: &[u8]) {}
+
+#[cfg(target_arch = "wasm32")]
+pub fn hardcore_active() -> bool { false }
+
+#[cfg(target_arch = "wasm32")]
+pub fn serialize_progress() -> Vec<u8> { Vec::new() }
+
+#[cfg(target_arch = "wasm32")]
+pub fn deserialize_progress(_data: &[u8]) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use desktop::*;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod desktop {
 use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
@@ -26,6 +44,7 @@ const RC_CLIENT_ACHIEVEMENT_STATE_DISABLED: u8 = 3;
 
 const HASH_BUF_SIZE: usize = 512;
 
+#[cfg_attr(not(target_arch = "wasm32"), link(name = "rcheevos", kind = "static"))]
 unsafe extern "C" {
     fn rc_hash_initialize_iterator(
         iterator: *mut u8,
@@ -296,9 +315,9 @@ fn perform_http(url: &str, post_data: Option<&str>) -> Result<Vec<u8>, String> {
         Some(data) => agent
             .post(url)
             .set("Content-Type", "application/x-www-form-urlencoded")
-            .set("User-Agent", "AccuNES/v1.7.7")
+            .set("User-Agent", "AccuNES/v1.7.8")
             .send_string(data),
-        None => agent.get(url).set("User-Agent", "AccuNES/v1.7.7").call(),
+        None => agent.get(url).set("User-Agent", "AccuNES/v1.7.8").call(),
     };
 
     match result {
@@ -941,3 +960,4 @@ pub fn request_icon(url: &str) {
 }
 
 use crate::emulator::Emulator;
+}

@@ -148,7 +148,12 @@ fn convert_mfc_to_ines(rom: &[u8]) -> Result<Vec<u8>, String> {
 impl Cartridge {
 
     pub fn from_file(filepath: &str) -> Result<Cartridge, String> {
-        let mut rom = fs::read(filepath).map_err(|e| format!("Failed to read file: {}", e))?;
+        let rom = fs::read(filepath).map_err(|e| format!("Failed to read file: {}", e))?;
+        Self::from_bytes(filepath, &rom)
+    }
+
+    pub fn from_bytes(filepath: &str, rom_bytes: &[u8]) -> Result<Cartridge, String> {
+        let mut rom = rom_bytes.to_vec();
 
         crate::ra::compute_ra_hashes(filepath, &rom);
 

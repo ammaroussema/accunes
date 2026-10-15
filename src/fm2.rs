@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::movie::{DevicePort, FrameInput, MovieFile, NES_PAD_BUTTONS};
 use crate::region::Region;
 

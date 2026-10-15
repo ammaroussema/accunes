@@ -29,6 +29,7 @@ a hardware-accurate NES/Famicom/Famiclone emulator written in rust!
 - **windows** — x64, x86 and ARM
 - **linux**
 - **macOS**
+- **web** — WebAssembly (Wasm) for browsers & GitHub Pages
 
 ## Building
 
@@ -58,6 +59,20 @@ cargo build --release
 cargo build --release
 ```
 
+
+### web (WebAssembly)
+```sh
+# build wasm and generate web bundle in web/
+./build-web.ps1
+
+# test locally
+python -m http.server -d web 8080
+```
+or manually:
+```sh
+cargo build --target wasm32-unknown-unknown --release --lib
+wasm-bindgen --target web --out-dir web/pkg target/wasm32-unknown-unknown/release/accunes.wasm
+```
 
 output folders/archives are usually inside the `target` folder!!
 

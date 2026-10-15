@@ -33,6 +33,10 @@ impl AudioRingBuffer {
         self.buf.drain(..n);
     }
 
+    pub fn drain_all(&mut self) -> Vec<f32> {
+        self.buf.drain(..).collect()
+    }
+
     pub fn clear_and_reset(&mut self) {
         self.buf.clear();
     }

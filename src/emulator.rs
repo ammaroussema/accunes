@@ -724,10 +724,13 @@ impl Emulator {
                 for b in vram.iter_mut() { *b = 0xFF; }
             }
             config::InitialRam::Random => {
+                #[cfg(not(target_arch = "wasm32"))]
                 let seed = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_nanos();
+                #[cfg(target_arch = "wasm32")]
+                let seed = (js_sys::Date::now() * 1000.0) as u128;
                 let mut state = seed as u32;
                 for i in 0..0x2000usize {
                     state = state.wrapping_mul(1103515245).wrapping_add(12345);
@@ -1332,7 +1335,10 @@ impl Emulator {
         }
         let old = self.cart.replace(cart);
         if let Some(old_cart) = old {
+            #[cfg(not(target_arch = "wasm32"))]
             std::thread::spawn(move || drop(old_cart));
+            #[cfg(target_arch = "wasm32")]
+            drop(old_cart);
         }
         if let Some(ref mut cart) = self.cart {
             cart.mapper_chip.set_cpu_clock(cpu_clock);
@@ -1358,7 +1364,10 @@ impl Emulator {
         self.frame_had_nmi = false;
         self.last_frame_was_lag = false;
         if let Some(old) = self.cart.take() {
+            #[cfg(not(target_arch = "wasm32"))]
             std::thread::spawn(move || drop(old));
+            #[cfg(target_arch = "wasm32")]
+            drop(old);
         }
         self.is_um6578_cart = false;
         self.is_vt32_cart = false;
@@ -1586,6 +1595,7 @@ impl Emulator {
     }
 
     pub fn save_prg_ram(&self) {
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(cart) = &self.cart {
             if !cart.has_battery {
                 return;
@@ -1616,24 +1626,55 @@ impl Emulator {
         }
     }
 
+    pub fn get_battery_save_data(&self) -> Option<Vec<u8>> {
+        if let Some(cart) = &self.cart {
+            if !cart.has_battery {
+                return None;
+            }
+            let mapper = &cart.mapper_chip;
+            if let Some(save) = mapper.battery_save_data(cart) {
+                Some(save)
+            } else if !cart.prg_ram.is_empty() {
+                Some(cart.prg_ram.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn load_battery_save_data(&mut self, data: &[u8]) {
+        if let Some(ref mut cart) = self.cart {
+            cart.with_mapper(|mapper, c| mapper.load_battery_save(c, data));
+            let len = data.len().min(cart.prg_ram.len());
+            if len > 0 {
+                cart.prg_ram[..len].copy_from_slice(&data[..len]);
+            }
+        }
+    }
+
     /// ascii turbo file: persist the 0x2000-byte SRAM to a per-rom .turbofile.sav
     pub fn save_turbo_file(&self) {
-        if !self.expansion_type.is_turbo_file() {
-            return;
-        }
-        if let Some(cart) = &self.cart {
-            let sav_path = crate::config::turbofile_save_path(&cart.name);
-            let data = self.turbo_file_data.to_vec();
-            std::thread::spawn(move || {
-                if let Some(parent) = sav_path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                if let Err(e) = std::fs::write(&sav_path, &data) {
-                    eprintln!("Failed to save Turbo File SRAM to {:?}: {}", sav_path, e);
-                } else {
-                    println!("Saved Turbo File SRAM to {:?}", sav_path);
-                }
-            });
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if !self.expansion_type.is_turbo_file() {
+                return;
+            }
+            if let Some(cart) = &self.cart {
+                let sav_path = crate::config::turbofile_save_path(&cart.name);
+                let data = self.turbo_file_data.to_vec();
+                std::thread::spawn(move || {
+                    if let Some(parent) = sav_path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    if let Err(e) = std::fs::write(&sav_path, &data) {
+                        eprintln!("Failed to save Turbo File SRAM to {:?}: {}", sav_path, e);
+                    } else {
+                        println!("Saved Turbo File SRAM to {:?}", sav_path);
+                    }
+                });
+            }
         }
     }
 
@@ -1657,22 +1698,25 @@ impl Emulator {
 
     /// battle box: persist the 0x200-byte storage to a per-rom .battlebox.sav
     pub fn save_battle_box(&self) {
-        if !self.expansion_type.is_battle_box() {
-            return;
-        }
-        if let Some(cart) = &self.cart {
-            let sav_path = crate::config::battlebox_save_path(&cart.name);
-            let data = self.battle_box_data.to_vec();
-            std::thread::spawn(move || {
-                if let Some(parent) = sav_path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                if let Err(e) = std::fs::write(&sav_path, &data) {
-                    eprintln!("Failed to save Battle Box SRAM to {:?}: {}", sav_path, e);
-                } else {
-                    println!("Saved Battle Box SRAM to {:?}", sav_path);
-                }
-            });
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if !self.expansion_type.is_battle_box() {
+                return;
+            }
+            if let Some(cart) = &self.cart {
+                let sav_path = crate::config::battlebox_save_path(&cart.name);
+                let data = self.battle_box_data.to_vec();
+                std::thread::spawn(move || {
+                    if let Some(parent) = sav_path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    if let Err(e) = std::fs::write(&sav_path, &data) {
+                        eprintln!("Failed to save Battle Box SRAM to {:?}: {}", sav_path, e);
+                    } else {
+                        println!("Saved Battle Box SRAM to {:?}", sav_path);
+                    }
+                });
+            }
         }
     }
 

@@ -166,11 +166,20 @@ pub(crate) fn guid_to_bytes(guid: &str) -> [u8; 16] {
 }
 
 pub(crate) fn generate_guid() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    #[cfg(not(target_arch = "wasm32"))]
+    let nanos = {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()
+    };
+    #[cfg(target_arch = "wasm32")]
+    let nanos = (js_sys::Date::now() * 1_000_000.0) as u128;
+
     let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    #[cfg(not(target_arch = "wasm32"))]
     let pid = std::process::id() as u64;
+    #[cfg(target_arch = "wasm32")]
+    let pid = 1u64;
     let mut s0 = (nanos as u64) ^ 0x517cc1b727220a95;
     let mut s1 = ((nanos >> 64) as u64) ^ count.wrapping_mul(0x9e3779b97f4a7c15) ^ pid;
     s0 ^= s0 << 13; s0 ^= s0 >> 7; s0 ^= s0 << 17;

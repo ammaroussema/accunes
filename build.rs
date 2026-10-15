@@ -45,6 +45,11 @@ fn build_rcheevos() {
 }
 
 fn main() {
+    let target = std::env::var("TARGET").unwrap_or_default();
+    if target.contains("wasm32") {
+        return;
+    }
+
     #[cfg(target_os = "windows")]
     embed_resource::compile("icon.rc", embed_resource::NONE);
     build_rcheevos();
