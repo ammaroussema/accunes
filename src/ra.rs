@@ -4,6 +4,9 @@
 pub fn compute_ra_hashes(_filepath: &str, _rom: &[u8]) {}
 
 #[cfg(target_arch = "wasm32")]
+pub fn is_logged_in() -> bool { false }
+
+#[cfg(target_arch = "wasm32")]
 pub fn hardcore_active() -> bool { false }
 
 #[cfg(target_arch = "wasm32")]
@@ -315,9 +318,9 @@ fn perform_http(url: &str, post_data: Option<&str>) -> Result<Vec<u8>, String> {
         Some(data) => agent
             .post(url)
             .set("Content-Type", "application/x-www-form-urlencoded")
-            .set("User-Agent", "AccuNES/v1.7.8")
+            .set("User-Agent", "AccuNES/v1.7.9")
             .send_string(data),
-        None => agent.get(url).set("User-Agent", "AccuNES/v1.7.8").call(),
+        None => agent.get(url).set("User-Agent", "AccuNES/v1.7.9").call(),
     };
 
     match result {
@@ -604,8 +607,19 @@ static CLIENT: AtomicPtr<rc_client_opaque> = AtomicPtr::new(std::ptr::null_mut()
 static HARDCORE_ACTIVE: AtomicBool = AtomicBool::new(false);
 static RESET_REQUESTED: AtomicBool = AtomicBool::new(false);
 
+pub fn is_logged_in() -> bool {
+    let client = client_ptr();
+    if client.is_null() {
+        return false;
+    }
+    unsafe {
+        let user = rc_client_get_user_info(client);
+        !user.is_null()
+    }
+}
+
 pub fn hardcore_active() -> bool {
-    HARDCORE_ACTIVE.load(Ordering::Relaxed)
+    HARDCORE_ACTIVE.load(Ordering::Relaxed) && is_logged_in()
 }
 
 pub fn hardcore_requested() -> bool {

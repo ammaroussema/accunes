@@ -2,6 +2,8 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const __wbg_wasmemulator_free: (a: number, b: number) => void;
+export const wasmemulator_audio_samples_ready: (a: number) => number;
+export const wasmemulator_get_audio_buffer_ptr: (a: number) => number;
 export const wasmemulator_get_audio_samples: (a: number) => [number, number];
 export const wasmemulator_get_framebuffer_ptr: (a: number) => number;
 export const wasmemulator_get_sram: (a: number) => [number, number];

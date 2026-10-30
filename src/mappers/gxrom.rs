@@ -35,6 +35,20 @@ impl Mapper for Mapper66 {
         }
     }
 
+    fn prg_bank_offsets(&self, cart: &Cartridge) -> Option<[usize; 8]> {
+        let len = cart.prg_rom.len();
+        if len == 0 {
+            return None;
+        }
+        let bank = (self.bank_select >> 4) as usize;
+        let base = bank * 0x8000;
+        let mut offsets = [0; 8];
+        for i in 0..8 {
+            offsets[i] = (base + i * 0x1000) % len;
+        }
+        Some(offsets)
+    }
+
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         if cart.nametable_horizontal_mirroring {
             (address & 0x33FF) | ((address & 0x0800) >> 1)

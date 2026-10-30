@@ -131,6 +131,25 @@ impl Mapper for MapperCNROM {
         }
     }
 
+    fn prg_bank_offsets(&self, cart: &Cartridge) -> Option<[usize; 8]> {
+        let len = cart.prg_rom.len();
+        if len == 0 {
+            return None;
+        }
+        let mut offsets = [0; 8];
+        if len.is_power_of_two() {
+            let mask = len - 1;
+            for i in 0..8 {
+                offsets[i] = (0x8000 + i * 0x1000) & mask;
+            }
+        } else {
+            for i in 0..8 {
+                offsets[i] = (i * 0x1000) % len;
+            }
+        }
+        Some(offsets)
+    }
+
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         mirror_address(
             cart.alternative_nametable_arrangement,

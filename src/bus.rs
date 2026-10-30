@@ -20,12 +20,27 @@ impl Emulator {
         }
 
         if address >= 0x8000 {
-            // rom — go through mapper
+            // rom — fast bank offset path or go through mapper
             if let Some(cart) = self.cart.as_mut() {
-                let result = cart.with_mapper(|mapper, cart| mapper.fetch_prg(cart, address));
-                self.data_pins_are_not_floating = result.driven;
-                if result.driven {
-                    self.data_bus = result.data;
+                if cart.prg_bank_offsets_valid {
+                    let slot = ((address >> 12) & 7) as usize;
+                    let offset = cart.prg_bank_offsets[slot] + (address as usize & 0x0FFF);
+                    if let Some(&byte) = cart.prg_rom.get(offset) {
+                        self.data_bus = byte;
+                        self.data_pins_are_not_floating = true;
+                    } else {
+                        let len = cart.prg_rom.len();
+                        if len > 0 {
+                            self.data_bus = cart.prg_rom[offset % len];
+                            self.data_pins_are_not_floating = true;
+                        }
+                    }
+                } else {
+                    let result = cart.with_mapper(|mapper, cart| mapper.fetch_prg(cart, address));
+                    self.data_pins_are_not_floating = result.driven;
+                    if result.driven {
+                        self.data_bus = result.data;
+                    }
                 }
             }
         } else if address < 0x2000 {
@@ -2239,6 +2254,7 @@ impl Emulator {
             if self.cart.as_ref().is_some_and(|c| matches!(c.memory_mapper, 99 | 604)) {
                 if let Some(cart) = self.cart.as_mut() {
                     cart.with_mapper(|mapper, cart| mapper.store_prg(cart, address, input));
+                    cart.refresh_prg_bank_offsets();
                 }
             }
         } else if address == 0x4017 {
@@ -2460,6 +2476,7 @@ impl Emulator {
                 irq_ack
             });
             let cart = self.cart.as_mut().unwrap();
+            cart.refresh_prg_bank_offsets();
 
             if irq_ack {
                 self.irq_level_detector = false;

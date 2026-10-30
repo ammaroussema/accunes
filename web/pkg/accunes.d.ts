@@ -4,6 +4,8 @@
 export class WasmEmulator {
     free(): void;
     [Symbol.dispose](): void;
+    audio_samples_ready(): number;
+    get_audio_buffer_ptr(): number;
     get_audio_samples(): Float32Array;
     get_framebuffer_ptr(): number;
     get_sram(): Uint8Array | undefined;
@@ -25,6 +27,8 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_wasmemulator_free: (a: number, b: number) => void;
+    readonly wasmemulator_audio_samples_ready: (a: number) => number;
+    readonly wasmemulator_get_audio_buffer_ptr: (a: number) => number;
     readonly wasmemulator_get_audio_samples: (a: number) => [number, number];
     readonly wasmemulator_get_framebuffer_ptr: (a: number) => number;
     readonly wasmemulator_get_sram: (a: number) => [number, number];

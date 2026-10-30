@@ -15,6 +15,40 @@ const NOISE_PERIOD_LUT_PAL: [u16; 16] = [
 
 const APU_CYCLE_LENGTH: u32 = 10000;
 
+pub static SQUARE_LUT: [f32; 31] = {
+    let mut lut = [0.0f32; 31];
+    let mut i = 1;
+    while i < 31 {
+        lut[i] = (95.88 * 5000.0) / (8128.0 / (i as f32) + 100.0);
+        i += 1;
+    }
+    lut
+};
+
+pub static TND_LUT: [f32; 32768] = {
+    let mut lut = [0.0f32; 32768];
+    let mut tri = 0;
+    while tri < 16 {
+        let mut noise = 0;
+        while noise < 16 {
+            let mut dmc = 0;
+            while dmc < 128 {
+                let tnd_output = (dmc as f32) + 2.7516713261 * (tri as f32) + 1.8493587125 * (noise as f32);
+                let idx = (tri << 11) | (noise << 7) | dmc;
+                if tnd_output > 0.0 {
+                    lut[idx] = (159.79 * 5000.0) / (22638.0 / tnd_output + 100.0);
+                } else {
+                    lut[idx] = 0.0;
+                }
+                dmc += 1;
+            }
+            noise += 1;
+        }
+        tri += 1;
+    }
+    lut
+};
+
 impl Emulator {
     const SHIFT_TABLE_A: [u8; 12] = [8, 9, 0, 1, 11, 7, 4, 2, 10, 6, 5, 3];
     const SHIFT_TABLE_B: [u8; 12] = [1, 0, 9, 8, 2, 4, 7, 11, 3, 5, 6, 10];
@@ -70,14 +104,14 @@ impl Emulator {
             && (p1_negate || p1_target_period <= 0x7FF)
             && PULSE_DUTY_TABLE[p1_duty][self.pulse1_sequencer_step as usize] == 1;
 
-        let p1_val = if p1_active {
+        let p1_raw: u8 = if p1_active {
             if (self.apu_register[0] & 0x10) != 0 {
-                (self.apu_register[0] & 0xF) as f32
+                self.apu_register[0] & 0xF
             } else {
-                self.pulse1_envelope_decay_level as f32
+                self.pulse1_envelope_decay_level
             }
         } else {
-            0.0
+            0
         };
 
         // --- pulse 2 ---
@@ -94,22 +128,22 @@ impl Emulator {
             && (p2_negate || p2_target_period <= 0x7FF)
             && PULSE_DUTY_TABLE[p2_duty][self.pulse2_sequencer_step as usize] == 1;
 
-        let p2_val = if p2_active {
+        let p2_raw: u8 = if p2_active {
             if (self.apu_register[4] & 0x10) != 0 {
-                (self.apu_register[4] & 0xF) as f32
+                self.apu_register[4] & 0xF
             } else {
-                self.pulse2_envelope_decay_level as f32
+                self.pulse2_envelope_decay_level
             }
         } else {
-            0.0
+            0
         };
 
         // --- triangle ---
         let tri_active = self.apu_length_counter_triangle > 0 && self.triangle_linear_counter > 0;
-        let tri_val = if tri_active {
-            TRIANGLE_TABLE[self.triangle_sequencer_step as usize] as f32
+        let tri_raw: u8 = if tri_active {
+            TRIANGLE_TABLE[self.triangle_sequencer_step as usize]
         } else {
-            0.0
+            0
         };
 
         // --- noise ---
@@ -117,38 +151,54 @@ impl Emulator {
             && self.apu_length_counter_noise > 0
             && (self.noise_shift_register & 1) == 0;
 
-        let noise_val = if noise_active {
+        let noise_raw: u8 = if noise_active {
             if (self.apu_register[0xC] & 0x10) != 0 {
-                (self.apu_register[0xC] & 0xF) as f32
+                self.apu_register[0xC] & 0xF
             } else {
-                self.noise_envelope_decay_level as f32
+                self.noise_envelope_decay_level
             }
         } else {
-            0.0
+            0
         };
 
         // --- dmc ---
-        let dmc_val = self.apu_dmc_output as f32;
+        let dmc_raw: u8 = self.apu_dmc_output;
 
-        let p1_val = p1_val * self.square1_volume;
-        let p2_val = p2_val * self.square2_volume;
-        let tri_val = tri_val * self.triangle_volume;
-        let noise_val = noise_val * self.noise_volume;
-        let dmc_val = dmc_val * self.pcm_volume;
-
-        let square_output = p1_val + p2_val;
-        let tnd_output = dmc_val + 2.7516713261 * tri_val + 1.8493587125 * noise_val;
-
-        let square_volume = if square_output > 0.0 {
-            (95.88 * 5000.0) / (8128.0 / square_output + 100.0)
+        let (square_volume, tnd_volume) = if self.square1_volume == 1.0
+            && self.square2_volume == 1.0
+            && self.triangle_volume == 1.0
+            && self.noise_volume == 1.0
+            && self.pcm_volume == 1.0
+        {
+            let square_idx = (p1_raw + p2_raw) as usize;
+            let tnd_idx = ((tri_raw as usize) << 11) | ((noise_raw as usize) << 7) | (dmc_raw as usize);
+            (
+                SQUARE_LUT[square_idx],
+                TND_LUT[tnd_idx],
+            )
         } else {
-            0.0
-        };
+            let p1_val = (p1_raw as f32) * self.square1_volume;
+            let p2_val = (p2_raw as f32) * self.square2_volume;
+            let tri_val = (tri_raw as f32) * self.triangle_volume;
+            let noise_val = (noise_raw as f32) * self.noise_volume;
+            let dmc_val = (dmc_raw as f32) * self.pcm_volume;
 
-        let tnd_volume = if tnd_output > 0.0 {
-            (159.79 * 5000.0) / (22638.0 / tnd_output + 100.0)
-        } else {
-            0.0
+            let square_output = p1_val + p2_val;
+            let tnd_output = dmc_val + 2.7516713261 * tri_val + 1.8493587125 * noise_val;
+
+            let square_volume = if square_output > 0.0 {
+                (95.88 * 5000.0) / (8128.0 / square_output + 100.0)
+            } else {
+                0.0
+            };
+
+            let tnd_volume = if tnd_output > 0.0 {
+                (159.79 * 5000.0) / (22638.0 / tnd_output + 100.0)
+            } else {
+                0.0
+            };
+
+            (square_volume, tnd_volume)
         };
 
         let (ext_type, ext_val) = if let Some(cart) = &self.cart {

@@ -70,6 +70,21 @@ fn fixed_bank_index(cart: &Cartridge) -> usize {
         (cart.prg_size_minus_1 as usize) % banks
     }
 }
+pub(crate) fn uxrom_prg_bank_offsets(cart: &Cartridge, bank_select: u8) -> Option<[usize; 8]> {
+    let len = cart.prg_rom.len();
+    if len == 0 {
+        return None;
+    }
+    let bank0 = prg16_bank_index(cart, bank_select);
+    let bank1 = fixed_bank_index(cart);
+    let mut offsets = [0; 8];
+    for i in 0..4 {
+        offsets[i] = (bank0 * 0x4000 + i * 0x1000) % len;
+        offsets[4 + i] = (bank1 * 0x4000 + i * 0x1000) % len;
+    }
+    Some(offsets)
+}
+
 pub(crate) fn read_prg_rom(cart: &Cartridge, bank_select: u8, address: u16) -> u8 {
     let len = cart.prg_rom.len();
     if len == 0 {
@@ -166,6 +181,10 @@ impl Mapper for MapperUxROM {
                 data
             };
         }
+    }
+
+    fn prg_bank_offsets(&self, cart: &Cartridge) -> Option<[usize; 8]> {
+        uxrom_prg_bank_offsets(cart, self.bank_select)
     }
 
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {

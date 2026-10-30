@@ -139,6 +139,18 @@ class AccuNESApp {
 
         window.addEventListener('click', () => this.audio?.resume(), { once: true });
         window.addEventListener('keydown', () => this.audio?.resume(), { once: true });
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                this.lastFrameTime = performance.now();
+                this.frameAccumulator = 0;
+            }
+        });
+
+        window.addEventListener('focus', () => {
+            this.lastFrameTime = performance.now();
+            this.frameAccumulator = 0;
+        });
     }
 
     setTheme(themeName) {
@@ -210,13 +222,13 @@ class AccuNESApp {
 
         if (!this.isRunning || this.isPaused) {
             this.lastFrameTime = timestamp;
+            this.frameAccumulator = 0;
             return;
         }
 
         if (!this.lastFrameTime) this.lastFrameTime = timestamp;
-        const elapsed = Math.min(timestamp - this.lastFrameTime, 100);
+        const elapsed = timestamp - this.lastFrameTime;
         this.lastFrameTime = timestamp;
-        this.frameAccumulator += elapsed;
 
         const NES_FRAME_DURATION = 1000 / 60.0988;
         let framesToAdvance = 0;
@@ -224,11 +236,19 @@ class AccuNESApp {
         if (this.input.isFastForward) {
             framesToAdvance = 3;
             this.frameAccumulator = 0;
+        } else if (elapsed > 100) {
+            framesToAdvance = 1;
+            this.frameAccumulator = 0;
+        } else if (elapsed >= 13.5 && elapsed <= 20.0) {
+            framesToAdvance = 1;
+            this.frameAccumulator = 0;
         } else {
-            while (this.frameAccumulator >= NES_FRAME_DURATION && framesToAdvance < 3) {
+            this.frameAccumulator += elapsed;
+            while (this.frameAccumulator >= NES_FRAME_DURATION - 2.5 && framesToAdvance < 3) {
                 framesToAdvance++;
                 this.frameAccumulator -= NES_FRAME_DURATION;
             }
+            if (this.frameAccumulator < 0) this.frameAccumulator = 0;
         }
 
         for (let i = 0; i < framesToAdvance; i++) {
@@ -236,8 +256,17 @@ class AccuNESApp {
             this.emulator.set_controller_p2(this.input.getControllerP2());
             this.emulator.step_frame();
 
-            const samples = this.emulator.get_audio_samples();
-            this.audio.queueSamples(samples);
+            if (typeof this.emulator.audio_samples_ready === 'function') {
+                const count = this.emulator.audio_samples_ready();
+                if (count > 0) {
+                    const ptr = this.emulator.get_audio_buffer_ptr();
+                    const samples = new Float32Array(this.wasm.memory.buffer, ptr, count);
+                    this.audio.queueSamples(samples);
+                }
+            } else {
+                const samples = this.emulator.get_audio_samples();
+                this.audio.queueSamples(samples);
+            }
         }
 
         if (framesToAdvance > 0) {

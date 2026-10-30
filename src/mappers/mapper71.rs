@@ -1,6 +1,6 @@
 use crate::cartridge::Cartridge;
 use crate::mapper::{FetchResult, Mapper};
-use crate::mappers::uxrom::{mirror_address, read_prg_rom, UxromConfig};
+use crate::mappers::uxrom::{mirror_address, read_prg_rom, uxrom_prg_bank_offsets, UxromConfig};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mapper71Mirror {
@@ -88,6 +88,10 @@ impl Mapper for Mapper71 {
         } else if address >= 0x8000 {
             self.bank_select = data;
         }
+    }
+
+    fn prg_bank_offsets(&self, cart: &Cartridge) -> Option<[usize; 8]> {
+        uxrom_prg_bank_offsets(cart, self.bank_select)
     }
 
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {

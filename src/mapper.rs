@@ -818,6 +818,11 @@ pub trait Mapper: Send {
     fn reset_power_cycle(&mut self) {
         self.reset();
     }
+
+    /// Fast PRG bank offsets for ..= (8 slots of 4KB each)
+    fn prg_bank_offsets(&self, _cart: &Cartridge) -> Option<[usize; 8]> {
+        None
+    }
 }
 
 

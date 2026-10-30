@@ -253,6 +253,22 @@ impl Mapper for Mapper19 {
         }
     }
 
+    fn prg_bank_offsets(&self, cart: &Cartridge) -> Option<[usize; 8]> {
+        let len = cart.prg_rom.len();
+        if len == 0 {
+            return None;
+        }
+        let banks_8k = (len / 0x2000).max(1);
+        let mut offsets = [0; 8];
+        for s in 0..4 {
+            let bank = (self.prg[s] & 0x3F) as usize;
+            let base = ((bank % banks_8k) * 0x2000) % len;
+            offsets[s * 2] = base;
+            offsets[s * 2 + 1] = (base + 0x1000) % len;
+        }
+        Some(offsets)
+    }
+
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
         address
     }

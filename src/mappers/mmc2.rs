@@ -113,6 +113,26 @@ impl Mapper for MapperMMC2 {
         }
     }
 
+    fn prg_bank_offsets(&self, cart: &Cartridge) -> Option<[usize; 8]> {
+        let len = cart.prg_rom.len();
+        if len == 0 {
+            return None;
+        }
+        let banks = Self::banks_8k(cart);
+        let b0 = self.preg as usize % banks;
+        let b1 = banks.saturating_sub(3) % banks;
+        let b2 = banks.saturating_sub(2) % banks;
+        let b3 = banks.saturating_sub(1) % banks;
+        let slots = [b0, b1, b2, b3];
+        let mut offsets = [0; 8];
+        for s in 0..4 {
+            let base = (slots[s] * 0x2000) % len;
+            offsets[s * 2] = base;
+            offsets[s * 2 + 1] = (base + 0x1000) % len;
+        }
+        Some(offsets)
+    }
+
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
         self.ciram_offset(address) as u16
     }

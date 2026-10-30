@@ -236,6 +236,25 @@ impl Mapper for Namco108 {
         }
     }
 
+    fn prg_bank_offsets(&self, cart: &Cartridge) -> Option<[usize; 8]> {
+        let len = cart.prg_rom.len();
+        if len == 0 {
+            return None;
+        }
+        let num_8k = (len / 0x2000).max(1);
+        let b0 = (self.mmc3.bank_8c as usize % num_8k) * 0x2000;
+        let b1 = (self.mmc3.bank_a as usize % num_8k) * 0x2000;
+        let b2 = (num_8k.saturating_sub(2) % num_8k) * 0x2000;
+        let b3 = (num_8k.saturating_sub(1) % num_8k) * 0x2000;
+        let slots = [b0, b1, b2, b3];
+        let mut offsets = [0; 8];
+        for s in 0..4 {
+            offsets[s * 2] = slots[s] % len;
+            offsets[s * 2 + 1] = (slots[s] + 0x1000) % len;
+        }
+        Some(offsets)
+    }
+
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         self.mirror_address(cart, address)
     }

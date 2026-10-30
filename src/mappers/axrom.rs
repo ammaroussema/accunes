@@ -71,6 +71,21 @@ impl Mapper for MapperAxROM {
         }
     }
 
+    fn prg_bank_offsets(&self, cart: &Cartridge) -> Option<[usize; 8]> {
+        let len = cart.prg_rom.len();
+        if len == 0 {
+            return None;
+        }
+        let banks_32k = (len / 0x8000).max(1);
+        let bank = (self.bank_select & 0x0F) as usize % banks_32k;
+        let base = bank * 0x8000;
+        let mut offsets = [0; 8];
+        for i in 0..8 {
+            offsets[i] = (base + i * 0x1000) % len;
+        }
+        Some(offsets)
+    }
+
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
         self.ciram_offset(address) as u16
     }

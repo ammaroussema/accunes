@@ -10,6 +10,7 @@ use crate::emulator::Emulator;
 pub struct WasmEmulator {
     emu: Emulator,
     audio_queue: Arc<Mutex<AudioRingBuffer>>,
+    audio_scratch: Vec<f32>,
 }
 
 #[wasm_bindgen]
@@ -19,7 +20,11 @@ impl WasmEmulator {
         let mut emu = Emulator::new();
         let audio_queue = Arc::new(Mutex::new(AudioRingBuffer::new(16384)));
         emu.set_audio_output(audio_queue.clone(), sample_rate);
-        Self { emu, audio_queue }
+        Self {
+            emu,
+            audio_queue,
+            audio_scratch: Vec::with_capacity(4096),
+        }
     }
 
     pub fn load_rom(&mut self, name: &str, data: &[u8]) -> Result<(), String> {
@@ -51,6 +56,23 @@ impl WasmEmulator {
         } else {
             Vec::new()
         }
+    }
+
+    pub fn audio_samples_ready(&mut self) -> usize {
+        self.audio_scratch.clear();
+        if let Ok(mut buf) = self.audio_queue.lock() {
+            let count = buf.len();
+            if count > 0 {
+                buf.drain_into(&mut self.audio_scratch);
+            }
+            count
+        } else {
+            0
+        }
+    }
+
+    pub fn get_audio_buffer_ptr(&self) -> *const f32 {
+        self.audio_scratch.as_ptr()
     }
 
     pub fn save_state(&mut self) -> Vec<u8> {

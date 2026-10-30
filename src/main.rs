@@ -58,9 +58,10 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use winit::event::{Event as WinitEvent, WindowEvent};
 use winit::event_loop::{EventLoop, ControlFlow};
 use winit::window::{WindowBuilder, Icon};
-use softbuffer::{Context, Surface};
 use font8x8::UnicodeFonts;
 use gilrs::Gilrs;
+#[cfg(not(target_arch = "wasm32"))]
+mod gpu;
 
 static NTSC_BLARGG: OnceLock<filters_ntsc_blargg::NtscBlargg> = OnceLock::new();
 static NTSC_BISQWIT: OnceLock<filters_ntsc_bisqwit::NtscBisqwit> = OnceLock::new();
@@ -1361,7 +1362,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.7.8";
+const APP_VERSION: &str = "1.7.9";
 
 fn strip_version_prefix(s: &str) -> &str {
     s.trim_start_matches(|c: char| c.is_ascii_alphabetic())
@@ -1446,10 +1447,17 @@ fn draw_char(buffer: &mut [u32], x: usize, y: usize, width: usize, c: char, colo
                 let t = ((covered * 255 / total) as u32).min(255);
                 if t > 0 {
                     let bg = buffer[row_offset + px];
-                    let r = ((color >> 16) & 0xFF) * t / 255 + ((bg >> 16) & 0xFF) * (255 - t) / 255;
-                    let g = ((color >> 8) & 0xFF) * t / 255 + ((bg >> 8) & 0xFF) * (255 - t) / 255;
-                    let b = (color & 0xFF) * t / 255 + ((bg & 0xFF) * (255 - t) / 255);
-                    buffer[row_offset + px] = 0xFF000000 | (r << 16) | (g << 8) | b;
+                    if bg == 0 {
+                        let r = (color >> 16) & 0xFF;
+                        let g = (color >> 8) & 0xFF;
+                        let b = color & 0xFF;
+                        buffer[row_offset + px] = (t << 24) | (r << 16) | (g << 8) | b;
+                    } else {
+                        let r = ((color >> 16) & 0xFF) * t / 255 + ((bg >> 16) & 0xFF) * (255 - t) / 255;
+                        let g = ((color >> 8) & 0xFF) * t / 255 + ((bg >> 8) & 0xFF) * (255 - t) / 255;
+                        let b = (color & 0xFF) * t / 255 + ((bg & 0xFF) * (255 - t) / 255);
+                        buffer[row_offset + px] = 0xFF000000 | (r << 16) | (g << 8) | b;
+                    }
                 }
             }
         }
@@ -1671,7 +1679,10 @@ fn measure_wrapped_height(text: &str, max_w: usize, scale: f32) -> usize {
     lines * line_h
 }
 
-pub(crate) fn draw_rect(buffer: &mut [u32], x: usize, y: usize, w: usize, h: usize, width: usize, color: u32) {
+pub(crate) fn draw_rect(buffer: &mut [u32], x: usize, y: usize, w: usize, h: usize, width: usize, mut color: u32) {
+    if (color >> 24) == 0 {
+        color |= 0xFF000000;
+    }
     for py in y..y + h {
         for px in x..x + w {
             if px < width && py < buffer.len() / width {
@@ -3768,9 +3779,9 @@ fn movie_submenu_layout(
     (submenu_x, submenu_w, positions)
 }
 
-pub const SPEED_STEPS: [u32; 6] = [3, 6, 12, 25, 50, 100];
-pub const SPEED_LABELS: [&str; 6] =
-    ["3%", "6%", "12%", "25%", "50%", "100%"];
+pub const SPEED_STEPS: [u32; 11] = [3, 6, 12, 25, 50, 100, 150, 200, 300, 400, 6400];
+pub const SPEED_LABELS: [&str; 11] =
+    ["3%", "6%", "12%", "25%", "50%", "100%", "150%", "200%", "300%", "400%", "Unlimited"];
 pub const SPEED_DEFAULT: u32 = 100;
 pub const SPEED_NO_THROTTLE: u32 = 6400;
 
@@ -3844,6 +3855,18 @@ fn make_audio_callback(buffer: Arc<Mutex<AudioRingBuffer>>, channels: usize, pha
 
     move |data, _| {
         let p_inc = *phase_inc.lock().unwrap();
+        if p_inc == 0.0 {
+            for frame in data.chunks_mut(channels) {
+                for out in frame.iter_mut() {
+                    *out = 0.0;
+                }
+            }
+            if let Ok(mut ring) = buffer.lock() {
+                ring.clear_and_reset();
+            }
+            return;
+        }
+
         let frames = data.len() / channels;
 
         let (buf_len, copy_len) = {
@@ -3916,6 +3939,10 @@ fn make_audio_callback(buffer: Arc<Mutex<AudioRingBuffer>>, channels: usize, pha
                 actual = avail;
             }
             ring.consume(actual);
+            if ring.len() > 3000 {
+                let excess = ring.len() - 1500;
+                ring.consume(excess);
+            }
         }
         read_phase = pos - actual as f64;
     }
@@ -3964,14 +3991,13 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.7.8")
+        .with_title("AccuNES 1.7.9")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
         .expect("Failed to create window");
 
-    let context = unsafe { Context::new(&window) }.expect("Failed to create softbuffer context");
-    let surface = Rc::new(RefCell::new(unsafe { Surface::new(&context, &window) }.expect("Failed to create softbuffer surface")));
+    let gpu_renderer = Rc::new(RefCell::new(gpu::GpuRenderer::new(&window).expect("Failed to initialize GPU renderer")));
 
     let emu = Arc::new(Mutex::new(Emulator::new()));
     {
@@ -4377,7 +4403,7 @@ fn main() {
     let speed_scale = Arc::new(AtomicU32::new(SPEED_DEFAULT));
 
     let window = Arc::new(window);
-    let surface_clone = surface.clone();
+    let gpu_clone = gpu_renderer.clone();
     let menu_state_clone = menu_state.clone();
     let recent_roms_clone = recent_roms.clone();
     let quick_save_slot_clone = quick_save_slot.clone();
@@ -4656,6 +4682,7 @@ fn main() {
         let mut fps_count_local: u32 = 0;
         let mut fps_time_local = Instant::now();
         let mut next_deadline = Instant::now();
+        let mut total_frames: u64 = 0;
 
         loop {
             if exit_for_thread.load(Ordering::Relaxed) {
@@ -4786,7 +4813,11 @@ fn main() {
                     }
                 }
 
-                e.capture_rewind_state();
+                total_frames += 1;
+                let cur_spd = speed_scale_thread.load(Ordering::Relaxed);
+                if cur_spd <= 100 || (total_frames % ((cur_spd as u64) / 100).max(1)) == 0 {
+                    e.capture_rewind_state();
+                }
                 e.core_frame_advance();
                 ram_search::on_frame(&mut e);
                 ram_watch::on_frame(&mut e);
@@ -4833,19 +4864,24 @@ fn main() {
                 } else {
                     target.mul_f64(100.0 / f64::from(speed))
                 };
-                next_deadline += scaled_target;
-                let now = Instant::now();
-                if now >= next_deadline {
-                    if now > next_deadline + scaled_target * 3 {
-                        next_deadline = now;
-                    }
+                if scaled_target.is_zero() {
+                    std::thread::yield_now();
+                    next_deadline = Instant::now();
                 } else {
-                    let remaining = next_deadline - now;
-                    if remaining > Duration::from_micros(2000) {
-                        thread::sleep(remaining - Duration::from_micros(1500));
-                    }
-                    while Instant::now() < next_deadline {
-                        std::hint::spin_loop();
+                    next_deadline += scaled_target;
+                    let now = Instant::now();
+                    if now >= next_deadline {
+                        if now > next_deadline + scaled_target * 2 {
+                            next_deadline = now + scaled_target;
+                        }
+                    } else {
+                        let remaining = next_deadline - now;
+                        if remaining > Duration::from_micros(1500) {
+                            thread::sleep(remaining - Duration::from_micros(1000));
+                        }
+                        while Instant::now() < next_deadline {
+                            std::hint::spin_loop();
+                        }
                     }
                 }
             }
@@ -4855,12 +4891,34 @@ fn main() {
     let mut last_rendered_frame: u32 = u32::MAX;
     let mut last_rendered_mouse: (usize, usize) = (usize::MAX, usize::MAX);
     let mut last_menu_active: bool = false;
+    let mut last_surface_size: (u32, u32) = (0, 0);
+    let mut last_fast_forward: bool = false;
+    let mut ui_buffer: Vec<u32> = Vec::new();
     let mut open_chord_time: Option<Instant> = None;
     let mut save_chord_time: Option<Instant> = None;
     let mut load_chord_time: Option<Instant> = None;
     let mut coin_chord_time: Option<Instant> = None;
     let mut applied_aspect: Option<config::AspectRatio> = None;
     let mut applied_aspect_pal: Option<bool> = None;
+
+    let update_speed_audio = |speed: u32, phase_inc: &Arc<Mutex<f64>>, audio_device_rate: &Arc<Mutex<u32>>, audio_rate: &Rc<RefCell<u32>>, audio_buf: &Arc<Mutex<AudioRingBuffer>>| {
+        let dev_rate = *audio_device_rate.lock().unwrap();
+        let cfg_rate = *audio_rate.borrow();
+        if dev_rate > 0 {
+            let base_inc = cfg_rate as f64 / dev_rate as f64;
+            let new_inc = if speed > 200 {
+                0.0
+            } else {
+                base_inc * (speed as f64 / 100.0)
+            };
+            *phase_inc.lock().unwrap() = new_inc;
+        }
+        if speed > 200 {
+            if let Ok(mut ring) = audio_buf.lock() {
+                ring.clear_and_reset();
+            }
+        }
+    };
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(4));
@@ -7273,18 +7331,22 @@ fn main() {
                                 let mut ms_speed = menu_state_clone.borrow_mut();
                                 ms_speed.current_speed = step_speed(ms_speed.current_speed, 1);
                                 speed_scale_clone.store(ms_speed.current_speed, Ordering::Relaxed);
+                                update_speed_audio(ms_speed.current_speed, &phase_inc_clone, &audio_device_rate_clone, &audio_rate_clone, &audio_buffer_clone2);
                             } else if hotkey_matches_base(&bindings[32], ctrl, shift, alt, keycode) {
                                 open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
-                                if !ra::hardcore_active() {
-                                    let mut ms_speed = menu_state_clone.borrow_mut();
-                                    ms_speed.current_speed = step_speed(ms_speed.current_speed, -1);
+                                let mut ms_speed = menu_state_clone.borrow_mut();
+                                let next_speed = step_speed(ms_speed.current_speed, -1);
+                                if !ra::hardcore_active() || next_speed >= SPEED_DEFAULT {
+                                    ms_speed.current_speed = next_speed;
                                     speed_scale_clone.store(ms_speed.current_speed, Ordering::Relaxed);
+                                    update_speed_audio(ms_speed.current_speed, &phase_inc_clone, &audio_device_rate_clone, &audio_rate_clone, &audio_buffer_clone2);
                                 }
                             } else if hotkey_matches_base(&bindings[33], ctrl, shift, alt, keycode) {
                                 open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
                                 let mut ms_speed = menu_state_clone.borrow_mut();
                                 ms_speed.current_speed = SPEED_DEFAULT;
                                 speed_scale_clone.store(ms_speed.current_speed, Ordering::Relaxed);
+                                update_speed_audio(ms_speed.current_speed, &phase_inc_clone, &audio_device_rate_clone, &audio_rate_clone, &audio_buffer_clone2);
                             } else if hotkey_matches_base(&bindings[34], ctrl, shift, alt, keycode) {
                                 open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
                                 if *rom_loaded_clone.borrow() && !ra::hardcore_active() {
@@ -12293,7 +12355,7 @@ let state_path = config::state_file_path(rom_path, slot + 1);
                                 let tools_positions = calculate_item_positions(&tools_items, dropdown_x, dropdown_y, dropdown_w, sc);
 
                                 if ms_mut.show_speed_submenu {
-                                    let speed_anchor_y = tools_positions.get(4).map(|p| p.1).unwrap_or(dropdown_y);
+                                    let speed_anchor_y = tools_positions.get(4).map(|p| p.1 + p.3).unwrap_or(dropdown_y);
                                     let speed_positions = calculate_submenu_positions(SPEED_STEPS.len(), submenu_x, speed_anchor_y, submenu_w, submenu_item_h);
                                     let mut clicked = false;
                                     for (i, (x, y, w, h)) in speed_positions.iter().enumerate() {
@@ -12301,6 +12363,7 @@ let state_path = config::state_file_path(rom_path, slot + 1);
                                             if !ra::hardcore_active() || SPEED_STEPS[i] >= SPEED_DEFAULT {
                                                 ms_mut.current_speed = SPEED_STEPS[i];
                                                 speed_scale_clone.store(ms_mut.current_speed, Ordering::Relaxed);
+                                                update_speed_audio(ms_mut.current_speed, &phase_inc_clone, &audio_device_rate_clone, &audio_rate_clone, &audio_buffer_clone2);
                                                 ms_mut.show_speed_submenu = false;
                                                 ms_mut.active_menu = None;
                                                 clicked = true;
@@ -13447,7 +13510,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
 
                             if ms_mut.show_speed_submenu {
                                 ms_mut.hovered_speed_index = None;
-                                let speed_anchor_y = tools_positions.get(4).map(|p| p.1).unwrap_or(dropdown_y);
+                                let speed_anchor_y = tools_positions.get(4).map(|p| p.1 + p.3).unwrap_or(dropdown_y);
                                 let speed_positions = calculate_submenu_positions(SPEED_STEPS.len(), submenu_x, speed_anchor_y, submenu_w, submenu_item_h);
                                 for (i, (x, y, w, h)) in speed_positions.iter().enumerate() {
                                     if point_in_rect(mx, my, *x, *y, *w, *h) {
@@ -13703,9 +13766,9 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                         } else if lower.ends_with(".fds") || lower.ends_with(".qd") || lower.ends_with(".studybox") || lower.ends_with(".study") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.7.8: {}", filename)
+                        format!("AccuNES 1.7.9: {}", filename)
                     } else {
-                        "AccuNES 1.7.8".to_string()
+                        "AccuNES 1.7.9".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -13744,21 +13807,25 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                     }
                 }
 
-                let mut surface_ref = surface_clone.borrow_mut();
-                if let Err(e) = surface_ref.resize(
-                    std::num::NonZeroU32::new(width.max(1) as u32).unwrap(),
-                    std::num::NonZeroU32::new(height.max(1) as u32).unwrap(),
-                ) {
-                    eprintln!("Failed to resize surface: {}", e);
-                    return;
+                let mut gpu_ref = gpu_clone.borrow_mut();
+                let cur_w = width.max(1) as u32;
+                let cur_h = height.max(1) as u32;
+                if last_surface_size != (cur_w, cur_h) {
+                    gpu_ref.resize(cur_w, cur_h);
+                    last_surface_size = (cur_w, cur_h);
                 }
-                let mut buffer = match surface_ref.buffer_mut() {
-                    Ok(b) => b,
-                    Err(e) => {
-                        eprintln!("Failed to get buffer: {}", e);
-                        return;
-                    }
-                };
+                let cur_speed = speed_scale_clone.load(Ordering::Relaxed);
+                let is_fast = cur_speed > 100;
+                if is_fast != last_fast_forward {
+                    gpu_ref.set_fast_forward(is_fast);
+                    last_fast_forward = is_fast;
+                }
+                let needed_len = width * height;
+                if ui_buffer.len() != needed_len {
+                    ui_buffer.resize(needed_len, 0);
+                }
+                ui_buffer.fill(0);
+                let mut buffer = &mut ui_buffer[..];
 
                 let theme = menu_state_clone.borrow().theme.clone();
                 let colors = match theme.as_str() {
@@ -13771,8 +13838,6 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                     "megaman" => MEGAMAN_COLORS,
                     _ => DARK_COLORS,
                 };
-
-                buffer.fill(colors.global_bg);
 
                 let nes_width = NES_WIDTH as usize;
                 let nes_height = NES_HEIGHT as usize;
@@ -13840,7 +13905,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                     let prescale_n = video_filter.scale_factor().map(|n| n as usize).unwrap_or(1);
                     let (src_w, src_h, src) = match video_filter {
                         config::VideoFilter::None | config::VideoFilter::Scanlines | config::VideoFilter::LcdGrid => {
-                            (nes_width, nes_height, screen_data.to_vec())
+                            (nes_width, nes_height, screen_data)
                         }
                         config::VideoFilter::Prescale2x | config::VideoFilter::Prescale3x
                         | config::VideoFilter::Prescale4x | config::VideoFilter::Prescale6x
@@ -13962,83 +14027,47 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                     let usable_w = src_w.saturating_sub(2 * crop);
                     let usable_h = src_h.saturating_sub(2 * crop);
 
-                    let mut x_mapping = Vec::with_capacity(dest_w);
-                    for dx in 0..dest_w {
-                        if crop_enabled {
-                            x_mapping.push(crop + (dx * usable_w) / dest_w);
-                        } else {
-                            x_mapping.push((dx * src_w) / dest_w);
+                    let (final_w, final_h, final_src) = if crop > 0 && usable_w > 0 && usable_h > 0 {
+                        let mut cropped = Vec::with_capacity(usable_w * usable_h);
+                        for y in crop..crop + usable_h {
+                            let row_start = y * src_w + crop;
+                            cropped.extend_from_slice(&src[row_start..row_start + usable_w]);
                         }
-                    }
+                        (usable_w, usable_h, cropped)
+                    } else {
+                        (src_w, src_h, src)
+                    };
 
-                    for dy in 0..dest_h {
-                        let sy = if crop_enabled {
-                            crop + (dy * usable_h) / dest_h
-                        } else {
-                            (dy * src_h) / dest_h
-                        };
-                        if sy >= src_h { continue; }
-                        let screen_y = dest_y + dy;
-                        if screen_y >= height { continue; }
-                        
-                        let dest_row_offset = screen_y * width;
-                        let src_row_offset = sy * src_w;
-                        let dest_start = dest_row_offset + dest_x;
-
-                        if dest_start + dest_w <= buffer.len() {
-                            for dx in 0..dest_w {
-                                let sx = x_mapping[dx];
-                                let pixel = src[src_row_offset + sx];
-                                buffer[dest_start + dx] = 0xFF000000u32 | (pixel & 0x00FFFFFFu32);
+                    let filter_params = match video_filter {
+                        config::VideoFilter::Scanlines => {
+                            let v_scale = ((dest_h as f32 / src_h as f32).round()).max(1.0) as u32;
+                            gpu::FilterParams {
+                                filter_mode: 1,
+                                scanline_scale: v_scale,
+                                cell_w: 1.0,
+                                cell_h: 1.0,
                             }
                         }
-                    }
+                        config::VideoFilter::LcdGrid => {
+                            let cell_w = (dest_w as f32 / src_w as f32).ceil().max(1.0);
+                            let cell_h = (dest_h as f32 / src_h as f32).ceil().max(1.0);
+                            gpu::FilterParams {
+                                filter_mode: 2,
+                                scanline_scale: 1,
+                                cell_w,
+                                cell_h,
+                            }
+                        }
+                        _ => gpu::FilterParams {
+                            filter_mode: 0,
+                            scanline_scale: 1,
+                            cell_w: 1.0,
+                            cell_h: 1.0,
+                        },
+                    };
+                    gpu_ref.set_filter_params(filter_params);
 
-                    if video_filter == config::VideoFilter::Scanlines {
-                        let v_scale = ((dest_h as f32 / src_h as f32).round()).max(1.0) as usize;
-                        for dy in 0..dest_h {
-                            if v_scale > 1 && dy % v_scale != 0 {
-                                let screen_y = dest_y + dy;
-                                if screen_y >= height { continue; }
-                                let row_start = screen_y * width + dest_x;
-                                if row_start + dest_w > buffer.len() { continue; }
-                                for dx in 0..dest_w {
-                                    let p = buffer[row_start + dx];
-                                    let r = (((p >> 16) & 0xFF) as u32) * 187 / 256;
-                                    let g = (((p >> 8) & 0xFF) as u32) * 187 / 256;
-                                    let b = ((p & 0xFF) as u32) * 187 / 256;
-                                    buffer[row_start + dx] = 0xFF000000u32 | (r << 16) | (g << 8) | b;
-                                }
-                            }
-                        }
-                    } else if video_filter == config::VideoFilter::LcdGrid {
-                        let cell_w = (dest_w as f32 / src_w as f32).ceil().max(1.0);
-                        let cell_h = (dest_h as f32 / src_h as f32).ceil().max(1.0);
-                        for dy in 0..dest_h {
-                            let screen_y = dest_y + dy;
-                            if screen_y >= height { continue; }
-                            let row_start = screen_y * width + dest_x;
-                            if row_start + dest_w > buffer.len() { continue; }
-                            let fy = (dy as f32 % cell_h) / cell_h;
-                            for dx in 0..dest_w {
-                                let fx = (dx as f32 % cell_w) / cell_w;
-                                let m = if fx < 0.5 && fy < 0.5 {
-                                    1.0
-                                } else if fx >= 0.5 && fy < 0.5 {
-                                    0.45
-                                } else if fx < 0.5 && fy >= 0.5 {
-                                    0.45
-                                } else {
-                                    0.35
-                                };
-                                let p = buffer[row_start + dx];
-                                let r = ((((p >> 16) & 0xFF) as u32 as f32) * m) as u32;
-                                let g = ((((p >> 8) & 0xFF) as u32 as f32) * m) as u32;
-                                let b = (((p & 0xFF) as u32 as f32) * m) as u32;
-                                buffer[row_start + dx] = 0xFF000000u32 | (r << 16) | (g << 8) | b;
-                            }
-                        }
-                    }
+                    gpu_ref.update_nes_frame(final_w as u32, final_h as u32, &final_src, false);
                 }
 
                 let menu_text = colors.menu_text;
@@ -14140,8 +14169,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                     }
                 }
 
-                let (movie_ribbon, movie_ribbon_color) = {
-                    let e = emu_clone.lock().unwrap();
+                let (movie_ribbon, movie_ribbon_color) = if let Ok(e) = emu_clone.try_lock() {
                     let text = e.movie.status_ribbon();
                     let color = match e.movie.mode {
                         crate::movie::MovieMode::Recording => 0xFF7FBF7F,
@@ -14150,6 +14178,8 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                         crate::movie::MovieMode::None => colors.menu_text,
                     };
                     (text, color)
+                } else {
+                    (None, colors.menu_text)
                 };
                 if let Some(text) = &movie_ribbon {
                     let font_h = (8.0 * scale).round() as usize;
@@ -14709,7 +14739,7 @@ let submenu_item_h = (16.0 * scale).round() as usize;
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.7.8",
+                        "Version: 1.7.9",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };
@@ -17658,7 +17688,16 @@ draw_text(&mut buffer, input_display_cb_x + cb_w + input_display_text_gap, input
                     window.set_cursor_visible(ui_visible || !emu_active || oeka_active);
                 }
 
-                buffer.present().expect("Failed to present buffer");
+                gpu_ref.update_ui_frame(width as u32, height as u32, &ui_buffer);
+                let dest_rect = if *rom_loaded_clone.borrow() && height > menu_height && width > 0 {
+                    let ms = menu_state_clone.borrow();
+                    Some((ms.screen_dest_x as u32, ms.screen_dest_y as u32, ms.screen_dest_w as u32, ms.screen_dest_h as u32))
+                } else {
+                    None
+                };
+                if let Err(e) = gpu_ref.render(dest_rect, colors.global_bg, true) {
+                    eprintln!("Failed to present GPU frame: {:?}", e);
+                }
             }
             _ => {}
         }

@@ -520,6 +520,17 @@ impl Mapper for MapperMMC1 {
             .write_register(cart, address, data, cart.mapper_cpu_cycle);
     }
 
+    fn prg_bank_offsets(&self, cart: &Cartridge) -> Option<[usize; 8]> {
+        if cart.prg_rom.is_empty() {
+            return None;
+        }
+        let mut offsets = [0; 8];
+        for i in 0..8 {
+            offsets[i] = self.core.prg_rom_offset(cart, 0x8000 + (i as u16) * 0x1000);
+        }
+        Some(offsets)
+    }
+
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         self.core.mirror_nametable(cart, address)
     }

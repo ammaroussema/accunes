@@ -79,7 +79,6 @@ export class NesStorage {
         });
     }
 
-    // Export battery save as .sav file download for PC compatibility
     downloadSramFile(romName, sramBytes) {
         if (!sramBytes || sramBytes.length === 0) {
             alert('No save RAM data found for this game.');

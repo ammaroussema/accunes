@@ -495,6 +495,32 @@ impl Mapper for MapperMMC3 {
         }
     }
 
+    fn prg_bank_offsets(&self, cart: &Cartridge) -> Option<[usize; 8]> {
+        let len = cart.prg_rom.len();
+        if len == 0 {
+            return None;
+        }
+        let num_8k = len / 0x2000;
+        let second_last = num_8k.saturating_sub(2) * 0x2000;
+        let last = num_8k.saturating_sub(1) * 0x2000;
+
+        let bank_8c_offset = (self.bank_8c as usize) * 0x2000;
+        let bank_a_offset = (self.bank_a as usize) * 0x2000;
+
+        let w0 = if (self.r8000 & 0x40) == 0 { bank_8c_offset } else { second_last };
+        let w1 = bank_a_offset;
+        let w2 = if (self.r8000 & 0x40) != 0 { bank_8c_offset } else { second_last };
+        let w3 = last;
+
+        let windows = [w0, w1, w2, w3];
+        let mut offsets = [0; 8];
+        for w in 0..4 {
+            offsets[w * 2] = windows[w] % len;
+            offsets[w * 2 + 1] = (windows[w] + 0x1000) % len;
+        }
+        Some(offsets)
+    }
+
     fn mirror_nametable(&self, cart: &Cartridge, address: u16) -> u16 {
         if cart.alternative_nametable_arrangement {
             address

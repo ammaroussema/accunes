@@ -680,6 +680,7 @@ pub struct Emulator {
     pub current_theme: String,
     pub cheats: crate::cheats::CheatManager,
     pub rewind_states: VecDeque<Vec<u8>>,
+    pub rewind_total_bytes: usize,
     pub(crate) movie: crate::movie::MovieEngine,
 }
 
@@ -1109,6 +1110,7 @@ impl Emulator {
             current_theme: config::load_theme(),
             cheats: crate::cheats::CheatManager::new(),
             rewind_states: VecDeque::new(),
+            rewind_total_bytes: 0,
             movie: crate::movie::MovieEngine::new(),
             breakpoints: Vec::new(),
             step_over_target: None,
@@ -1124,6 +1126,13 @@ impl Emulator {
             0x4000..=0x401F => 0,
             0x4020..=0xFFFF => {
                 if let Some(cart) = self.cart.as_mut() {
+                    if addr >= 0x8000 && cart.prg_bank_offsets_valid {
+                        let slot = ((addr >> 12) & 7) as usize;
+                        let offset = cart.prg_bank_offsets[slot] + (addr as usize & 0x0FFF);
+                        if let Some(&byte) = cart.prg_rom.get(offset) {
+                            return byte;
+                        }
+                    }
                     let result = cart.with_mapper(|mapper, cart| mapper.fetch_prg(cart, addr));
                     if result.driven {
                         result.data
@@ -1268,6 +1277,7 @@ impl Emulator {
 
     pub fn load_cartridge(&mut self, cart: Cartridge) {
         self.rewind_states.clear();
+        self.rewind_total_bytes = 0;
         self.lag_frames = 0;
         self.frame_had_nmi = false;
         self.last_frame_was_lag = false;
@@ -1334,6 +1344,9 @@ impl Emulator {
             }
         }
         let old = self.cart.replace(cart);
+        if let Some(c) = self.cart.as_mut() {
+            c.refresh_prg_bank_offsets();
+        }
         if let Some(old_cart) = old {
             #[cfg(not(target_arch = "wasm32"))]
             std::thread::spawn(move || drop(old_cart));
@@ -1360,6 +1373,7 @@ impl Emulator {
     }
     pub fn clear_cart(&mut self) {
         self.rewind_states.clear();
+        self.rewind_total_bytes = 0;
         self.lag_frames = 0;
         self.frame_had_nmi = false;
         self.last_frame_was_lag = false;
@@ -2590,7 +2604,13 @@ impl Emulator {
         if !nsf_paused {
             if self.is_pal() {
                 while !self.frame_advance_reached_vblank {
-                    self.emulator_core_pal();
+                    self.step_cpu_cycle_pal();
+                    if self.breakpoint_hit {
+                        break;
+                    }
+                }
+                while self.ppu_scanline != self.pre_render_sl && self.ppu_scanline != 0 {
+                    self.step_cpu_cycle_pal();
                     if self.breakpoint_hit {
                         break;
                     }
@@ -2602,8 +2622,20 @@ impl Emulator {
                     self.emulator_core_pal();
                 }
             } else if self.is_dendy() {
-                while !self.frame_advance_reached_vblank {
+                while !(self.cpu_clock == 15 && self.ppu_clock == 5) {
                     self.emulator_core_dendy();
+                    if self.breakpoint_hit || self.frame_advance_reached_vblank {
+                        break;
+                    }
+                }
+                while !self.frame_advance_reached_vblank {
+                    self.step_cpu_cycle_dendy();
+                    if self.breakpoint_hit {
+                        break;
+                    }
+                }
+                while self.ppu_scanline != self.pre_render_sl && self.ppu_scanline != 0 {
+                    self.step_cpu_cycle_dendy();
                     if self.breakpoint_hit {
                         break;
                     }
@@ -2615,8 +2647,20 @@ impl Emulator {
                     self.emulator_core_dendy();
                 }
             } else {
-                while !self.frame_advance_reached_vblank {
+                while !(self.cpu_clock == 12 && self.ppu_clock == 4) {
                     self.emulator_core_ntsc();
+                    if self.breakpoint_hit || self.frame_advance_reached_vblank {
+                        break;
+                    }
+                }
+                while !self.frame_advance_reached_vblank {
+                    self.step_cpu_cycle_ntsc();
+                    if self.breakpoint_hit {
+                        break;
+                    }
+                }
+                while self.ppu_scanline != self.pre_render_sl && self.ppu_scanline != 0 {
+                    self.step_cpu_cycle_ntsc();
                     if self.breakpoint_hit {
                         break;
                     }
@@ -2750,6 +2794,165 @@ impl Emulator {
         }
     }
 
+    #[inline]
+    pub fn step_cpu_cycle(&mut self) {
+        if self.is_pal() {
+            self.step_cpu_cycle_pal();
+        } else if self.is_dendy() {
+            self.step_cpu_cycle_dendy();
+        } else {
+            self.step_cpu_cycle_ntsc();
+        }
+    }
+
+    #[inline]
+    pub fn step_cpu_cycle_ntsc(&mut self) {
+        if self.cpu_clock == 12 && self.ppu_clock == 4 {
+            self.emulator_core_ntsc();
+            if self.cpu_clock == 1 && self.ppu_clock == 1 {
+                // Sub-step 2: (c=1, p=1) -> (c=2, p=2) (no events)
+
+                // Sub-step 3: (c=2, p=2) -> (c=3, p=3)
+                self.ppu_clock = 2;
+                self.emulate_half_ppu();
+
+                // Sub-step 4: (c=3, p=3) -> (c=4, p=4) (no events)
+
+                // Sub-step 5: (c=4, p=4) -> (c=5, p=1)
+                self.cpu_clock = 4;
+                self.nmi_line |= self.ppu_control_nmi_enabled && self.ppu_status_vblank;
+                if self.operation_cycle == 0 && !(self.ppu_control_nmi_enabled && self.ppu_status_vblank) {
+                    self.nmi_line = false;
+                }
+                self.ppu_clock = 0;
+                self.emulate_ppu();
+
+                // Sub-step 6: (c=5, p=1) -> (c=6, p=2) (no events)
+
+                // Sub-step 7: (c=6, p=2) -> (c=7, p=3)
+                self.cpu_clock = 6;
+                self.ppu_clock = 2;
+                self.emulate_half_ppu();
+
+                // Sub-step 8: (c=7, p=3) -> (c=8, p=4)
+                self.cpu_clock = 7;
+                self.irq_line = self.irq_level_detector;
+                if self.apu_status_frame_interrupt && !self.apu_frame_counter_inhibit_irq {
+                    self.irq_level_detector = true;
+                }
+                self.tick_mapper_cpu_clock_rise();
+
+                // Sub-step 9: (c=8, p=4) -> (c=9, p=1)
+                self.cpu_clock = 8;
+                self.ppu_clock = 0;
+                self.emulate_ppu();
+
+                // Sub-step 10: (c=9, p=1) -> (c=10, p=2) (no events)
+
+                // Sub-step 11: (c=10, p=2) -> (c=11, p=3)
+                self.cpu_clock = 10;
+                self.ppu_clock = 2;
+                self.emulate_half_ppu();
+
+                // Sub-step 12: (c=11, p=3) -> (c=12, p=4) (no events)
+                self.master_cycle_counter += 11;
+                self.cpu_clock = 12;
+                self.ppu_clock = 4;
+                return;
+            } else {
+                while self.cpu_clock != 12 {
+                    self.emulator_core_ntsc();
+                }
+                return;
+            }
+        }
+        for _ in 0..12 {
+            self.emulator_core_ntsc();
+        }
+    }
+
+    #[inline]
+    pub fn step_cpu_cycle_dendy(&mut self) {
+        if self.cpu_clock == 15 && self.ppu_clock == 5 {
+            self.emulator_core_dendy();
+            if self.cpu_clock == 1 && self.ppu_clock == 1 {
+                // Sub-step 2: (c=1, p=1) -> (c=2, p=2) (no events)
+
+                // Sub-step 3: (c=2, p=2) -> (c=3, p=3)
+                self.ppu_clock = 2;
+                self.emulate_half_ppu();
+
+                // Sub-step 4, 5: (no events)
+
+                // Sub-step 6: (c=5, p=5) -> (c=6, p=1)
+                self.cpu_clock = 5;
+                self.nmi_line |= self.ppu_control_nmi_enabled && self.ppu_status_vblank;
+                if self.operation_cycle == 0 && !(self.ppu_control_nmi_enabled && self.ppu_status_vblank) {
+                    self.nmi_line = false;
+                }
+                self.ppu_clock = 0;
+                self.emulate_ppu();
+
+                // Sub-step 7: (c=6, p=1) -> (c=7, p=2) (no events)
+
+                // Sub-step 8: (c=7, p=2) -> (c=8, p=3)
+                self.cpu_clock = 7;
+                self.ppu_clock = 2;
+                self.emulate_half_ppu();
+
+                // Sub-step 9: (c=8, p=3) -> (c=9, p=4) (no events)
+
+                // Sub-step 10: (c=9, p=4) -> (c=10, p=5)
+                self.cpu_clock = 9;
+                self.irq_line = self.irq_level_detector;
+                if self.apu_status_frame_interrupt && !self.apu_frame_counter_inhibit_irq {
+                    self.irq_level_detector = true;
+                }
+                if self.mapper_needs_cpu_clock_rise {
+                    if let Some(cart) = self.cart.as_mut() {
+                        if cart.mapper_chip.cpu_clock_rise(self.ppu_address_bus) {
+                            self.irq_level_detector = true;
+                        }
+                    }
+                }
+
+                // Sub-step 11: (c=10, p=5) -> (c=11, p=1)
+                self.cpu_clock = 10;
+                self.ppu_clock = 0;
+                self.emulate_ppu();
+
+                // Sub-step 12: (c=11, p=1) -> (c=12, p=2) (no events)
+
+                // Sub-step 13: (c=12, p=2) -> (c=13, p=3)
+                self.cpu_clock = 12;
+                self.ppu_clock = 2;
+                self.emulate_half_ppu();
+
+                // Sub-step 14, 15: (no events)
+                self.master_cycle_counter += 14;
+                self.cpu_clock = 15;
+                self.ppu_clock = 5;
+                return;
+            } else {
+                while self.cpu_clock != 15 {
+                    self.emulator_core_dendy();
+                }
+                return;
+            }
+        }
+        for _ in 0..15 {
+            self.emulator_core_dendy();
+        }
+    }
+
+    #[inline]
+    pub fn step_cpu_cycle_pal(&mut self) {
+        for _ in 0..16 {
+            self.emulator_core_pal();
+        }
+    }
+
+    #[inline]
     pub fn emulator_core(&mut self) {
         if self.is_pal() {
             self.emulator_core_pal();
@@ -2761,6 +2964,7 @@ impl Emulator {
     }
 
     // ntsc core logic
+    #[inline]
     pub fn emulator_core_ntsc(&mut self) {
         self.master_cycle_counter += 1;
         if self.cpu_clock == 12 {
@@ -2804,6 +3008,7 @@ impl Emulator {
     }
 
     // pal core logic
+    #[inline]
     pub fn emulator_core_pal(&mut self) {
         self.master_cycle_counter += 1;
         if self.cpu_clock == 16 {
@@ -2847,6 +3052,7 @@ impl Emulator {
     }
 
     // dendy core logic
+    #[inline]
     pub fn emulator_core_dendy(&mut self) {
         self.master_cycle_counter += 1;
         if self.cpu_clock == 15 {
@@ -2918,7 +3124,7 @@ impl Emulator {
     pub const STATE_MOVIE_TRAILER_LEN: usize = Self::STATE_LEGACY_TRAILER_LEN + 16;
 
     pub fn save_state_to_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::new();
+        let mut out = Vec::with_capacity(32768);
         out.push(self.ppu_clock);
         out.push(self.cpu_clock);
         out.extend_from_slice(&self.program_counter.to_le_bytes());
@@ -3438,11 +3644,11 @@ impl Emulator {
             return;
         }
         let state = self.save_state_to_bytes();
+        self.rewind_total_bytes += state.len();
         self.rewind_states.push_back(state);
-        let mut total_bytes = self.rewind_states.iter().map(|s| s.len()).sum::<usize>();
-        while self.rewind_states.len() > REWIND_MAX_STATES || total_bytes > REWIND_MAX_BYTES {
+        while self.rewind_states.len() > REWIND_MAX_STATES || self.rewind_total_bytes > REWIND_MAX_BYTES {
             if let Some(old) = self.rewind_states.pop_front() {
-                total_bytes = total_bytes.saturating_sub(old.len());
+                self.rewind_total_bytes = self.rewind_total_bytes.saturating_sub(old.len());
             } else {
                 break;
             }
@@ -3456,6 +3662,7 @@ impl Emulator {
         let Some(state) = self.rewind_states.pop_back() else {
             return false;
         };
+        self.rewind_total_bytes = self.rewind_total_bytes.saturating_sub(state.len());
         match self.load_state_from_bytes(&state) {
             Ok(()) => true,
             Err(e) => {
@@ -3960,6 +4167,7 @@ impl Emulator {
             cart.with_mapper(|mapper, cart| {
                 mapper.load_mapper_registers(cart, &mapper_state, 0);
             });
+            cart.refresh_prg_bank_offsets();
         }
         }
         if p < data.len() {

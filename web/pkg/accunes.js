@@ -12,6 +12,20 @@ export class WasmEmulator {
         wasm.__wbg_wasmemulator_free(ptr, 0);
     }
     /**
+     * @returns {number}
+     */
+    audio_samples_ready() {
+        const ret = wasm.wasmemulator_audio_samples_ready(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get_audio_buffer_ptr() {
+        const ret = wasm.wasmemulator_get_audio_buffer_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @returns {Float32Array}
      */
     get_audio_samples() {

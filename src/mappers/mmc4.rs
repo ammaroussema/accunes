@@ -119,6 +119,22 @@ impl Mapper for MapperMMC4 {
         }
     }
 
+    fn prg_bank_offsets(&self, cart: &Cartridge) -> Option<[usize; 8]> {
+        let len = cart.prg_rom.len();
+        if len == 0 {
+            return None;
+        }
+        let banks_16k = (len / 0x4000).max(1);
+        let b0 = (self.preg as usize % banks_16k) * 0x4000;
+        let b1 = (banks_16k - 1) * 0x4000;
+        let mut offsets = [0; 8];
+        for i in 0..4 {
+            offsets[i] = (b0 + i * 0x1000) % len;
+            offsets[4 + i] = (b1 + i * 0x1000) % len;
+        }
+        Some(offsets)
+    }
+
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
         self.ciram_offset(address) as u16
     }

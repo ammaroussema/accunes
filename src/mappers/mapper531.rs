@@ -187,6 +187,8 @@ impl Mapper for Mapper531 {
                     is_vs_system: false,
                     tv_system: crate::region::TvSystem::Unknown,
                     is_nes20: false,
+                prg_bank_offsets: [0; 8],
+                prg_bank_offsets_valid: false,
                 },
                 address,
             );

@@ -88,11 +88,35 @@ pub struct Cartridge {
 
     pub tv_system: TvSystem,
     pub is_nes20: bool,
+    pub prg_bank_offsets: [usize; 8],
+    pub prg_bank_offsets_valid: bool,
 }
 
 impl Cartridge {
     pub fn reset_mapper(&mut self) {
         self.with_mapper(|mapper, cart| mapper.reset_with_cart(cart));
+        self.refresh_prg_bank_offsets();
+    }
+
+    #[inline(always)]
+    pub fn refresh_prg_bank_offsets(&mut self) {
+        if self.prg_rom.is_empty() {
+            self.prg_bank_offsets_valid = false;
+            return;
+        }
+        let offsets = self.with_mapper(|mapper, cart| {
+            if mapper.handles_cpu_read() {
+                None
+            } else {
+                mapper.prg_bank_offsets(cart)
+            }
+        });
+        if let Some(offsets) = offsets {
+            self.prg_bank_offsets = offsets;
+            self.prg_bank_offsets_valid = true;
+        } else {
+            self.prg_bank_offsets_valid = false;
+        }
     }
 
     #[inline(always)]
@@ -182,7 +206,7 @@ impl Cartridge {
             let prg_size_minus_1 = if prg_size > 0 { prg_size - 1 } else { 0 };
             let total_songs = nsf_rom.info.total_songs;
 
-            let cartridge = Cartridge {
+            let mut cartridge = Cartridge {
                 name: filepath.to_string(),
                 prg_rom: nsf_rom.prg_rom,
                 chr_rom: Vec::new(),
@@ -210,9 +234,12 @@ impl Cartridge {
                 is_vs_system: false,
                 tv_system,
                 is_nes20: false,
+                prg_bank_offsets: [0; 8],
+                prg_bank_offsets_valid: false,
             };
 
             println!("Loaded NSF Audio: {} ({} songs)", cartridge.name, total_songs);
+            cartridge.reset_mapper();
             return Ok(cartridge);
         }
 
@@ -305,7 +332,7 @@ impl Cartridge {
 
             let fds_overall_crc = crc32(&rom);
             let fds_prg_rom_crc = crc32(&disksys);
-            let cartridge = Cartridge {
+            let mut cartridge = Cartridge {
                 name: filepath.to_string(),
                 prg_rom: disksys,
                 chr_rom: Vec::new(),
@@ -333,12 +360,14 @@ impl Cartridge {
                 is_vs_system: false,
                 tv_system: TvSystem::Unknown,
                 is_nes20: false,
+                prg_bank_offsets: [0; 8],
+                prg_bank_offsets_valid: false,
             };
             
-            let mut cartridge = cartridge;
             cartridge.mapper_chip = MapperSlot::new(Box::new(crate::mapper::Mapper20::new(cartridge.fds_disks.clone())));
 
             println!("Loaded FDS ROM: {} ({} sides)", cartridge.name, cartridge.fds_disks.len());
+            cartridge.reset_mapper();
             return Ok(cartridge);
         }
 
@@ -366,7 +395,7 @@ impl Cartridge {
             let overall_crc = crc32(&rom);
             let prg_size = (bios.len() / 0x4000).min(255) as u8;
             let prg_size_minus_1 = if prg_size > 0 { prg_size - 1 } else { 0 };
-            let cartridge = Cartridge {
+            let mut cartridge = Cartridge {
                 name: filepath.to_string(),
                 prg_rom: bios,
                 chr_rom: Vec::new(),
@@ -394,9 +423,12 @@ impl Cartridge {
                 is_vs_system: false,
                 tv_system: TvSystem::Unknown,
                 is_nes20: false,
+                prg_bank_offsets: [0; 8],
+                prg_bank_offsets_valid: false,
             };
 
             println!("Loaded Study Box tape: {}", cartridge.name);
+            cartridge.reset_mapper();
             return Ok(cartridge);
         }
 
@@ -702,7 +734,7 @@ impl Cartridge {
             let mut unif_combined = prg_rom.clone();
             unif_combined.extend_from_slice(&chr_rom);
             let unif_prg_chr_crc = crc32(&unif_combined);
-            let cartridge = Cartridge {
+            let mut cartridge = Cartridge {
                 name: filepath.to_string(),
                 prg_rom,
                 chr_rom,
@@ -730,9 +762,12 @@ impl Cartridge {
                 is_vs_system: false,
                 tv_system: TvSystem::Unknown,
                 is_nes20: false,
+                prg_bank_offsets: [0; 8],
+                prg_bank_offsets_valid: false,
             };
 
             println!("Loaded UNIF ROM: {} (Board: {}, Mapper: {})", cartridge.name, mapper_name, memory_mapper);
+            cartridge.reset_mapper();
             return Ok(cartridge);
         }
 
@@ -1224,6 +1259,8 @@ impl Cartridge {
             is_vs_system,
             tv_system,
             is_nes20,
+            prg_bank_offsets: [0; 8],
+            prg_bank_offsets_valid: false,
         };
 
         cartridge.reset_mapper();

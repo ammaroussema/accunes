@@ -219,6 +219,21 @@ impl Mapper for Vrc2And4 {
         }
     }
 
+    fn prg_bank_offsets(&self, cart: &Cartridge) -> Option<[usize; 8]> {
+        let len = cart.prg_rom.len();
+        if len == 0 {
+            return None;
+        }
+        let mut offsets = [0; 8];
+        for slot in 0..4 {
+            let bank = self.prg_slot_bank(slot);
+            let base = (bank as usize * 0x2000) % len;
+            offsets[slot * 2] = base;
+            offsets[slot * 2 + 1] = (base + 0x1000) % len;
+        }
+        Some(offsets)
+    }
+
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
         self.mirror_address(address)
     }

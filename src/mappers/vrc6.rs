@@ -254,6 +254,26 @@ impl Mapper for Vrc6 {
         }
     }
 
+    fn prg_bank_offsets(&self, cart: &Cartridge) -> Option<[usize; 8]> {
+        let len = cart.prg_rom.len();
+        if len == 0 {
+            return None;
+        }
+        let last_8k = (len / 0x2000).saturating_sub(1);
+        let b0 = (self.prg[0] as usize) * 0x4000;
+        let b1 = (self.prg[1] as usize) * 0x2000;
+        let b2 = last_8k * 0x2000;
+        let mut offsets = [0; 8];
+        for i in 0..4 {
+            offsets[i] = (b0 + i * 0x1000) % len;
+        }
+        offsets[4] = b1 % len;
+        offsets[5] = (b1 + 0x1000) % len;
+        offsets[6] = b2 % len;
+        offsets[7] = (b2 + 0x1000) % len;
+        Some(offsets)
+    }
+
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
         let slot = ((address >> 10) & 3) as usize;
         let page = self.get_ciram_page(slot);

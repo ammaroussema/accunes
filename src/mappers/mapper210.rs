@@ -168,6 +168,8 @@ impl Mapper for Mapper210 {
                 is_vs_system: false,
                 tv_system: crate::region::TvSystem::Unknown,
                 is_nes20: false,
+                prg_bank_offsets: [0; 8],
+                prg_bank_offsets_valid: false,
             }, address);
             let data = vram[(mirrored & 0x7FF) as usize];
             new_addr_bus |= data as u16;

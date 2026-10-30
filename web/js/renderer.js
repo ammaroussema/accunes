@@ -13,7 +13,13 @@ export class NesRenderer {
     }
 
     init() {
-        const gl = this.canvas.getContext('webgl2', { alpha: false, depth: false, antialias: false });
+        const gl = this.canvas.getContext('webgl2', {
+            alpha: false,
+            depth: false,
+            antialias: false,
+            powerPreference: 'high-performance',
+            desynchronized: true
+        });
         if (gl) {
             this.gl = gl;
             this.initWebGL();

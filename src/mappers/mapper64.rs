@@ -209,6 +209,37 @@ impl Mapper for Mapper64 {
         }
     }
 
+    fn prg_bank_offsets(&self, cart: &Cartridge) -> Option<[usize; 8]> {
+        let len = cart.prg_rom.len();
+        let num_8k = len / 0x2000;
+        if num_8k == 0 {
+            return None;
+        }
+        let (b0, b1, b2, b3) = if self.current_register & 0x40 != 0 {
+            (
+                self.prg_bank(cart, self.registers[15]),
+                self.prg_bank(cart, self.registers[6]),
+                self.prg_bank(cart, self.registers[7]),
+                num_8k.saturating_sub(1),
+            )
+        } else {
+            (
+                self.prg_bank(cart, self.registers[6]),
+                self.prg_bank(cart, self.registers[7]),
+                self.prg_bank(cart, self.registers[15]),
+                num_8k.saturating_sub(1),
+            )
+        };
+        let banks = [b0, b1, b2, b3];
+        let mut offsets = [0; 8];
+        for s in 0..4 {
+            let base = (banks[s] * 0x2000) % len;
+            offsets[s * 2] = base;
+            offsets[s * 2 + 1] = (base + 0x1000) % len;
+        }
+        Some(offsets)
+    }
+
     fn mirror_nametable(&self, _cart: &Cartridge, address: u16) -> u16 {
         if self.mapper_158_mode {
             let chr_xor = if self.current_register & 0x80 != 0 { 4 } else { 0 };

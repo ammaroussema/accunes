@@ -133,6 +133,8 @@ impl Mapper for Mapper89 {
                 is_vs_system: false,
                 tv_system: crate::region::TvSystem::Unknown,
                 is_nes20: false,
+                prg_bank_offsets: [0; 8],
+                prg_bank_offsets_valid: false,
             };
             let mirrored = self.mirror_nametable(&dummy_cart, address);
             let data = vram[(mirrored & 0x7FF) as usize];
