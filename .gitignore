@@ -30,3 +30,16 @@ ver_packager.ps1
 
 # Docs
 readme.txt
+
+# Android - compiled JNI libraries (built by CI)
+mobile/android/app/src/main/jniLibs/
+
+# iOS - compiled static library (built by CI)
+mobile/ios/libs/*.a
+
+# Android build outputs
+mobile/android/.gradle/
+mobile/android/app/build/
+
+# iOS build outputs
+mobile/ios/build/

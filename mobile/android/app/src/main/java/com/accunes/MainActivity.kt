@@ -80,7 +80,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun loadRomFromUri(uri: Uri, title: String) {
+    private fun loadRomFromUri(uri: Uri, @Suppress("UNUSED_PARAMETER") title: String) {
         stopEmulation()
 
         val romBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return

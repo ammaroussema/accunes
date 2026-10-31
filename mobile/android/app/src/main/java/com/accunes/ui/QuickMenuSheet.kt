@@ -90,7 +90,7 @@ fun QuickMenuSheet(
                 }
             }
 
-            Divider()
+            HorizontalDivider()
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

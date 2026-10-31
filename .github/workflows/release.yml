@@ -103,7 +103,16 @@ jobs:
 
       - name: Build Release APK
         working-directory: mobile/android
-        run: gradle assembleRelease
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > keystore/release.keystore
+          fi
+          gradle assembleRelease
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || 'accunes' }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'accunes' }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'accunes' }}
 
       - name: Get version
         id: get_version
