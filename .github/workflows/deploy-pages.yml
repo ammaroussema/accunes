@@ -27,7 +27,9 @@ jobs:
       - name: Install wasm-bindgen-cli
         shell: bash
         run: |
-          cargo install wasm-bindgen-cli --version 0.2.129
+          VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version' | head -n 1)
+          echo "Installing wasm-bindgen-cli version $VERSION"
+          cargo install wasm-bindgen-cli --version "$VERSION"
 
       - name: Build WebAssembly Core
         run: cargo build --target wasm32-unknown-unknown --release --lib
