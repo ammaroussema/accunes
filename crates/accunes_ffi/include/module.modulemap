@@ -1,4 +1,4 @@
-module AccuNES {
+module accunes_ffi {
     header "accunes.h"
     export *
 }
