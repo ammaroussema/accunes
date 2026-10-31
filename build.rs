@@ -50,8 +50,11 @@ fn main() {
         return;
     }
 
-    #[cfg(target_os = "windows")]
-    embed_resource::compile("icon.rc", embed_resource::NONE);
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if target_os == "windows" {
+        #[cfg(target_os = "windows")]
+        embed_resource::compile("icon.rc", embed_resource::NONE);
+    }
     build_rcheevos();
     
     let out_dir = std::env::var("OUT_DIR").unwrap();
@@ -60,8 +63,7 @@ fn main() {
         .nth(3)
         .unwrap();
     
-    #[cfg(target_os = "windows")]
-    {
+    if target_os == "windows" {
         let package_dir = target_dir.join("accunes");
         if package_dir.exists() {
             std::fs::remove_dir_all(&package_dir).ok();

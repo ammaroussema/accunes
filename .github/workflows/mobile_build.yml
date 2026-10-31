@@ -1,0 +1,131 @@
+name: Mobile Native Build
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'src/**'
+      - 'crates/accunes_ffi/**'
+      - 'Cargo.toml'
+      - '.github/workflows/mobile_build.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'src/**'
+      - 'crates/accunes_ffi/**'
+      - 'Cargo.toml'
+      - '.github/workflows/mobile_build.yml'
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+
+      - name: Build Android Libraries
+        run: |
+          mkdir -p jniLibs/arm64-v8a jniLibs/armeabi-v7a jniLibs/x86_64
+          cargo ndk --target aarch64-linux-android --platform 24 build --package accunes_ffi --release
+          cp target/aarch64-linux-android/release/libaccunes_ffi.so jniLibs/arm64-v8a/
+          cargo ndk --target armv7-linux-androideabi --platform 24 build --package accunes_ffi --release
+          cp target/armv7-linux-androideabi/release/libaccunes_ffi.so jniLibs/armeabi-v7a/
+          cargo ndk --target x86_64-linux-android --platform 24 build --package accunes_ffi --release
+          cp target/x86_64-linux-android/release/libaccunes_ffi.so jniLibs/x86_64/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: accunes-android-jniLibs
+          path: jniLibs/
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Copy jniLibs to Android Project
+        run: |
+          mkdir -p mobile/android/app/src/main/jniLibs
+          cp -r jniLibs/* mobile/android/app/src/main/jniLibs/
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build Android APK
+        working-directory: mobile/android
+        run: gradle assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: accunes-debug-apk
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+
+  build-ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Build iOS Targets
+        run: |
+          cargo build --package accunes_ffi --target aarch64-apple-ios --release
+          cargo build --package accunes_ffi --target aarch64-apple-ios-sim --release
+          cargo build --package accunes_ffi --target x86_64-apple-ios --release
+
+      - name: Create XCFramework
+        run: |
+          mkdir -p target/ios-sim-lipo
+          lipo -create \
+            target/aarch64-apple-ios-sim/release/libaccunes_ffi.a \
+            target/x86_64-apple-ios/release/libaccunes_ffi.a \
+            -output target/ios-sim-lipo/libaccunes_ffi.a
+
+          xcodebuild -create-xcframework \
+            -library target/aarch64-apple-ios/release/libaccunes_ffi.a \
+            -headers crates/accunes_ffi/include \
+            -library target/ios-sim-lipo/libaccunes_ffi.a \
+            -headers crates/accunes_ffi/include \
+            -output target/AccuNES.xcframework
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: accunes-ios-xcframework
+          path: target/AccuNES.xcframework
+
+      - name: Build Xcode Project & IPA
+        run: |
+          mkdir -p mobile/ios/libs
+          cp target/aarch64-apple-ios/release/libaccunes_ffi.a mobile/ios/libs/
+          xcodebuild build \
+            -project mobile/ios/AccuNES.xcodeproj \
+            -scheme AccuNES \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+          mkdir -p ipa_output/Payload
+          cp -r build/Build/Products/Release-iphoneos/AccuNES.app ipa_output/Payload/
+          cd ipa_output
+          zip -r AccuNES-unsigned.ipa Payload
+          rm -rf Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: accunes-ios-ipa
+          path: ipa_output/*.ipa

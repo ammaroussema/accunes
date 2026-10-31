@@ -23,7 +23,7 @@ fields (`key value`, separated by whitespace; the value is the rest of the line,
 | Field | Example | Meaning |
 |-------|---------|---------|
 | `[format]` | `1` | Format version. Must be ≥ 1 and no greater than the build's supported version. |
-| `[emulator]` | `AccuNES 1.7.5` | Emulator + version that created the movie. |
+| `[emulator]` | `AccuNES 1.8.0` | Emulator + version that created the movie. |
 | `[romTitle]` | `Super Mario Bros.` | Internal cartridge name. |
 | `[romHash]` | `crc32:2C9B0B02` | ROM identity hash (see below). |
 | `[region]` | `NTSC` | `AUTO`, `NTSC`, `PAL` or `DENDY`. |
@@ -130,7 +130,7 @@ not contain newlines.
 ```
 ACMN
 [format] 1
-[emulator] AccuNES 1.7.5
+[emulator] AccuNES 1.8.0
 [romTitle] Super Mario Bros.
 [romHash] crc32:2C9B0B02
 [region] NTSC

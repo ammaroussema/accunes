@@ -1,9 +1,10 @@
-// save and settings support for webport!!!
+// save, settings, and ROM storage support for the web version!!!
 
 const DB_NAME = 'AccuNesDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_SRAM = 'sram';
 const STORE_STATES = 'savestates';
+const STORE_ROMS = 'roms';
 
 export class NesStorage {
     constructor() {
@@ -21,13 +22,17 @@ export class NesStorage {
                 if (!db.objectStoreNames.contains(STORE_STATES)) {
                     db.createObjectStore(STORE_STATES);
                 }
+                if (!db.objectStoreNames.contains(STORE_ROMS)) {
+                    const romStore = db.createObjectStore(STORE_ROMS, { keyPath: 'name' });
+                    romStore.createIndex('timestamp', 'timestamp', { unique: false });
+                }
             };
             req.onsuccess = (e) => {
                 this.db = e.target.result;
                 resolve();
             };
             req.onerror = () => {
-                console.warn('IndexedDB not available, will use fallback');
+                console.warn('IndexedDB not available, will use memory fallback');
                 resolve();
             };
         });
@@ -36,22 +41,30 @@ export class NesStorage {
     async saveSram(romName, sramBytes) {
         if (!this.db || !sramBytes || sramBytes.length === 0) return;
         return new Promise((resolve, reject) => {
-            const tx = this.db.transaction(STORE_SRAM, 'readwrite');
-            const store = tx.objectStore(STORE_SRAM);
-            const req = store.put(sramBytes, romName);
-            req.onsuccess = () => resolve();
-            req.onerror = (e) => reject(e);
+            try {
+                const tx = this.db.transaction(STORE_SRAM, 'readwrite');
+                const store = tx.objectStore(STORE_SRAM);
+                const req = store.put(sramBytes, romName);
+                req.onsuccess = () => resolve();
+                req.onerror = (e) => reject(e);
+            } catch (err) {
+                reject(err);
+            }
         });
     }
 
     async loadSram(romName) {
         if (!this.db) return null;
         return new Promise((resolve) => {
-            const tx = this.db.transaction(STORE_SRAM, 'readonly');
-            const store = tx.objectStore(STORE_SRAM);
-            const req = store.get(romName);
-            req.onsuccess = (e) => resolve(e.target.result || null);
-            req.onerror = () => resolve(null);
+            try {
+                const tx = this.db.transaction(STORE_SRAM, 'readonly');
+                const store = tx.objectStore(STORE_SRAM);
+                const req = store.get(romName);
+                req.onsuccess = (e) => resolve(e.target.result || null);
+                req.onerror = () => resolve(null);
+            } catch {
+                resolve(null);
+            }
         });
     }
 
@@ -59,11 +72,15 @@ export class NesStorage {
         if (!this.db || !stateBytes) return;
         const key = `${romName}_slot_${slot}`;
         return new Promise((resolve, reject) => {
-            const tx = this.db.transaction(STORE_STATES, 'readwrite');
-            const store = tx.objectStore(STORE_STATES);
-            const req = store.put(stateBytes, key);
-            req.onsuccess = () => resolve();
-            req.onerror = (e) => reject(e);
+            try {
+                const tx = this.db.transaction(STORE_STATES, 'readwrite');
+                const store = tx.objectStore(STORE_STATES);
+                const req = store.put(stateBytes, key);
+                req.onsuccess = () => resolve();
+                req.onerror = (e) => reject(e);
+            } catch (err) {
+                reject(err);
+            }
         });
     }
 
@@ -71,11 +88,113 @@ export class NesStorage {
         if (!this.db) return null;
         const key = `${romName}_slot_${slot}`;
         return new Promise((resolve) => {
-            const tx = this.db.transaction(STORE_STATES, 'readonly');
-            const store = tx.objectStore(STORE_STATES);
-            const req = store.get(key);
-            req.onsuccess = (e) => resolve(e.target.result || null);
-            req.onerror = () => resolve(null);
+            try {
+                const tx = this.db.transaction(STORE_STATES, 'readonly');
+                const store = tx.objectStore(STORE_STATES);
+                const req = store.get(key);
+                req.onsuccess = (e) => resolve(e.target.result || null);
+                req.onerror = () => resolve(null);
+            } catch {
+                resolve(null);
+            }
+        });
+    }
+
+    async saveRom(name, dataBytes) {
+        if (!this.db || !dataBytes) return;
+        return new Promise((resolve, reject) => {
+            try {
+                const tx = this.db.transaction(STORE_ROMS, 'readwrite');
+                const store = tx.objectStore(STORE_ROMS);
+                const record = {
+                    name,
+                    data: dataBytes,
+                    timestamp: Date.now(),
+                    size: dataBytes.length
+                };
+                const req = store.put(record);
+                req.onsuccess = () => resolve();
+                req.onerror = (e) => reject(e);
+            } catch (err) {
+                reject(err);
+            }
+        });
+    }
+
+    async loadRom(name) {
+        if (!this.db) return null;
+        return new Promise((resolve) => {
+            try {
+                const tx = this.db.transaction(STORE_ROMS, 'readonly');
+                const store = tx.objectStore(STORE_ROMS);
+                const req = store.get(name);
+                req.onsuccess = (e) => {
+                    const record = e.target.result;
+                    if (record) {
+                        this.touchRom(name);
+                        resolve(record.data);
+                    } else {
+                        resolve(null);
+                    }
+                };
+                req.onerror = () => resolve(null);
+            } catch {
+                resolve(null);
+            }
+        });
+    }
+
+    async touchRom(name) {
+        if (!this.db) return;
+        try {
+            const tx = this.db.transaction(STORE_ROMS, 'readwrite');
+            const store = tx.objectStore(STORE_ROMS);
+            const getReq = store.get(name);
+            getReq.onsuccess = () => {
+                if (getReq.result) {
+                    getReq.result.timestamp = Date.now();
+                    store.put(getReq.result);
+                }
+            };
+        } catch {
+        }
+    }
+
+    async listRoms() {
+        if (!this.db) return [];
+        return new Promise((resolve) => {
+            try {
+                const tx = this.db.transaction(STORE_ROMS, 'readonly');
+                const store = tx.objectStore(STORE_ROMS);
+                const req = store.getAll();
+                req.onsuccess = (e) => {
+                    const records = e.target.result || [];
+                    const list = records.map((r) => ({
+                        name: r.name,
+                        size: r.size,
+                        timestamp: r.timestamp
+                    })).sort((a, b) => b.timestamp - a.timestamp);
+                    resolve(list);
+                };
+                req.onerror = () => resolve([]);
+            } catch {
+                resolve([]);
+            }
+        });
+    }
+
+    async deleteRom(name) {
+        if (!this.db) return;
+        return new Promise((resolve) => {
+            try {
+                const tx = this.db.transaction(STORE_ROMS, 'readwrite');
+                const store = tx.objectStore(STORE_ROMS);
+                const req = store.delete(name);
+                req.onsuccess = () => resolve();
+                req.onerror = () => resolve();
+            } catch {
+                resolve();
+            }
         });
     }
 

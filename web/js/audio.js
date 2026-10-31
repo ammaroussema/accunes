@@ -168,6 +168,12 @@ export class NesAudio {
         }
     }
 
+    suspend() {
+        if (this.ctx && this.ctx.state === 'running') {
+            this.ctx.suspend().catch(() => {});
+        }
+    }
+
     queueSamples(samples) {
         if (!samples || samples.length === 0) return;
 

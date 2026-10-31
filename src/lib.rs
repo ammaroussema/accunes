@@ -1,6 +1,6 @@
 // reorganized into libraries for web support!!!
 
-pub const APP_VERSION: &str = "1.7.8";
+pub const APP_VERSION: &str = "1.8.0";
 
 pub mod apu;
 pub mod audio;

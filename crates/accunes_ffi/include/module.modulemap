@@ -1,0 +1,4 @@
+module AccuNES {
+    header "accunes.h"
+    export *
+}

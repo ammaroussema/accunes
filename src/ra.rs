@@ -1,24 +1,24 @@
 // the retroachievements api integration!!!
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(not(all(not(target_arch = "wasm32"), feature = "desktop")))]
 pub fn compute_ra_hashes(_filepath: &str, _rom: &[u8]) {}
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(not(all(not(target_arch = "wasm32"), feature = "desktop")))]
 pub fn is_logged_in() -> bool { false }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(not(all(not(target_arch = "wasm32"), feature = "desktop")))]
 pub fn hardcore_active() -> bool { false }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(not(all(not(target_arch = "wasm32"), feature = "desktop")))]
 pub fn serialize_progress() -> Vec<u8> { Vec::new() }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(not(all(not(target_arch = "wasm32"), feature = "desktop")))]
 pub fn deserialize_progress(_data: &[u8]) {}
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "desktop"))]
 pub use desktop::*;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "desktop"))]
 mod desktop {
 use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr, CString};
@@ -318,9 +318,9 @@ fn perform_http(url: &str, post_data: Option<&str>) -> Result<Vec<u8>, String> {
         Some(data) => agent
             .post(url)
             .set("Content-Type", "application/x-www-form-urlencoded")
-            .set("User-Agent", "AccuNES/v1.7.9")
+            .set("User-Agent", "AccuNES/v1.8.0")
             .send_string(data),
-        None => agent.get(url).set("User-Agent", "AccuNES/v1.7.9").call(),
+        None => agent.get(url).set("User-Agent", "AccuNES/v1.8.0").call(),
     };
 
     match result {

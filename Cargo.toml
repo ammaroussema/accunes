@@ -1,8 +1,14 @@
 [package]
 name = "accunes"
-version = "1.7.9"
+version = "1.8.0"
 edition = "2021"
 description = "Accurate NES/Famicom Emulator"
+
+[workspace]
+members = [
+    ".",
+    "crates/accunes_ffi",
+]
 
 [lib]
 name = "accunes_core"
@@ -12,6 +18,22 @@ crate-type = ["cdylib", "rlib"]
 [[bin]]
 name = "accunes"
 path = "src/main.rs"
+required-features = ["desktop"]
+
+[features]
+default = ["desktop"]
+desktop = [
+    "dep:winit",
+    "dep:wgpu",
+    "dep:bytemuck",
+    "dep:pollster",
+    "dep:rfd",
+    "dep:cpal",
+    "dep:gilrs",
+    "dep:image",
+    "dep:ureq",
+    "dep:arboard",
+]
 
 [dependencies]
 font8x8 = "0.3.1"
@@ -19,17 +41,16 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 miniz_oxide = "0.8"
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-winit = "0.28"
-wgpu = "0.16"
-bytemuck = { version = "1", features = ["derive"] }
-pollster = "0.3"
-rfd = { version = "0.15", default-features = false, features = ["gtk3"] }
-cpal = "0.15"
-gilrs = { version = "0.10", default-features = false, features = ["xinput"] }
-image = "0.24"
-ureq = { version = "2.9", default-features = false, features = ["json", "native-tls"] }
-arboard = "3"
+winit = { version = "0.28", optional = true }
+wgpu = { version = "0.16", optional = true }
+bytemuck = { version = "1", features = ["derive"], optional = true }
+pollster = { version = "0.3", optional = true }
+rfd = { version = "0.15", default-features = false, features = ["gtk3"], optional = true }
+cpal = { version = "0.15", optional = true }
+gilrs = { version = "0.10", default-features = false, features = ["xinput"], optional = true }
+image = { version = "0.24", optional = true }
+ureq = { version = "2.9", default-features = false, features = ["json", "native-tls"], optional = true }
+arboard = { version = "3", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
@@ -52,4 +73,3 @@ opt-level = 3
 codegen-units = 1
 lto = "thin"
 panic = "abort"
-

@@ -1,0 +1,13 @@
+[package]
+name = "accunes_ffi"
+version = "1.8.0"
+edition = "2021"
+description = "Native C FFI and JNI bindings for AccuNES"
+
+[lib]
+name = "accunes_ffi"
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+accunes_core = { package = "accunes", path = "../../", default-features = false }
+jni = { version = "0.21", default-features = false }
