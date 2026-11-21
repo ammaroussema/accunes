@@ -43,7 +43,7 @@ jobs:
         run: cargo build --release
 
       - name: Clear quarantine attribute (macOS)
-        if: runner.os == 'macOS'
+        if: ${{ runner.os == 'macOS' }}
         run: xattr -cr target/release/accunes
 
       - name: Get version
