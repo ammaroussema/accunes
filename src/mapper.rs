@@ -750,6 +750,9 @@ pub trait Mapper: Send {
     // controller read adjustment for vs system mappers
     fn adjust_controller_read(&self, _address: u16, value: u8) -> u8 { value }
 
+    // notify mapper if it is running as the sub-system instance in a Vs. Dual System
+    fn set_vs_sub_system(&mut self, _is_sub: bool) {}
+
     // notify mapper of resolved CPU clock (for audio rate mappers)
     fn set_cpu_clock(&mut self, _clock: f64) {}
 
@@ -819,7 +822,7 @@ pub trait Mapper: Send {
         self.reset();
     }
 
-    /// Fast PRG bank offsets for ..= (8 slots of 4KB each)
+    /// fast PRG bank offsets for ..= (8 slots of 4KB each)
     fn prg_bank_offsets(&self, _cart: &Cartridge) -> Option<[usize; 8]> {
         None
     }

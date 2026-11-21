@@ -8,6 +8,15 @@ use std::sync::atomic::Ordering;
 
 pub const PPU_BUS_DECAY_CONSTANT: i32 = 1786830;
 
+const VS_TKO_KEY: [u8; 32] = [
+    0xFF, 0xBF, 0xB7, 0x97, 0x97, 0x17, 0x57, 0x4F, 0x6F, 0x6B, 0xEB, 0xA9, 0xB1, 0x90, 0x94, 0x14,
+    0x56, 0x4E, 0x6F, 0x6B, 0xEB, 0xA9, 0xB1, 0x90, 0xD4, 0x5C, 0x3E, 0x26, 0x87, 0x83, 0x13, 0x51,
+];
+
+const VS_SUPER_XEVIOUS_KEY: [u8; 8] = [
+    0x05, 0x01, 0x89, 0x37, 0x05, 0x00, 0xD1, 0x3E,
+];
+
 impl Emulator {
     /// cpu fetch
     pub fn fetch(&mut self, address: u16) -> u8 {
@@ -40,6 +49,11 @@ impl Emulator {
                     self.data_pins_are_not_floating = result.driven;
                     if result.driven {
                         self.data_bus = result.data;
+                    } else if self.is_vs_system_cart && address >= 0x6000 && address < 0x8000 {
+                        if !cart.prg_ram.is_empty() {
+                            self.data_bus = cart.prg_ram[(address as usize & 0x7FF) % cart.prg_ram.len()];
+                            self.data_pins_are_not_floating = true;
+                        }
                     }
                 }
             }
@@ -129,6 +143,9 @@ impl Emulator {
                             | (if self.ppu_status_sprite_overflow_delayed { 0x20 } else { 0 }))
                             & 0xE0;
                         self.data_bus |= self.ppu_bus & 0x1F;
+                        if self.is_vs_system_cart && self.vs_2c05_security != 0 {
+                            self.data_bus = (self.data_bus & 0xC0) | self.vs_2c05_security;
+                        }
                         self.ppu_addr_latch = false;
                         self.ppu_bus = self.data_bus;
                         for i in 5..8 { self.ppu_bus_decay[i] = PPU_BUS_DECAY_CONSTANT; }
@@ -182,6 +199,12 @@ impl Emulator {
                 self.data_bus = 0xFF;
             }
             self.data_pins_are_not_floating = true;
+            return self.data_bus;
+        } else if self.is_vs_system_cart && (1..=3).contains(&self.vs_flags) && address >= 0x5000 && address < 0x6000 {
+            if let Some(val) = self.read_vs_protection(address) {
+                self.data_bus = val;
+                self.data_pins_are_not_floating = true;
+            }
             return self.data_bus;
         } else if self.cart.is_some() {
             if self.cart.as_ref().map_or(false, |c| c.mapper_chip.is_um6578()) && (0x4048..=0x404F).contains(&address) {
@@ -1063,8 +1086,26 @@ impl Emulator {
                 }
 
                 if self.apu_controller_ports_strobing {
-                    self.controller_shift_register1 = self.controller_sampled(self.controller_port1.load(Ordering::Relaxed));
-                    self.controller_shift_register2 = self.controller_sampled(self.controller_port2.load(Ordering::Relaxed));
+                    if self.is_vs_system_cart {
+                        let (p1, p2) = self.get_vs_controller_bytes();
+                        if self.controller1_type == crate::config::ControllerType::Zapper {
+                            let mut zapper_bits = 0x08u8;
+                            if self.zapper_check_hit() {
+                                zapper_bits |= 0x02;
+                            }
+                            if self.zapper_trigger.load(Ordering::Relaxed) {
+                                zapper_bits |= 0x01;
+                            }
+                            self.controller_port1.store(zapper_bits, Ordering::Relaxed);
+                            self.controller_shift_register1 = zapper_bits;
+                        } else {
+                            self.controller_shift_register1 = self.controller_sampled(p1);
+                        }
+                        self.controller_shift_register2 = self.controller_sampled(p2);
+                    } else {
+                        self.controller_shift_register1 = self.controller_sampled(self.controller_port1.load(Ordering::Relaxed));
+                        self.controller_shift_register2 = self.controller_sampled(self.controller_port2.load(Ordering::Relaxed));
+                    }
                 }
 
                 let sr_bit = if reg == 0x16 {
@@ -1104,7 +1145,11 @@ impl Emulator {
                 // vs system quirks: let mapper adjust controller read if applicable
                 let adjusted = if let Some(cart) = self.cart.as_ref() {
                     if cart.is_vs_system {
-                        cart.mapper_chip.adjust_controller_read(address, controller_read)
+                        let mut adj = cart.mapper_chip.adjust_controller_read(address, controller_read);
+                        if self.is_vs_sub_system && (address & 0x1F) == 0x16 {
+                            adj |= 0x80;
+                        }
+                        adj
                     } else {
                         controller_read
                     }
@@ -1983,6 +2028,14 @@ impl Emulator {
         if let Some(cart) = self.cart.as_mut() {
             cart.mapper_chip.handle_cpu_write(address, input);
         }
+        if self.is_onebus_cart && address >= 0x2000 && address < 0x2100 {
+            if let Some(cart) = self.cart.as_ref() {
+                let enhanced = cart.mapper_chip.onebus_vt369_enhanced_ppu();
+                self.is_vt369_enhanced_ppu_cart = enhanced;
+                self.mapper_vt369_enhanced_probe = enhanced;
+                self.onebus_chr_routing_cart = cart.mapper_chip.onebus_chr_routing_ppu();
+            }
+        }
         if address < 0x2000 {
             let overridden = if self.mapper_cpu_ram_override {
                 if let Some(ref mut cart) = self.cart {
@@ -2007,7 +2060,12 @@ impl Emulator {
             } else {
                 let is_onebus = self.is_onebus_cart;
                 if !is_onebus || address < 0x2010 {
-                    self.store_ppu_registers(address, input);
+                    let eff_addr = if self.is_vs_system_cart && self.vs_ppu_is_2c05 && (address & 7) < 2 {
+                        address ^ 1
+                    } else {
+                        address
+                    };
+                    self.store_ppu_registers(eff_addr, input);
                 }
             }
         } else if address >= 0x4000 && address <= 0x4015 {
@@ -2158,7 +2216,23 @@ impl Emulator {
                     self.subor_keyboard_row = 0;
                     self.subor_keyboard_column = 0;
                 }
-                if self.expansion_adapter_type == crate::config::ExpansionAdapterType::TwoPlayer {
+                if self.is_vs_system_cart {
+                    let (p1, p2) = self.get_vs_controller_bytes();
+                    if self.controller1_type == crate::config::ControllerType::Zapper {
+                        let mut zapper_bits = 0x08u8;
+                        if self.zapper_check_hit() {
+                            zapper_bits |= 0x02;
+                        }
+                        if self.zapper_trigger.load(Ordering::Relaxed) {
+                            zapper_bits |= 0x01;
+                        }
+                        self.controller_port1.store(zapper_bits, Ordering::Relaxed);
+                        self.controller_shift_register1 = zapper_bits;
+                    } else {
+                        self.controller_shift_register1 = self.controller_sampled(p1);
+                    }
+                    self.controller_shift_register2 = self.controller_sampled(p2);
+                } else if self.expansion_adapter_type == crate::config::ExpansionAdapterType::TwoPlayer {
                     self.controller_shift_register1 = self.controller_sampled(self.expansion_adapter_ports[0].load(Ordering::Relaxed));
                     self.controller_shift_register2 = self.controller_sampled(self.expansion_adapter_ports[1].load(Ordering::Relaxed));
                 } else if self.expansion_adapter_type == crate::config::ExpansionAdapterType::FourPlayer || self.expansion_adapter_type == crate::config::ExpansionAdapterType::HoriFourPlayer {
@@ -2250,6 +2324,9 @@ impl Emulator {
                         self.virtualboy_state_buffer[p] = crate::config::build_vb_state(vb_state_lock[p]);
                     }
                 }
+            }
+            if self.is_vs_system_cart {
+                self.vs_cross_irq_out.store((input & 0x02) != 0, Ordering::Relaxed);
             }
             if self.cart.as_ref().is_some_and(|c| matches!(c.memory_mapper, 99 | 604)) {
                 if let Some(cart) = self.cart.as_mut() {
@@ -2475,6 +2552,13 @@ impl Emulator {
                 mapper.execute_dma(cart, ram, vram);
                 irq_ack
             });
+            if self.is_vs_system_cart && address >= 0x6000 && address < 0x8000 {
+                let cart = self.cart.as_mut().unwrap();
+                if !cart.prg_ram.is_empty() {
+                    let idx = (address as usize & 0x7FF) % cart.prg_ram.len();
+                    cart.prg_ram[idx] = input;
+                }
+            }
             let cart = self.cart.as_mut().unwrap();
             cart.refresh_prg_bank_offsets();
 
@@ -2796,3 +2880,39 @@ pub static APU_DMC_RATE_LUT_NTSC: [u16; 16] = [
 pub static APU_DMC_RATE_LUT_PAL: [u16; 16] = [
     398, 354, 316, 298, 276, 236, 210, 198, 176, 148, 132, 118, 98, 78, 66, 50,
 ];
+
+impl Emulator {
+    pub(crate) fn read_vs_protection(&mut self, address: u16) -> Option<u8> {
+        match self.vs_flags {
+            1 => {
+                if (address & 1) == 0 {
+                    self.vs_protection_count = 0;
+                    None
+                } else {
+                    self.vs_protection_count = self.vs_protection_count.wrapping_add(1);
+                    Some(if self.vs_protection_count == 5 { 0xB4 } else { 0x6F })
+                }
+            }
+            2 => {
+                if (address & 1) == 0 {
+                    self.vs_protection_count = 0;
+                    None
+                } else {
+                    let val = VS_TKO_KEY[(self.vs_protection_count & 31) as usize];
+                    self.vs_protection_count = self.vs_protection_count.wrapping_add(1);
+                    Some(val)
+                }
+            }
+            3 => {
+                if (address & 0x400) != 0 {
+                    let val = VS_SUPER_XEVIOUS_KEY[(self.vs_protection_count & 7) as usize];
+                    self.vs_protection_count = self.vs_protection_count.wrapping_add(1);
+                    Some(val)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+}

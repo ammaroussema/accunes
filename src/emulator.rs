@@ -646,6 +646,18 @@ pub struct Emulator {
     pub is_vt369_ppu_cart: bool,
     pub is_vt369_enhanced_ppu_cart: bool,
     pub is_vs_system_cart: bool,
+    pub is_vs_dual_system_cart: bool,
+    pub is_vs_sub_system: bool,
+    pub vs_sub_system: Option<Box<Emulator>>,
+    pub vs_cross_irq_in: Arc<AtomicBool>,
+    pub vs_cross_irq_out: Arc<AtomicBool>,
+    pub vs_dual_screen_select: u8,
+    pub vs_flags: u8,
+    pub vs_protection_count: u8,
+    pub vs_ppu_type: u8,
+    pub vs_ppu_is_2c05: bool,
+    pub vs_2c05_security: u8,
+    pub vs_input_type: u8,
     pub vt03_4bpp_bg_cart: bool,
     pub vt03_4bpp_sp_cart: bool,
     pub is_onebus_cart: bool,
@@ -1076,6 +1088,18 @@ impl Emulator {
             is_vt369_ppu_cart: false,
             is_vt369_enhanced_ppu_cart: false,
             is_vs_system_cart: false,
+            is_vs_dual_system_cart: false,
+            is_vs_sub_system: false,
+            vs_sub_system: None,
+            vs_cross_irq_in: Arc::new(AtomicBool::new(false)),
+            vs_cross_irq_out: Arc::new(AtomicBool::new(false)),
+            vs_dual_screen_select: 0,
+            vs_flags: 0,
+            vs_protection_count: 0,
+            vs_ppu_type: 0xFF,
+            vs_ppu_is_2c05: false,
+            vs_2c05_security: 0,
+            vs_input_type: 0,
             vt03_4bpp_bg_cart: false,
             vt03_4bpp_sp_cart: false,
             is_onebus_cart: false,
@@ -1275,7 +1299,7 @@ impl Emulator {
         }
     }
 
-    pub fn load_cartridge(&mut self, cart: Cartridge) {
+    pub fn load_cartridge(&mut self, mut cart: Cartridge) {
         self.rewind_states.clear();
         self.rewind_total_bytes = 0;
         self.lag_frames = 0;
@@ -1289,6 +1313,50 @@ impl Emulator {
         self.is_vt369_ppu_cart = cart.mapper_chip.onebus_vt369_ppu();
         self.is_vt369_enhanced_ppu_cart = cart.mapper_chip.onebus_vt369_enhanced_ppu();
         self.is_vs_system_cart = cart.is_vs_system;
+        self.is_vs_dual_system_cart = cart.is_vs_dual_system;
+        self.is_vs_sub_system = cart.is_vs_sub_system;
+        self.vs_dual_screen_select = 0;
+        self.vs_flags = cart.vs_flags;
+        self.vs_protection_count = 0;
+        self.vs_ppu_type = cart.vs_ppu_type;
+        self.vs_ppu_is_2c05 = cart.is_vs_system && (0x08..=0x0C).contains(&cart.vs_ppu_type);
+        self.vs_2c05_security = if self.vs_ppu_is_2c05 {
+            match cart.vs_ppu_type {
+                0x08 => 0x1B,
+                0x09 => 0x3D,
+                0x0A => 0x1C,
+                0x0B => 0x1B,
+                _ => 0x00,
+            }
+        } else {
+            0
+        };
+        self.vs_input_type = cart.vs_input_type;
+        if cart.is_vs_system {
+            let prg = cart.prg_rom_crc32;
+            let prg_chr = cart.prg_chr_crc32;
+            self.vs_ppu_variant = if cart.vs_ppu_type != 0xFF {
+                match cart.vs_ppu_type {
+                    0x02 => 0, // RP2C04-0001
+                    0x03 => 1, // RP2C04-0002
+                    0x04 => 2, // RP2C04-0003
+                    0x05 => 3, // RP2C04-0004
+                    _ => 4,    // 0x00, 0x01, 0x06..0x0C: 2C03 / 2C05 RGB
+                }
+            } else {
+                match prg {
+                    0xFF5135A3 | 0xD99A2087 | 0x17AE56BE | 0xE2C0A2BE | 0xCA85E56D | 0xEC461DB9 | 0x44691677 | 0x381E5E08 | 0xAE8063EF => 0,
+                    0xFFBEF374 | 0x12B36F73 | 0x56E0D2C7 | 0x70901B25 | 0x0B65A917 | 0x3DFAC2A9 | 0x8FF4E65F | 0x99FB3B3B | 0xCC2C4B5D => 1,
+                    0x9213A19E | 0xF39A0AC5 | 0x46914E3E | 0xD5D7EAC4 | 0x1E438D52 | 0xE4407DB3 | 0xCBE85490 | 0xB7C12F84 | 0x07ED1918 | 0x316DFE30 | 0x0ED24132 | 0x22137D2A => 2,
+                    0xD50A8658 | 0x4A6AE244 | 0x9B15F92F => 3,
+                    _ => match prg_chr {
+                        0x2019FE65 => 0,
+                        _ => 3,
+                    },
+                }
+            };
+            self.refresh_palette_lut();
+        }
         self.vt03_4bpp_bg_cart = cart.mapper_chip.vt03_4bpp_bg();
         self.vt03_4bpp_sp_cart = cart.mapper_chip.vt03_4bpp_sp();
         self.is_onebus_cart = crate::mappers::one_bus::is_onebus_mapper(cart.memory_mapper);
@@ -1343,6 +1411,24 @@ impl Emulator {
                 self.um6578_dma_page = 0x20;
             }
         }
+        if cart.is_vs_dual_system && !self.is_vs_sub_system {
+            let irq_main_to_sub = Arc::new(AtomicBool::new(false));
+            let irq_sub_to_main = Arc::new(AtomicBool::new(false));
+            self.vs_cross_irq_out = irq_main_to_sub.clone();
+            self.vs_cross_irq_in = irq_sub_to_main.clone();
+
+            let mut sub = Box::new(Emulator::new());
+            sub.is_vs_sub_system = true;
+            sub.vs_cross_irq_in = irq_main_to_sub;
+            sub.vs_cross_irq_out = irq_sub_to_main;
+            sub.controller_port1 = self.controller_port3.clone();
+            sub.controller_port2 = self.controller_port4.clone();
+            let sub_cart = cart.clone_for_vs_sub();
+            sub.load_cartridge(sub_cart);
+            self.vs_sub_system = Some(sub);
+        } else {
+            self.vs_sub_system = None;
+        }
         let old = self.cart.replace(cart);
         if let Some(c) = self.cart.as_mut() {
             c.refresh_prg_bank_offsets();
@@ -1388,6 +1474,20 @@ impl Emulator {
         self.is_vt369_ppu_cart = false;
         self.is_vt369_enhanced_ppu_cart = false;
         self.is_vs_system_cart = false;
+        self.is_vs_dual_system_cart = false;
+        self.is_vs_sub_system = false;
+        self.vs_sub_system = None;
+        self.vs_cross_irq_in = Arc::new(AtomicBool::new(false));
+        self.vs_cross_irq_out = Arc::new(AtomicBool::new(false));
+        self.vs_dual_screen_select = 0;
+        self.vs_flags = 0;
+        self.vs_protection_count = 0;
+        self.vs_ppu_type = 0xFF;
+        self.vs_ppu_is_2c05 = false;
+        self.vs_2c05_security = 0;
+        self.vs_input_type = 0;
+        self.vs_ppu_variant = 3;
+        self.refresh_palette_lut();
         self.vt03_4bpp_bg_cart = false;
         self.vt03_4bpp_sp_cart = false;
         self.is_onebus_cart = false;
@@ -1520,6 +1620,9 @@ impl Emulator {
             cart.mapper_chip.reset_power_cycle();
             cart.mapper_chip.set_dip_switches(saved_dip);
         }
+        if let Some(ref mut sub) = self.vs_sub_system {
+            sub.power_cycle(mode);
+        }
     }
 
     pub fn apply_apu_alignment(&mut self) {
@@ -1532,6 +1635,12 @@ impl Emulator {
     }
 
     pub fn reset(&mut self) {
+        self.vs_cross_irq_in.store(false, Ordering::Relaxed);
+        self.vs_cross_irq_out.store(false, Ordering::Relaxed);
+        if let Some(ref mut sub) = self.vs_sub_system {
+            sub.reset();
+        }
+        self.vs_protection_count = 0;
         self.flag_interrupt = true;
         self.apu_dmc_output &= 1;
 
@@ -1620,7 +1729,7 @@ impl Emulator {
                 if let Some(save) = mapper.battery_save_data(cart) {
                     Some(save)
                 } else if !cart.prg_ram.is_empty() {
-                    Some(cart.prg_ram.clone())
+                    Some(cart.prg_ram.to_vec())
                 } else {
                     None
                 }
@@ -1649,7 +1758,7 @@ impl Emulator {
             if let Some(save) = mapper.battery_save_data(cart) {
                 Some(save)
             } else if !cart.prg_ram.is_empty() {
-                Some(cart.prg_ram.clone())
+                Some(cart.prg_ram.to_vec())
             } else {
                 None
             }
@@ -2313,6 +2422,12 @@ impl Emulator {
     }
 
     pub fn insert_coin(&mut self, coin: u8) {
+        if coin >= 2 {
+            if let Some(ref mut sub) = self.vs_sub_system {
+                sub.insert_coin(coin - 2);
+                return;
+            }
+        }
         if let Some(ref mut cart) = self.cart {
             cart.mapper_chip.insert_coin(coin);
         }
@@ -2321,6 +2436,31 @@ impl Emulator {
     pub fn service_button(&mut self) {
         if let Some(ref mut cart) = self.cart {
             cart.mapper_chip.service_button();
+        }
+    }
+
+    pub fn service_button_sub(&mut self) {
+        if let Some(ref mut sub) = self.vs_sub_system {
+            sub.service_button();
+        }
+    }
+
+    pub fn get_vs_dual_dip_switches(&self) -> u16 {
+        let main = self.get_dip_switches() as u16;
+        let sub = self.vs_sub_system.as_ref().map_or(0, |s| s.get_dip_switches()) as u16;
+        main | (sub << 8)
+    }
+
+    pub fn set_vs_dual_dip_switches(&mut self, value: u16) {
+        self.set_dip_switches((value & 0xFF) as u8);
+        if let Some(ref mut sub) = self.vs_sub_system {
+            sub.set_dip_switches(((value >> 8) & 0xFF) as u8);
+        }
+    }
+
+    pub fn toggle_vs_dual_screen(&mut self) {
+        if self.vs_sub_system.is_some() {
+            self.vs_dual_screen_select = (self.vs_dual_screen_select + 1) % 3;
         }
     }
 
@@ -2379,8 +2519,22 @@ impl Emulator {
     }
 
     pub fn set_vs_ppu_variant(&mut self, variant: u8) {
-        self.vs_ppu_variant = variant;
+        if self.is_vs_system_cart && self.vs_ppu_type != 0xFF {
+            let header_variant = match self.vs_ppu_type {
+                0x02 => 0, // RP2C04-0001
+                0x03 => 1, // RP2C04-0002
+                0x04 => 2, // RP2C04-0003
+                0x05 => 3, // RP2C04-0004
+                _ => 4,    // 0x00, 0x01, 0x06..0x0C: 2C03 / 2C05 RGB
+            };
+            self.vs_ppu_variant = header_variant;
+        } else {
+            self.vs_ppu_variant = variant;
+        }
         self.refresh_palette_lut();
+        if let Some(ref mut sub) = self.vs_sub_system {
+            sub.set_vs_ppu_variant(self.vs_ppu_variant);
+        }
     }
 
     pub fn has_dip_switches(&self) -> bool {
@@ -2437,6 +2591,40 @@ impl Emulator {
         } else {
             raw
         }
+    }
+
+    pub fn get_vs_controller_bytes(&self) -> (u8, u8) {
+        let mut p1 = self.controller_port1.load(Ordering::Relaxed);
+        let mut p2 = self.controller_port2.load(Ordering::Relaxed);
+
+        if !self.is_vs_system_cart {
+            return (p1, p2);
+        }
+
+        if self.vs_input_type != 7 && self.controller1_type != crate::config::ControllerType::Zapper {
+            p1 = (p1 & !0x30) | ((p1 & 0x20) >> 1) | ((p1 & 0x10) << 1);
+        }
+        if self.controller2_type != crate::config::ControllerType::Zapper {
+            p2 = (p2 & !0x30) | ((p2 & 0x20) >> 1) | ((p2 & 0x10) << 1);
+        }
+
+        if self.vs_input_type == 6 {
+            let p1_orig = p1;
+            p1 &= !0x40;
+            p2 = (p2 & !0x80) | ((p1_orig & 0x40) << 1);
+        } else if self.vs_input_type == 5 {
+            let new_p1 = (p2 & 0xCF) | (p1 & 0x30);
+            let new_p2 = (p1 & 0xCF) | (p2 & 0x30);
+            p1 = new_p1;
+            p2 = new_p2;
+        }
+
+        if self.vs_flags == 4 {
+            p1 |= 0x10;
+            p2 |= 0x10;
+        }
+
+        (p1, p2)
     }
 
     fn movie_capture_frame(&self) -> crate::movie::FrameInput {
@@ -2550,6 +2738,75 @@ impl Emulator {
         )
     }
 
+    fn run_vs_dual_frame_body(&mut self) {
+        let mut sub = match self.vs_sub_system.take() {
+            Some(s) => s,
+            None => return,
+        };
+
+        sub.frame_advance_reached_vblank = false;
+        sub.frame_had_nmi = false;
+
+        while !(self.cpu_clock == 12 && self.ppu_clock == 4) {
+            self.emulator_core_ntsc();
+            if self.breakpoint_hit || self.frame_advance_reached_vblank {
+                break;
+            }
+        }
+        while !(sub.cpu_clock == 12 && sub.ppu_clock == 4) {
+            sub.emulator_core_ntsc();
+            if sub.breakpoint_hit || sub.frame_advance_reached_vblank {
+                break;
+            }
+        }
+
+        while !self.frame_advance_reached_vblank {
+            if self.total_cycles <= sub.total_cycles {
+                self.step_cpu_cycle_ntsc();
+                if self.breakpoint_hit {
+                    break;
+                }
+            } else {
+                sub.step_cpu_cycle_ntsc();
+                if sub.breakpoint_hit {
+                    break;
+                }
+            }
+        }
+
+        while self.ppu_scanline != self.pre_render_sl && self.ppu_scanline != 0 {
+            if self.total_cycles <= sub.total_cycles {
+                self.step_cpu_cycle_ntsc();
+                if self.breakpoint_hit {
+                    break;
+                }
+            } else {
+                sub.step_cpu_cycle_ntsc();
+                if sub.breakpoint_hit {
+                    break;
+                }
+            }
+        }
+
+        while self.ppu_scanline != 0 {
+            if self.breakpoint_hit {
+                break;
+            }
+            if self.total_cycles <= sub.total_cycles {
+                self.emulator_core_ntsc();
+            } else {
+                sub.emulator_core_ntsc();
+            }
+        }
+
+        while sub.ppu_scanline != 0 && sub.total_cycles < self.total_cycles + 500 {
+            sub.step_cpu_cycle_ntsc();
+        }
+
+        sub.completed_frames = sub.completed_frames.wrapping_add(1);
+        self.vs_sub_system = Some(sub);
+    }
+
     // run one frame!
     pub fn core_frame_advance(&mut self) {
         crate::movie::LIVE_INPUT_LOCK.store(
@@ -2602,7 +2859,9 @@ impl Emulator {
         }
         let nsf_paused = self.is_nsf_cart && self.nsf_player.as_ref().map_or(false, |p| p.is_paused);
         if !nsf_paused {
-            if self.is_pal() {
+            if self.vs_sub_system.is_some() {
+                self.run_vs_dual_frame_body();
+            } else if self.is_pal() {
                 while !self.frame_advance_reached_vblank {
                     self.step_cpu_cycle_pal();
                     if self.breakpoint_hit {
@@ -2810,15 +3069,8 @@ impl Emulator {
         if self.cpu_clock == 12 && self.ppu_clock == 4 {
             self.emulator_core_ntsc();
             if self.cpu_clock == 1 && self.ppu_clock == 1 {
-                // Sub-step 2: (c=1, p=1) -> (c=2, p=2) (no events)
-
-                // Sub-step 3: (c=2, p=2) -> (c=3, p=3)
                 self.ppu_clock = 2;
                 self.emulate_half_ppu();
-
-                // Sub-step 4: (c=3, p=3) -> (c=4, p=4) (no events)
-
-                // Sub-step 5: (c=4, p=4) -> (c=5, p=1)
                 self.cpu_clock = 4;
                 self.nmi_line |= self.ppu_control_nmi_enabled && self.ppu_status_vblank;
                 if self.operation_cycle == 0 && !(self.ppu_control_nmi_enabled && self.ppu_status_vblank) {
@@ -2826,35 +3078,21 @@ impl Emulator {
                 }
                 self.ppu_clock = 0;
                 self.emulate_ppu();
-
-                // Sub-step 6: (c=5, p=1) -> (c=6, p=2) (no events)
-
-                // Sub-step 7: (c=6, p=2) -> (c=7, p=3)
                 self.cpu_clock = 6;
                 self.ppu_clock = 2;
                 self.emulate_half_ppu();
-
-                // Sub-step 8: (c=7, p=3) -> (c=8, p=4)
                 self.cpu_clock = 7;
-                self.irq_line = self.irq_level_detector;
+                self.irq_line = self.irq_level_detector || self.vs_cross_irq_in.load(Ordering::Relaxed);
                 if self.apu_status_frame_interrupt && !self.apu_frame_counter_inhibit_irq {
                     self.irq_level_detector = true;
                 }
                 self.tick_mapper_cpu_clock_rise();
-
-                // Sub-step 9: (c=8, p=4) -> (c=9, p=1)
                 self.cpu_clock = 8;
                 self.ppu_clock = 0;
                 self.emulate_ppu();
-
-                // Sub-step 10: (c=9, p=1) -> (c=10, p=2) (no events)
-
-                // Sub-step 11: (c=10, p=2) -> (c=11, p=3)
                 self.cpu_clock = 10;
                 self.ppu_clock = 2;
                 self.emulate_half_ppu();
-
-                // Sub-step 12: (c=11, p=3) -> (c=12, p=4) (no events)
                 self.master_cycle_counter += 11;
                 self.cpu_clock = 12;
                 self.ppu_clock = 4;
@@ -2876,15 +3114,8 @@ impl Emulator {
         if self.cpu_clock == 15 && self.ppu_clock == 5 {
             self.emulator_core_dendy();
             if self.cpu_clock == 1 && self.ppu_clock == 1 {
-                // Sub-step 2: (c=1, p=1) -> (c=2, p=2) (no events)
-
-                // Sub-step 3: (c=2, p=2) -> (c=3, p=3)
                 self.ppu_clock = 2;
                 self.emulate_half_ppu();
-
-                // Sub-step 4, 5: (no events)
-
-                // Sub-step 6: (c=5, p=5) -> (c=6, p=1)
                 self.cpu_clock = 5;
                 self.nmi_line |= self.ppu_control_nmi_enabled && self.ppu_status_vblank;
                 if self.operation_cycle == 0 && !(self.ppu_control_nmi_enabled && self.ppu_status_vblank) {
@@ -2892,19 +3123,11 @@ impl Emulator {
                 }
                 self.ppu_clock = 0;
                 self.emulate_ppu();
-
-                // Sub-step 7: (c=6, p=1) -> (c=7, p=2) (no events)
-
-                // Sub-step 8: (c=7, p=2) -> (c=8, p=3)
                 self.cpu_clock = 7;
                 self.ppu_clock = 2;
                 self.emulate_half_ppu();
-
-                // Sub-step 9: (c=8, p=3) -> (c=9, p=4) (no events)
-
-                // Sub-step 10: (c=9, p=4) -> (c=10, p=5)
                 self.cpu_clock = 9;
-                self.irq_line = self.irq_level_detector;
+                self.irq_line = self.irq_level_detector || self.vs_cross_irq_in.load(Ordering::Relaxed);
                 if self.apu_status_frame_interrupt && !self.apu_frame_counter_inhibit_irq {
                     self.irq_level_detector = true;
                 }
@@ -2915,20 +3138,12 @@ impl Emulator {
                         }
                     }
                 }
-
-                // Sub-step 11: (c=10, p=5) -> (c=11, p=1)
                 self.cpu_clock = 10;
                 self.ppu_clock = 0;
                 self.emulate_ppu();
-
-                // Sub-step 12: (c=11, p=1) -> (c=12, p=2) (no events)
-
-                // Sub-step 13: (c=12, p=2) -> (c=13, p=3)
                 self.cpu_clock = 12;
                 self.ppu_clock = 2;
                 self.emulate_half_ppu();
-
-                // Sub-step 14, 15: (no events)
                 self.master_cycle_counter += 14;
                 self.cpu_clock = 15;
                 self.ppu_clock = 5;
@@ -2982,7 +3197,7 @@ impl Emulator {
         }
 
         if self.cpu_clock == 7 {
-            self.irq_line = self.irq_level_detector;
+            self.irq_line = self.irq_level_detector || self.vs_cross_irq_in.load(Ordering::Relaxed);
             if self.apu_status_frame_interrupt && !self.apu_frame_counter_inhibit_irq {
                 self.irq_level_detector = true;
             }
@@ -3026,7 +3241,7 @@ impl Emulator {
         }
 
         if self.cpu_clock == 9 {
-            self.irq_line = self.irq_level_detector;
+            self.irq_line = self.irq_level_detector || self.vs_cross_irq_in.load(Ordering::Relaxed);
             if self.apu_status_frame_interrupt && !self.apu_frame_counter_inhibit_irq {
                 self.irq_level_detector = true;
             }
@@ -3070,7 +3285,7 @@ impl Emulator {
         }
 
         if self.cpu_clock == 9 {
-            self.irq_line = self.irq_level_detector;
+            self.irq_line = self.irq_level_detector || self.vs_cross_irq_in.load(Ordering::Relaxed);
             if self.apu_status_frame_interrupt && !self.apu_frame_counter_inhibit_irq {
                 self.irq_level_detector = true;
             }
@@ -3108,6 +3323,9 @@ impl Emulator {
         }
         let zx = *self.zapper_x.lock().unwrap();
         let zy = *self.zapper_y.lock().unwrap();
+        if zx < 0.0 || zx > 1.0 || zy < 0.0 || zy > 1.0 {
+            return false;
+        }
         let sx = (zx * 255.0).round() as usize;
         let sy = (zy * 239.0).round() as usize;
         let sx = sx.min(255);

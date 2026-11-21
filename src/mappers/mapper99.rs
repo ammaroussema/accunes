@@ -9,6 +9,7 @@ pub struct Mapper99 {
     coinon2: u8,
     service: u8,
     cycle_accum: u64,
+    pub is_sub_system: bool,
 }
 
 impl Mapper99 {
@@ -20,49 +21,101 @@ impl Mapper99 {
             coinon2: 0,
             service: 0,
             cycle_accum: 0,
+            is_sub_system: false,
         }
     }
 }
 
 impl Mapper for Mapper99 {
+    fn set_vs_sub_system(&mut self, is_sub: bool) {
+        self.is_sub_system = is_sub;
+    }
+
     fn fetch_prg(&mut self, cart: &Cartridge, address: u16) -> FetchResult {
         if address >= 0x8000 {
             let len = cart.prg_rom.len();
             if len == 0 {
                 return FetchResult { data: 0, driven: false };
             }
-            if len == 24576 { 
-                if address < 0xA000 {
-                    FetchResult { data: 0, driven: false } 
+            if self.is_sub_system || cart.is_vs_sub_system {
+                if cart.vs_flags == 6 {
+                    if address >= 0xE000 {
+                        let offset = 4 * 0x2000 + (address as usize & 0x1FFF);
+                        FetchResult {
+                            data: cart.prg_rom[offset % len],
+                            driven: true,
+                        }
+                    } else {
+                        FetchResult { data: 0, driven: false }
+                    }
+                } else if len == 49152 {
+                    if address < 0xA000 {
+                        FetchResult { data: 0, driven: false }
+                    } else {
+                        let bank = 3 + ((address - 0xA000) / 0x2000) as usize;
+                        let offset = bank * 0x2000 + (address as usize & 0x1FFF);
+                        FetchResult {
+                            data: cart.prg_rom[offset % len],
+                            driven: true,
+                        }
+                    }
+                } else if len >= 65536 {
+                    let offset = 0x8000 + (address as usize & 0x7FFF);
+                    FetchResult {
+                        data: cart.prg_rom[offset % len],
+                        driven: true,
+                    }
                 } else {
-                    let bank = ((address - 0xA000) / 0x2000) as usize;
-                    let offset = bank * 0x2000 + (address as usize & 0x1FFF);
+                    let offset = address as usize & 0x7FFF;
                     FetchResult {
                         data: cart.prg_rom[offset % len],
                         driven: true,
                     }
                 }
-            } else if len == 49152 { 
-                let bank = if address < 0xA000 {
-                    (self.chr_bank as usize) * 4
-                } else {
-                    let rel = ((address - 0xA000) / 0x2000) as usize;
-                    rel + 1
-                };
-                let offset = bank * 0x2000 + (address as usize & 0x1FFF);
-                FetchResult {
-                    data: cart.prg_rom[offset % len],
-                    driven: true,
-                }
-            } else { 
-                let offset = address as usize & 0x7FFF;
-                FetchResult {
-                    data: cart.prg_rom[offset % len],
-                    driven: true,
+            } else {
+                if len == 24576 { 
+                    if address < 0xA000 {
+                        FetchResult { data: 0, driven: false } 
+                    } else {
+                        let bank = ((address - 0xA000) / 0x2000) as usize;
+                        let offset = bank * 0x2000 + (address as usize & 0x1FFF);
+                        FetchResult {
+                            data: cart.prg_rom[offset % len],
+                            driven: true,
+                        }
+                    }
+                } else if cart.is_vs_dual_system && len == 49152 && cart.vs_flags == 5 {
+                    if address < 0xA000 {
+                        FetchResult { data: 0, driven: false }
+                    } else {
+                        let bank = ((address - 0xA000) / 0x2000) as usize;
+                        let offset = bank * 0x2000 + (address as usize & 0x1FFF);
+                        FetchResult {
+                            data: cart.prg_rom[offset % len],
+                            driven: true,
+                        }
+                    }
+                } else if len == 40960 && !cart.is_vs_dual_system { 
+                    let bank = if address < 0xA000 {
+                        if self.chr_bank != 0 { 4 } else { 0 }
+                    } else {
+                        ((address - 0xA000) / 0x2000) as usize + 1
+                    };
+                    let offset = bank * 0x2000 + (address as usize & 0x1FFF);
+                    FetchResult {
+                        data: cart.prg_rom[offset % len],
+                        driven: true,
+                    }
+                } else { 
+                    let offset = address as usize & 0x7FFF;
+                    FetchResult {
+                        data: cart.prg_rom[offset % len],
+                        driven: true,
+                    }
                 }
             }
         } else if address >= 0x6000 && address < 0x8000 && !cart.prg_ram.is_empty() {
-            let offset = (address as usize - 0x6000) % cart.prg_ram.len();
+            let offset = (address as usize & 0x7FF) % cart.prg_ram.len();
             FetchResult {
                 data: cart.prg_ram[offset],
                 driven: true,
@@ -82,7 +135,7 @@ impl Mapper for Mapper99 {
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
         if address >= 0x6000 && address < 0x8000 {
             if !cart.prg_ram.is_empty() {
-                let offset = (address as usize - 0x6000) % cart.prg_ram.len();
+                let offset = (address as usize & 0x7FF) % cart.prg_ram.len();
                 cart.prg_ram[offset] = data;
             }
         } else if address == 0x4016 {
@@ -97,6 +150,7 @@ impl Mapper for Mapper99 {
             vs |= (self.vsdip & 0x03) << 3;
             if self.coinon > 0 { vs |= 0x20; }
             if self.coinon2 > 0 { vs |= 0x40; }
+            if self.is_sub_system { vs |= 0x80; }
             vs
         } else if address & 0x1F == 0x17 {
             (value & 0x01) | (self.vsdip & 0xFC)
@@ -136,12 +190,13 @@ impl Mapper for Mapper99 {
             if using_chr_ram && !chr_ram.is_empty() {
                 new_addr_bus |= chr_ram[(address as usize) & (chr_ram.len() - 1)] as u16;
             } else if !chr_rom.is_empty() {
-                let offset = (self.chr_bank as usize * 0x2000) + (address as usize & 0x1FFF);
-                if offset < chr_rom.len() {
-                    new_addr_bus |= chr_rom[offset] as u16;
+                let bank = if self.is_sub_system {
+                    (self.chr_bank | 2) as usize
                 } else {
-                    new_addr_bus |= 0;
-                }
+                    self.chr_bank as usize
+                };
+                let offset = (bank * 0x2000) + (address as usize & 0x1FFF);
+                new_addr_bus |= chr_rom[offset % chr_rom.len()] as u16;
             }
         } else {
             let mirrored = if alternative_nametable_arrangement {

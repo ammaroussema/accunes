@@ -1,10 +1,67 @@
 // the ines based cartridge loader
 
+use std::cell::UnsafeCell;
 use std::fs;
 use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
 use crate::crc::crc32;
 use crate::mapper::{Mapper, create_mapper};
 use crate::region::TvSystem;
+
+#[derive(Default)]
+pub struct SharedPrgRam {
+    inner: Arc<UnsafeCell<Vec<u8>>>,
+}
+
+impl SharedPrgRam {
+    pub fn from_vec(data: Vec<u8>) -> Self {
+        Self {
+            inner: Arc::new(UnsafeCell::new(data)),
+        }
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.as_vec().clone()
+    }
+
+    fn as_vec(&self) -> &Vec<u8> {
+        unsafe { &*self.inner.get() }
+    }
+
+    fn as_vec_mut(&self) -> &mut Vec<u8> {
+        unsafe { &mut *self.inner.get() }
+    }
+}
+
+impl From<Vec<u8>> for SharedPrgRam {
+    fn from(data: Vec<u8>) -> Self {
+        Self::from_vec(data)
+    }
+}
+
+impl Clone for SharedPrgRam {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
+}
+
+impl Deref for SharedPrgRam {
+    type Target = Vec<u8>;
+    fn deref(&self) -> &Vec<u8> {
+        self.as_vec()
+    }
+}
+
+impl DerefMut for SharedPrgRam {
+    fn deref_mut(&mut self) -> &mut Vec<u8> {
+        self.as_vec_mut()
+    }
+}
+
+unsafe impl Send for SharedPrgRam {}
+unsafe impl Sync for SharedPrgRam {}
 
 pub struct MapperSlot {
     inner: Option<Box<dyn Mapper + Send>>,
@@ -60,7 +117,7 @@ pub struct Cartridge {
     pub chr_ram: Vec<u8>,      
     pub using_chr_ram: bool,   
 
-    pub prg_ram: Vec<u8>,      
+    pub prg_ram: SharedPrgRam,      
     pub has_battery: bool,     
     pub alternative_nametable_arrangement: bool,
     pub prg_vram: Vec<u8>,     
@@ -85,6 +142,12 @@ pub struct Cartridge {
     pub prg_chr_crc32: u32,
 
     pub is_vs_system: bool,
+    pub is_vs_dual_system: bool,
+    pub is_vs_sub_system: bool,
+    pub vs_flags: u8,
+    pub vs_ppu_type: u8,
+    pub vs_input_type: u8,
+    pub default_expansion_device: u8,
 
     pub tv_system: TvSystem,
     pub is_nes20: bool,
@@ -93,6 +156,56 @@ pub struct Cartridge {
 }
 
 impl Cartridge {
+    pub fn clone_for_vs_sub(&mut self) -> Cartridge {
+        if self.prg_ram.len() < 2048 {
+            self.prg_ram.resize(2048, 0);
+        }
+        let mapper_box: Box<dyn Mapper + Send> = if self.memory_mapper == 99 {
+            Box::new(crate::mappers::mapper99::Mapper99::new())
+        } else {
+            Box::new(crate::mapper::MapperNROM::new(crate::mapper::NromConfig::default()))
+        };
+        let mut sub = Cartridge {
+            name: format!("{} (Sub)", self.name),
+            prg_rom: self.prg_rom.clone(),
+            chr_rom: self.chr_rom.clone(),
+            memory_mapper: self.memory_mapper,
+            sub_mapper: self.sub_mapper,
+            prg_size: self.prg_size,
+            chr_size: self.chr_size,
+            prg_size_minus_1: self.prg_size_minus_1,
+            chr_ram: self.chr_ram.clone(),
+            using_chr_ram: self.using_chr_ram,
+            prg_ram: self.prg_ram.clone(),
+            has_battery: self.has_battery,
+            alternative_nametable_arrangement: self.alternative_nametable_arrangement,
+            prg_vram: self.prg_vram.clone(),
+            nametable_horizontal_mirroring: self.nametable_horizontal_mirroring,
+            fds_disks: Vec::new(),
+            trainer: self.trainer.clone(),
+            misc_rom: self.misc_rom.clone(),
+            mapper_chip: MapperSlot::new(mapper_box),
+            mapper_cpu_cycle: 0,
+            prg_rom_crc32: self.prg_rom_crc32,
+            chr_rom_crc32: self.chr_rom_crc32,
+            overall_crc32: self.overall_crc32,
+            prg_chr_crc32: self.prg_chr_crc32,
+            is_vs_system: self.is_vs_system,
+            is_vs_dual_system: self.is_vs_dual_system,
+            is_vs_sub_system: true,
+            vs_flags: self.vs_flags,
+            vs_ppu_type: self.vs_ppu_type,
+            vs_input_type: self.vs_input_type,
+            default_expansion_device: self.default_expansion_device,
+            tv_system: self.tv_system,
+            is_nes20: self.is_nes20,
+            prg_bank_offsets: self.prg_bank_offsets,
+            prg_bank_offsets_valid: false,
+        };
+        sub.mapper_chip.set_vs_sub_system(true);
+        sub
+    }
+
     pub fn reset_mapper(&mut self) {
         self.with_mapper(|mapper, cart| mapper.reset_with_cart(cart));
         self.refresh_prg_bank_offsets();
@@ -217,7 +330,7 @@ impl Cartridge {
                 prg_size_minus_1,
                 chr_ram: vec![0u8; 0x2000],
                 using_chr_ram: true,
-                prg_ram: vec![0u8; 0x8000],
+                prg_ram: vec![0u8; 0x8000].into(),
                 has_battery: false,
                 alternative_nametable_arrangement: false,
                 prg_vram: Vec::new(),
@@ -232,6 +345,12 @@ impl Cartridge {
                 overall_crc32: overall_crc,
                 prg_chr_crc32: overall_crc,
                 is_vs_system: false,
+                is_vs_dual_system: false,
+                is_vs_sub_system: false,
+                vs_flags: 0,
+                vs_ppu_type: 0xFF,
+                vs_input_type: 0,
+                default_expansion_device: 0,
                 tv_system,
                 is_nes20: false,
                 prg_bank_offsets: [0; 8],
@@ -343,7 +462,7 @@ impl Cartridge {
                 prg_size_minus_1: 0,
                 chr_ram: vec![0u8; 0x2000],
                 using_chr_ram: true,
-                prg_ram,
+                prg_ram: prg_ram.into(),
                 has_battery: true,
                 alternative_nametable_arrangement: false,
                 prg_vram: Vec::new(),
@@ -358,6 +477,12 @@ impl Cartridge {
                 overall_crc32: fds_overall_crc,
                 prg_chr_crc32: fds_overall_crc,
                 is_vs_system: false,
+                is_vs_dual_system: false,
+                is_vs_sub_system: false,
+                vs_flags: 0,
+                vs_ppu_type: 0xFF,
+                vs_input_type: 0,
+                default_expansion_device: 0,
                 tv_system: TvSystem::Unknown,
                 is_nes20: false,
                 prg_bank_offsets: [0; 8],
@@ -406,7 +531,7 @@ impl Cartridge {
                 prg_size_minus_1,
                 chr_ram: vec![0u8; 0x2000],
                 using_chr_ram: true,
-                prg_ram: vec![0u8; 0x10000],
+                prg_ram: vec![0u8; 0x10000].into(),
                 has_battery: false,
                 alternative_nametable_arrangement: true,
                 prg_vram: vec![0u8; 0x800],
@@ -421,6 +546,12 @@ impl Cartridge {
                 overall_crc32: overall_crc,
                 prg_chr_crc32: overall_crc,
                 is_vs_system: false,
+                is_vs_dual_system: false,
+                is_vs_sub_system: false,
+                vs_flags: 0,
+                vs_ppu_type: 0xFF,
+                vs_input_type: 0,
+                default_expansion_device: 0,
                 tv_system: TvSystem::Unknown,
                 is_nes20: false,
                 prg_bank_offsets: [0; 8],
@@ -711,7 +842,7 @@ impl Cartridge {
             let chr_size = (chr_rom.len() / 0x2000) as u8;
             let prg_size_minus_1 = if prg_size > 0 { prg_size - 1 } else { 0 };
 
-            let prg_ram = vec![0u8; 0x2000];
+            let prg_ram: SharedPrgRam = vec![0u8; 0x2000].into();
 
             let header_placeholder = vec![0u8; 16];
             let raw_rom_placeholder = Vec::new();
@@ -760,6 +891,12 @@ impl Cartridge {
                 overall_crc32: unif_overall_crc,
                 prg_chr_crc32: unif_prg_chr_crc,
                 is_vs_system: false,
+                is_vs_dual_system: false,
+                is_vs_sub_system: false,
+                vs_flags: 0,
+                vs_ppu_type: 0xFF,
+                vs_input_type: 0,
+                default_expansion_device: 0,
                 tv_system: TvSystem::Unknown,
                 is_nes20: false,
                 prg_bank_offsets: [0; 8],
@@ -797,7 +934,32 @@ impl Cartridge {
         if is_wxn && memory_mapper == 4 {
             memory_mapper = 256;
         }
-        let is_vs_system = (rom[7] & 0x03) == 1 || memory_mapper == 99;
+        let mut is_vs_system = memory_mapper == 99 || if is_nes20 {
+            (rom[7] & 0x03) == 1 || (rom[7] & 0x03) == 3
+        } else {
+            (rom[7] & 0x03) == 1 && (rom[7] & 0x0C) == 0 && rom.len() >= 16 && rom[12..16].iter().all(|&b| b == 0)
+        };
+        let mut is_vs_dual_system = false;
+        let mut vs_flags = if is_nes20 && is_vs_system && rom.len() > 13 {
+            (rom[13] >> 4) & 0x0F
+        } else {
+            0
+        };
+        let mut vs_ppu_type = if is_nes20 && is_vs_system && rom.len() > 13 {
+            rom[13] & 0x0F
+        } else {
+            0xFF
+        };
+        let default_expansion_device = if is_nes20 && rom.len() > 15 {
+            rom[15] & 0x3F
+        } else {
+            0
+        };
+        let mut vs_input_type = if is_nes20 && is_vs_system && rom.len() > 15 {
+            rom[15] & 0x3F
+        } else {
+            0
+        };
         let sub_mapper = if is_nes20 {
             (rom[8] >> 4) & 0x0F
         } else {
@@ -920,6 +1082,78 @@ impl Cartridge {
                 using_chr_ram = true;
                 chr_size = 0;
             }
+        }
+
+        if i_nes_game_crc32 == 0xffbef374 || i_nes_game_crc32 == 0x2019fe65 {
+            is_vs_system = true;
+        }
+        match i_nes_game_crc32 {
+            0x135ADF7C => {
+                is_vs_system = true;
+                if vs_flags == 0 { vs_flags = 1; }
+            }
+            0xEB2DBA63 | 0x98CFE016 | 0x9818F656 => {
+                is_vs_system = true;
+                if vs_flags == 0 { vs_flags = 2; }
+            }
+            0xF9D3B0A3 => {
+                is_vs_system = true;
+                if vs_flags == 0 { vs_flags = 3; }
+            }
+            0x1CA45A6D => {
+                is_vs_system = true;
+                if vs_flags == 0 { vs_flags = 4; }
+                if vs_input_type == 0 { vs_input_type = 5; }
+            }
+            0x66471EFE => {
+                is_vs_system = true;
+                if vs_input_type == 0 { vs_input_type = 6; }
+            }
+            0x70FFB591 | 0xF9DB47BD => {
+                is_vs_system = true;
+                if vs_flags == 0 { vs_flags = 6; }
+                if vs_input_type == 0 { vs_input_type = 5; }
+            }
+            0x071CC00B | 0x1A0E5D4C | 0x22BD8A28 | 0x2BF21F5F | 0x2C1CC6DA |
+            0x30586A4D | 0x38C1D042 | 0x51C76943 | 0x57685E6C | 0x5FD6F603 |
+            0x67BAC152 | 0x6B8E7614 | 0x792CF17F | 0x8337E123 | 0x994A2711 |
+            0xA21330FE | 0xA3D60939 | 0xCD059AEA | 0xFC8E252A | 0xFCFB4236 | 0xFD770F82 => {
+                is_vs_system = true;
+                if vs_flags == 0 { vs_flags = 5; }
+                if vs_input_type == 0 { vs_input_type = 5; }
+            }
+            0x01357944 | 0x0FA322C2 | 0x21A653C7 | 0x2B85420E |
+            0x48361E79 | 0x63ABF889 |
+            0x766C2CAC | 0x889A02A9 | 0x89A2FD37 | 0x9768E5E0 |
+            0xAECA9D42 | 0xB1C4C508 | 0xC20E9CA7 | 0xC492B4D1 | 0xE26593E1 |
+            0xE45485A5 | 0xE9A6F17D | 0xEE8AF512 | 0xEF7AF338 | 0xF735D926 => {
+                is_vs_system = true;
+                if vs_input_type == 0 { vs_input_type = 5; }
+            }
+            0x07A2F3B2 | 0xFE446787 | 0xE2A5A4CC | 0xBBCB8236 => {
+                is_vs_system = true;
+                if vs_ppu_type == 0xFF { vs_ppu_type = 0x0A; }
+                if vs_input_type == 0 { vs_input_type = 7; }
+            }
+            0xCA85E56D => {
+                is_vs_system = true;
+                if vs_ppu_type == 0xFF { vs_ppu_type = 0x09; }
+            }
+            0x16D3F469 => {
+                is_vs_system = true;
+                if vs_ppu_type == 0xFF { vs_ppu_type = 0x08; }
+            }
+            0x8C0C2DF5 => {
+                is_vs_system = true;
+                if vs_ppu_type == 0xFF { vs_ppu_type = 0x0B; }
+            }
+            _ => {}
+        }
+        if is_vs_system && vs_input_type == 0 {
+            vs_input_type = 4;
+        }
+        if is_vs_system && (vs_flags == 5 || vs_flags == 6 || (!is_nes20 && memory_mapper == 99 && prg_rom_len >= 49152)) {
+            is_vs_dual_system = true;
         }
 
         let misc_rom = if rom.len() > 0x10 + trainer_len + prg_rom_len + chr_rom_len {
@@ -1184,6 +1418,9 @@ impl Cartridge {
         } else {
             vec![0u8; 0x2000]
         };
+        if is_vs_system && (prg_ram.is_empty() || (!is_nes20 && prg_ram.len() != 2048)) {
+            prg_ram = vec![0u8; 2048];
+        }
         let bandai_sav = if has_battery
             && matches!(memory_mapper, 16 | 153 | 157 | 159)
         {
@@ -1230,6 +1467,31 @@ impl Cartridge {
         let ines_overall_crc = crc32(&rom);
         let ines_prg_crc = if prg_rom.is_empty() { 0 } else { crc32(&prg_rom) };
         let ines_chr_crc = if chr_rom.is_empty() { 0 } else { crc32(&chr_rom) };
+        match ines_prg_crc {
+            0x135ADF7C => {
+                is_vs_system = true;
+                if vs_flags == 0 { vs_flags = 1; }
+            }
+            0xEB2DBA63 | 0x98CFE016 | 0x9818F656 => {
+                is_vs_system = true;
+                if vs_flags == 0 { vs_flags = 2; }
+            }
+            0xF9D3B0A3 => {
+                is_vs_system = true;
+                if vs_flags == 0 { vs_flags = 3; }
+            }
+            0x33DF17FD => {
+                is_vs_system = true;
+                if vs_ppu_type == 0xFF { vs_ppu_type = 0x0A; }
+            }
+            _ => {}
+        }
+        if is_vs_system && vs_input_type == 0 {
+            vs_input_type = 4;
+        }
+        if is_vs_system && (vs_flags == 5 || vs_flags == 6 || (!is_nes20 && memory_mapper == 99 && prg_rom_len >= 49152)) {
+            is_vs_dual_system = true;
+        }
         let tv_system = TvSystem::from_ines_header(&rom, is_nes20);
         let mut cartridge = Cartridge {
             name: filepath.to_string(),
@@ -1242,7 +1504,7 @@ impl Cartridge {
             prg_size_minus_1,
             chr_ram,
             using_chr_ram,
-            prg_ram,
+            prg_ram: prg_ram.into(),
             has_battery,
             alternative_nametable_arrangement,
             prg_vram,
@@ -1257,6 +1519,12 @@ impl Cartridge {
             overall_crc32: ines_overall_crc,
             prg_chr_crc32: i_nes_game_crc32,
             is_vs_system,
+            is_vs_dual_system,
+            is_vs_sub_system: false,
+            vs_flags,
+            vs_ppu_type,
+            vs_input_type,
+            default_expansion_device,
             tv_system,
             is_nes20,
             prg_bank_offsets: [0; 8],

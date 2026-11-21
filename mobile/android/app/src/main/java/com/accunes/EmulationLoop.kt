@@ -25,7 +25,7 @@ class EmulationLoop(
     fun start() {
         if (isRunning.compareAndSet(false, true)) {
             thread = Thread(this, "AccuNES-Core").apply {
-                priority = Thread.MAX_PRIORITY
+                priority = Thread.NORM_PRIORITY + 2
                 start()
             }
         }
@@ -50,10 +50,9 @@ class EmulationLoop(
     }
 
     override fun run() {
-        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+        Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY)
 
         val frameDurationNs = 1_000_000_000L / 60L
-        var nextFrameTime = System.nanoTime()
 
         while (isRunning.get()) {
             if (isPaused.get()) {
@@ -62,9 +61,10 @@ class EmulationLoop(
                 } catch (_: InterruptedException) {
                     break
                 }
-                nextFrameTime = System.nanoTime()
                 continue
             }
+
+            val frameStartTime = System.nanoTime()
 
             val touchButtons = controllerState.tickTurbo()
             val combinedButtons = touchButtons or physicalButtons
@@ -84,18 +84,20 @@ class EmulationLoop(
             surfaceView.requestRender()
 
             if (!isFastForward) {
-                nextFrameTime += frameDurationNs
-                val sleepNs = nextFrameTime - System.nanoTime()
-                if (sleepNs > 0) {
-                    val sleepMs = sleepNs / 1_000_000L
-                    val sleepRemNs = (sleepNs % 1_000_000L).toInt()
-                    try {
-                        Thread.sleep(sleepMs, sleepRemNs)
-                    } catch (_: InterruptedException) {
-                        break
+                val elapsedNs = System.nanoTime() - frameStartTime
+                val remainingNs = frameDurationNs - elapsedNs
+                if (remainingNs > 2_000_000L) {
+                    val sleepMs = (remainingNs - 1_500_000L) / 1_000_000L
+                    if (sleepMs > 0) {
+                        try {
+                            Thread.sleep(sleepMs)
+                        } catch (_: InterruptedException) {
+                            break
+                        }
                     }
-                } else if (sleepNs < -frameDurationNs * 3) {
-                    nextFrameTime = System.nanoTime()
+                }
+                while ((System.nanoTime() - frameStartTime) < frameDurationNs) {
+                    Thread.yield()
                 }
             }
         }

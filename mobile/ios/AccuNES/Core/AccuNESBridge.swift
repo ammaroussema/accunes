@@ -6,14 +6,14 @@ public final class AccuNESBridge {
         public let rawValue: UInt8
         public init(rawValue: UInt8) { self.rawValue = rawValue }
 
-        public static let a      = Button(rawValue: 1 << 0)
-        public static let b      = Button(rawValue: 1 << 1)
-        public static let select = Button(rawValue: 1 << 2)
-        public static let start  = Button(rawValue: 1 << 3)
-        public static let up     = Button(rawValue: 1 << 4)
-        public static let down   = Button(rawValue: 1 << 5)
-        public static let left   = Button(rawValue: 1 << 6)
-        public static let right  = Button(rawValue: 1 << 7)
+        public static let right  = Button(rawValue: 1 << 0)
+        public static let left   = Button(rawValue: 1 << 1)
+        public static let down   = Button(rawValue: 1 << 2)
+        public static let up     = Button(rawValue: 1 << 3)
+        public static let start  = Button(rawValue: 1 << 4)
+        public static let select = Button(rawValue: 1 << 5)
+        public static let b      = Button(rawValue: 1 << 6)
+        public static let a      = Button(rawValue: 1 << 7)
     }
 
     public enum PixelFormat: UInt32 {

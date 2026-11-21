@@ -12,14 +12,14 @@ extern "C" {
 typedef struct MobileEmulator MobileEmulator;
 
 typedef enum {
-    ACCUNES_BTN_A      = 1 << 0,
-    ACCUNES_BTN_B      = 1 << 1,
-    ACCUNES_BTN_SELECT = 1 << 2,
-    ACCUNES_BTN_START  = 1 << 3,
-    ACCUNES_BTN_UP     = 1 << 4,
-    ACCUNES_BTN_DOWN   = 1 << 5,
-    ACCUNES_BTN_LEFT   = 1 << 6,
-    ACCUNES_BTN_RIGHT  = 1 << 7,
+    ACCUNES_BTN_RIGHT  = 1 << 0,
+    ACCUNES_BTN_LEFT   = 1 << 1,
+    ACCUNES_BTN_DOWN   = 1 << 2,
+    ACCUNES_BTN_UP     = 1 << 3,
+    ACCUNES_BTN_START  = 1 << 4,
+    ACCUNES_BTN_SELECT = 1 << 5,
+    ACCUNES_BTN_B      = 1 << 6,
+    ACCUNES_BTN_A      = 1 << 7,
 } AccuNESButton;
 
 typedef enum {

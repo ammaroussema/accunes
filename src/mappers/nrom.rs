@@ -129,7 +129,14 @@ impl Mapper for MapperNROM {
                     driven: false,
                 }
             }
-        } else if let Some(idx) = prg_ram_index(&self.config, address) {
+        } else if address >= 0x6000 && address < 0x8000 && !cart.prg_ram.is_empty() {
+            let idx = if cart.is_vs_system {
+                (address as usize & 0x7FF) % cart.prg_ram.len()
+            } else if let Some(i) = prg_ram_index(&self.config, address) {
+                if i < cart.prg_ram.len() { i } else { return FetchResult { data: 0, driven: false }; }
+            } else {
+                return FetchResult { data: 0, driven: false };
+            };
             FetchResult {
                 data: cart.prg_ram[idx],
                 driven: true,
@@ -143,7 +150,14 @@ impl Mapper for MapperNROM {
     }
 
     fn store_prg(&mut self, cart: &mut Cartridge, address: u16, data: u8) {
-        if let Some(idx) = prg_ram_index(&self.config, address) {
+        if address >= 0x6000 && address < 0x8000 && !cart.prg_ram.is_empty() {
+            let idx = if cart.is_vs_system {
+                (address as usize & 0x7FF) % cart.prg_ram.len()
+            } else if let Some(i) = prg_ram_index(&self.config, address) {
+                if i < cart.prg_ram.len() { i } else { return; }
+            } else {
+                return;
+            };
             cart.prg_ram[idx] = data;
         }
     }

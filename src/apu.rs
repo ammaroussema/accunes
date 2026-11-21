@@ -236,7 +236,9 @@ impl Emulator {
                 self.controller1_shift_counter -= 1;
                 if self.controller1_shift_counter == 0 {
                     self.controller_shift_register1 <<= 1;
-                    self.controller_shift_register1 |= 1;
+                    if !(self.cart.as_ref().map_or(false, |c| c.is_vs_system) && self.controller1_type == crate::config::ControllerType::Zapper) {
+                        self.controller_shift_register1 |= 1;
+                    }
                 }
             }
             if self.controller2_shift_counter > 0 {
@@ -261,9 +263,15 @@ impl Emulator {
                     // vs system zapper
                     if self.controller1_type == crate::config::ControllerType::Zapper {
                         if self.cart.as_ref().map(|c| c.is_vs_system).unwrap_or(false) {
-                            self.controller_port1.store(0x08
-                                | (self.zapper_trigger.load(Ordering::Relaxed) as u8)
-                                | ((self.zapper_check_hit() as u8) << 1), Ordering::Relaxed);
+                            let mut zapper_bits = 0x08u8;
+                            if self.zapper_check_hit() {
+                                zapper_bits |= 0x02;
+                            }
+                            if self.zapper_trigger.load(Ordering::Relaxed) {
+                                zapper_bits |= 0x01;
+                            }
+                            self.controller_port1.store(zapper_bits, Ordering::Relaxed);
+                            self.controller_shift_register1 = zapper_bits;
                         }
                     }
                     if self.expansion_adapter_type == crate::config::ExpansionAdapterType::TwoPlayer {
@@ -277,6 +285,12 @@ impl Emulator {
                         self.fourscore_readbit[1] = 0;
                         self.controller_shift_register1 = self.controller_sampled(self.controller_port1.load(Ordering::Relaxed));
                         self.controller_shift_register2 = self.controller_sampled(self.controller_port2.load(Ordering::Relaxed));
+                    } else if self.cart.as_ref().map(|c| c.is_vs_system).unwrap_or(false) {
+                        let (p1, p2) = self.get_vs_controller_bytes();
+                        if self.controller1_type != crate::config::ControllerType::Zapper {
+                            self.controller_shift_register1 = self.controller_sampled(p1);
+                        }
+                        self.controller_shift_register2 = self.controller_sampled(p2);
                     } else {
                         self.controller_shift_register1 = self.controller_sampled(self.controller_port1.load(Ordering::Relaxed));
                         self.controller_shift_register2 = self.controller_sampled(self.controller_port2.load(Ordering::Relaxed));

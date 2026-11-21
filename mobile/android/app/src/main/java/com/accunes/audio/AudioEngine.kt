@@ -7,7 +7,7 @@ import android.media.AudioTrack
 class AudioEngine(private val sampleRate: Int = 44100) {
 
     private var audioTrack: AudioTrack? = null
-    private val bufferSize: Int
+    private val bufferSizeInBytes: Int
 
     init {
         val minBuf = AudioTrack.getMinBufferSize(
@@ -15,7 +15,8 @@ class AudioEngine(private val sampleRate: Int = 44100) {
             AudioFormat.CHANNEL_OUT_STEREO,
             AudioFormat.ENCODING_PCM_FLOAT
         )
-        bufferSize = (minBuf * 2).coerceAtLeast(2048)
+        val target100msBytes = sampleRate * 2 * 4 / 10
+        bufferSizeInBytes = (minBuf * 2).coerceAtLeast(target100msBytes)
         initTrack()
     }
 
@@ -34,7 +35,7 @@ class AudioEngine(private val sampleRate: Int = 44100) {
         audioTrack = AudioTrack.Builder()
             .setAudioAttributes(attributes)
             .setAudioFormat(format)
-            .setBufferSizeInBytes(bufferSize * 4)
+            .setBufferSizeInBytes(bufferSizeInBytes)
             .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()

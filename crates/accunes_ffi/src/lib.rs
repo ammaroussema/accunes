@@ -231,14 +231,15 @@ pub unsafe extern "C" fn accunes_drain_audio(
         return 0;
     }
     let emu = &mut *emu;
-    emu.audio_scratch.clear();
-    if let Ok(mut buf) = emu.audio_queue.lock() {
-        let count = buf.len().min(max_samples);
+    if let Ok(mut ring) = emu.audio_queue.lock() {
+        let count = ring.len().min(max_samples);
         if count > 0 {
-            buf.drain_into(&mut emu.audio_scratch);
-            let copy_count = emu.audio_scratch.len().min(max_samples);
-            std::ptr::copy_nonoverlapping(emu.audio_scratch.as_ptr(), dest, copy_count);
-            copy_count
+            let out_slice = std::slice::from_raw_parts_mut(dest, count);
+            for i in 0..count {
+                out_slice[i] = ring.sample_at(i);
+            }
+            ring.consume(count);
+            count
         } else {
             0
         }
@@ -257,17 +258,16 @@ pub unsafe extern "C" fn accunes_drain_audio_stereo(
         return 0;
     }
     let emu = &mut *emu;
-    emu.audio_scratch.clear();
-    if let Ok(mut buf) = emu.audio_queue.lock() {
-        let count = buf.len().min(max_frames);
-        if count > 0 {
-            buf.drain_into(&mut emu.audio_scratch);
-            let frames = emu.audio_scratch.len().min(max_frames);
+    if let Ok(mut ring) = emu.audio_queue.lock() {
+        let frames = ring.len().min(max_frames);
+        if frames > 0 {
             let out_slice = std::slice::from_raw_parts_mut(dest, frames * 2);
-            for (i, &s) in emu.audio_scratch.iter().take(frames).enumerate() {
+            for i in 0..frames {
+                let s = ring.sample_at(i);
                 out_slice[i * 2] = s;
                 out_slice[i * 2 + 1] = s;
             }
+            ring.consume(frames);
             frames
         } else {
             0
@@ -535,10 +535,13 @@ pub unsafe extern "system" fn Java_com_accunes_Emulator_nativeDrainAudioStereo(
         return 0;
     }
     let frames = len / 2;
-    let mut scratch = vec![0.0f32; len];
-    let drained = accunes_drain_audio_stereo(emu, scratch.as_mut_ptr(), frames);
+    let emu_ref = &mut *emu;
+    if emu_ref.audio_scratch.len() < len {
+        emu_ref.audio_scratch.resize(len, 0.0);
+    }
+    let drained = accunes_drain_audio_stereo(emu, emu_ref.audio_scratch.as_mut_ptr(), frames);
     if drained > 0 {
-        let _ = env.set_float_array_region(&buffer, 0, &scratch[..drained * 2]);
+        let _ = env.set_float_array_region(&buffer, 0, &emu_ref.audio_scratch[..drained * 2]);
     }
     drained as i32
 }

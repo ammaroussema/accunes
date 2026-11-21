@@ -318,9 +318,9 @@ fn perform_http(url: &str, post_data: Option<&str>) -> Result<Vec<u8>, String> {
         Some(data) => agent
             .post(url)
             .set("Content-Type", "application/x-www-form-urlencoded")
-            .set("User-Agent", "AccuNES/v1.8.0")
+            .set("User-Agent", "AccuNES/v1.8.1")
             .send_string(data),
-        None => agent.get(url).set("User-Agent", "AccuNES/v1.8.0").call(),
+        None => agent.get(url).set("User-Agent", "AccuNES/v1.8.1").call(),
     };
 
     match result {

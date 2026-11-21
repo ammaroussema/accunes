@@ -6,6 +6,7 @@ use crate::config::{ControllerType, ExpansionAdapterType, ExpansionType};
 
 const INPUT_FOUR_SCORE: u8 = 2;
 const INPUT_FOUR_PLAYER_ADAPTER: u8 = 3;
+const INPUT_VS_ZAPPER: u8 = 7;
 const INPUT_ZAPPER: u8 = 8;
 const INPUT_TWO_ZAPPERS: u8 = 9;
 const INPUT_BANDAI_HYPER_SHOT: u8 = 10;
@@ -106,6 +107,14 @@ pub fn detect(prg_chr_crc32: u32) -> Option<DetectedInput> {
                 adapter: ExpansionAdapterType::None,
             });
         }
+        0x07A2F3B2 | 0xFE446787 | 0xE2A5A4CC | 0xBBCB8236 => {
+            return Some(DetectedInput {
+                port1: ControllerType::Zapper,
+                port2: ControllerType::Gamepad,
+                expansion: ExpansionType::None,
+                adapter: ExpansionAdapterType::None,
+            });
+        }
         _ => {}
     }
     let db = DB.get_or_init(parse_db);
@@ -123,6 +132,12 @@ pub fn detect(prg_chr_crc32: u32) -> Option<DetectedInput> {
             port2: ControllerType::Gamepad,
             expansion: ExpansionType::None,
             adapter: ExpansionAdapterType::TwoPlayer,
+        }),
+        INPUT_VS_ZAPPER => Some(DetectedInput {
+            port1: ControllerType::Zapper,
+            port2: ControllerType::Gamepad,
+            expansion: ExpansionType::None,
+            adapter: ExpansionAdapterType::None,
         }),
         INPUT_ZAPPER => {
             if is_famicom {
@@ -354,5 +369,35 @@ pub fn detect(prg_chr_crc32: u32) -> Option<DetectedInput> {
         _ => None,
     }
 }
+
+pub fn detect_cart(cart: &crate::cartridge::Cartridge) -> Option<DetectedInput> {
+    if cart.is_vs_system {
+        if cart.vs_input_type == 7 || cart.default_expansion_device == 0x07 {
+            return Some(DetectedInput {
+                port1: ControllerType::Zapper,
+                port2: ControllerType::Gamepad,
+                expansion: ExpansionType::None,
+                adapter: ExpansionAdapterType::None,
+            });
+        }
+        if matches!(cart.vs_input_type, 4 | 5 | 6) {
+            return Some(DetectedInput {
+                port1: ControllerType::Gamepad,
+                port2: ControllerType::Gamepad,
+                expansion: ExpansionType::None,
+                adapter: ExpansionAdapterType::None,
+            });
+        }
+    } else if cart.default_expansion_device == 0x07 {
+        return Some(DetectedInput {
+            port1: ControllerType::Zapper,
+            port2: ControllerType::Gamepad,
+            expansion: ExpansionType::None,
+            adapter: ExpansionAdapterType::None,
+        });
+    }
+    detect(cart.prg_chr_crc32)
+}
+
 
 

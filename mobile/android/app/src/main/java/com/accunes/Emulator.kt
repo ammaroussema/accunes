@@ -10,14 +10,14 @@ class Emulator(sampleRate: Double = 44100.0) : Closeable {
             System.loadLibrary("accunes_ffi")
         }
 
-        const val BTN_A = 1 shl 0
-        const val BTN_B = 1 shl 1
-        const val BTN_SELECT = 1 shl 2
-        const val BTN_START = 1 shl 3
-        const val BTN_UP = 1 shl 4
-        const val BTN_DOWN = 1 shl 5
-        const val BTN_LEFT = 1 shl 6
-        const val BTN_RIGHT = 1 shl 7
+        const val BTN_RIGHT  = 1 shl 0
+        const val BTN_LEFT   = 1 shl 1
+        const val BTN_DOWN   = 1 shl 2
+        const val BTN_UP     = 1 shl 3
+        const val BTN_START  = 1 shl 4
+        const val BTN_SELECT = 1 shl 5
+        const val BTN_B      = 1 shl 6
+        const val BTN_A      = 1 shl 7
 
         const val PIXFMT_RGBA8888 = 0
         const val PIXFMT_BGRA8888 = 1

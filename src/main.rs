@@ -141,6 +141,7 @@ enum NesMenuItem {
     InsertCoin1,
     InsertCoin2,
     ServiceButton,
+    ToggleVsDualScreen,
     InsertEjectDisk,
     SwapDisk,
     InputBarcode,
@@ -405,6 +406,7 @@ fn compute_vs_ppu_variant(game: &DipGame, dip_val: u8, crc: u32) -> u8 {
         0xD99A2087 | // Vs. Gradius
         0x17AE56BE | // Vs. Freedom Force
         0xE2C0A2BE | // Vs. Platoon
+        0x2019FE65 | // Vs. Platoon (PRG+CHR)
         0xCA85E56D | // Vs. Mighty Bomb Jack
         0xEC461DB9 | // Vs. Pinball
         0x44691677 | // Vs. Baseball
@@ -413,8 +415,11 @@ fn compute_vs_ppu_variant(game: &DipGame, dip_val: u8, crc: u32) -> u8 {
         // RP2C04-0002
         0xFFBEF374 | // Vs. Castlevania
         0x12B36F73 | // Vs. Wrecking Crew
+        0x56E0D2C7 | // Vs. Ladies Golf
         0x70901B25 | // Vs. Slalom
         0x0B65A917 | // Vs. Mach Rider
+        0x3DFAC2A9 | // Vs. Mach Rider (Endurance)
+        0x8FF4E65F | // Vs. Star Luster
         0x99FB3B3B | // Raid on Bungeling Bay
         0xCC2C4B5D => 1, // Vs. Stroke & Match Golf
         // RP2C04-0003
@@ -425,13 +430,21 @@ fn compute_vs_ppu_variant(game: &DipGame, dip_val: u8, crc: u32) -> u8 {
         0x1E438D52 | // Vs. The Goonies
         0xE4407DB3 | // Vs. Excitebike (EB4-3 E)
         0xCBE85490 | // Vs. Excitebike (EB4-3 X)
+        0xB7C12F84 | // Vs. Ice Climber (Dual)
+        0x07ED1918 | // Vs. Pinball (Japanese)
+        0x316DFE30 | // Vs. Battle City
+        0x0ED24132 | // Vs. T.K.O. Boxing
+        0x22137D2A | // Vs. Top Gun
         0x29155E0C => 2, // Vs. Excitebike (EB4-4 A)
         // RP2C04-0004
         0x8B60CC58 | // Vs. Super Mario Bros.
+        0xD50A8658 | // Vs. Mahjong (Dual)
+        0x4A6AE244 | // Vs. Super Sky Kid
+        0x9B15F92F | // Vs. Tetris
         0x43A357EF | // Ice Climber (IC4-4 X)
         0xD4EB5923 | // Ice Climber (IC4-4 B-1)
         0x07138C06 => 3, // Clu Clu Land
-        // RP2C03
+        // RP2C03 / RC2C05
         0xED588F00 | // Vs. Duck Hunt (RC2C03B/RP2C03B)
         0xFE446787 | // Vs. Gumshoe (RC2C05-03, same base palette)
         0xD46B8C5F => 4, // Vs. Tennis (RC2C03B/RP2C03B)
@@ -1362,7 +1375,7 @@ const MEGAMAN_COLORS: UiColors = UiColors {
     dip_on_fill: 0xFF00CCFF,
 };
 
-const APP_VERSION: &str = "1.8.0";
+const APP_VERSION: &str = "1.8.1";
 
 fn strip_version_prefix(s: &str) -> &str {
     s.trim_start_matches(|c: char| c.is_ascii_alphabetic())
@@ -3813,6 +3826,7 @@ enum EmuCommand {
     PowerCycle(config::InitialRam),
     InsertCoin(u8),
     ServiceButton,
+    ToggleVsDualScreen,
     ChangeDisk,
     EjectDisk,
     InsertDisk,
@@ -3991,7 +4005,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("AccuNES 1.8.0")
+        .with_title("AccuNES 1.8.1")
         .with_inner_size(winit::dpi::PhysicalSize::new(window_width, window_height))
         .with_window_icon(Some(icon))
         .build(&event_loop)
@@ -4577,7 +4591,7 @@ fn main() {
             if !*adc.borrow() {
                 return;
             }
-            let Some(det) = crate::nesdb::detect(cart.prg_chr_crc32) else {
+            let Some(det) = crate::nesdb::detect_cart(cart) else {
                 return;
             };
             *c1_type.borrow_mut() = det.port1;
@@ -4620,8 +4634,8 @@ fn main() {
     let palette_mode_clone = palette_mode.clone();
     let video_filter_clone = video_filter.clone();
 
-    let screen_buffer = Arc::new(Mutex::new(vec![0u32; (NES_WIDTH * NES_HEIGHT) as usize]));
-    let ppu_out_buffer = Arc::new(Mutex::new(vec![0u16; (NES_WIDTH * NES_HEIGHT) as usize]));
+    let screen_buffer = Arc::new(Mutex::new(vec![0u32; (NES_WIDTH * 2 * NES_HEIGHT) as usize]));
+    let ppu_out_buffer = Arc::new(Mutex::new(vec![0u16; (NES_WIDTH * 2 * NES_HEIGHT) as usize]));
     let video_phase_flag = Arc::new(AtomicU32::new(0));
     let (cmd_tx, cmd_rx) = mpsc::channel::<EmuCommand>();
     let exit_flag = Arc::new(AtomicBool::new(false));
@@ -4634,14 +4648,17 @@ fn main() {
 
     let cart_has_dip_flag = Arc::new(AtomicBool::new(false));
     let cart_is_vs_flag = Arc::new(AtomicBool::new(false));
+    let cart_is_vs_dual_flag = Arc::new(AtomicBool::new(false));
     let cart_has_barcode_flag = Arc::new(AtomicBool::new(false));
 
     let cart_has_dip_clone = cart_has_dip_flag.clone();
     let cart_is_vs_clone = cart_is_vs_flag.clone();
+    let cart_is_vs_dual_clone = cart_is_vs_dual_flag.clone();
     let cart_has_barcode_clone = cart_has_barcode_flag.clone();
 
     let cart_has_dip_thread = cart_has_dip_flag.clone();
     let cart_is_vs_thread = cart_is_vs_flag.clone();
+    let cart_is_vs_dual_thread = cart_is_vs_dual_flag.clone();
     let cart_has_barcode_thread = cart_has_barcode_flag.clone();
 
     let screen_buffer_clone = screen_buffer.clone();
@@ -4737,6 +4754,7 @@ fn main() {
                             disk_inserted_flag_thread.store(e.disk_inserted(), Ordering::Relaxed);
                             cart_has_dip_thread.store(e.has_dip_switches(), Ordering::Relaxed);
                             cart_is_vs_thread.store(e.is_vs_system_cart, Ordering::Relaxed);
+                            cart_is_vs_dual_thread.store(e.is_vs_dual_system_cart, Ordering::Relaxed);
                             cart_has_barcode_thread.store(e.has_barcode_support(), Ordering::Relaxed);
                         }
                         EmuCommand::Reset => {
@@ -4800,6 +4818,7 @@ fn main() {
                             is_nsf_cart_flag_thread.store(false, Ordering::Relaxed);
                             cart_has_dip_thread.store(false, Ordering::Relaxed);
                             cart_is_vs_thread.store(false, Ordering::Relaxed);
+                            cart_is_vs_dual_thread.store(false, Ordering::Relaxed);
                             cart_has_barcode_thread.store(false, Ordering::Relaxed);
                         }
                         EmuCommand::SetDipSwitches(val) => { e.set_dip_switches(val); }
@@ -4810,6 +4829,7 @@ fn main() {
                         EmuCommand::SetController2Type(t) => { e.controller2_type = t; }
                         EmuCommand::SetTheme(t) => { e.set_theme(&t); }
                         EmuCommand::NsfAction(act) => { e.nsf_action(act); }
+                        EmuCommand::ToggleVsDualScreen => { e.toggle_vs_dual_screen(); }
                     }
                 }
 
@@ -4841,9 +4861,40 @@ fn main() {
                 lag_frame_is_lagging_thread.store(e.last_frame_was_lag, Ordering::Relaxed);
 
                 let mut screen = screen_out.lock().unwrap();
-                screen.copy_from_slice(&e.screen);
                 let mut ppu_raw = ppu_out_clone.lock().unwrap();
-                ppu_raw.copy_from_slice(&e.ppu_out);
+                if let Some(ref sub) = e.vs_sub_system {
+                    match e.vs_dual_screen_select {
+                        1 => {
+                            if screen.len() != 256 * 240 { screen.resize(256 * 240, 0); }
+                            screen.copy_from_slice(&e.screen);
+                            if ppu_raw.len() != 256 * 240 { ppu_raw.resize(256 * 240, 0); }
+                            ppu_raw.copy_from_slice(&e.ppu_out);
+                        }
+                        2 => {
+                            if screen.len() != 256 * 240 { screen.resize(256 * 240, 0); }
+                            screen.copy_from_slice(&sub.screen);
+                            if ppu_raw.len() != 256 * 240 { ppu_raw.resize(256 * 240, 0); }
+                            ppu_raw.copy_from_slice(&sub.ppu_out);
+                        }
+                        _ => {
+                            if screen.len() != 512 * 240 { screen.resize(512 * 240, 0); }
+                            if ppu_raw.len() != 512 * 240 { ppu_raw.resize(512 * 240, 0); }
+                            for y in 0..240 {
+                                let src_y = y * 256;
+                                let dest_y = y * 512;
+                                screen[dest_y..dest_y + 256].copy_from_slice(&e.screen[src_y..src_y + 256]);
+                                screen[dest_y + 256..dest_y + 512].copy_from_slice(&sub.screen[src_y..src_y + 256]);
+                                ppu_raw[dest_y..dest_y + 256].copy_from_slice(&e.ppu_out[src_y..src_y + 256]);
+                                ppu_raw[dest_y + 256..dest_y + 512].copy_from_slice(&sub.ppu_out[src_y..src_y + 256]);
+                            }
+                        }
+                    }
+                } else {
+                    if screen.len() != 256 * 240 { screen.resize(256 * 240, 0); }
+                    screen.copy_from_slice(&e.screen);
+                    if ppu_raw.len() != 256 * 240 { ppu_raw.resize(256 * 240, 0); }
+                    ppu_raw.copy_from_slice(&e.ppu_out);
+                }
                 video_phase_thread.store(e.video_phase, Ordering::Relaxed);
             }
             fps_count_local += 1;
@@ -4900,6 +4951,7 @@ fn main() {
     let mut coin_chord_time: Option<Instant> = None;
     let mut applied_aspect: Option<config::AspectRatio> = None;
     let mut applied_aspect_pal: Option<bool> = None;
+    let mut applied_dual_screen: Option<bool> = None;
 
     let update_speed_audio = |speed: u32, phase_inc: &Arc<Mutex<f64>>, audio_device_rate: &Arc<Mutex<u32>>, audio_rate: &Rc<RefCell<u32>>, audio_buf: &Arc<Mutex<AudioRingBuffer>>| {
         let dev_rate = *audio_device_rate.lock().unwrap();
@@ -6879,6 +6931,17 @@ fn main() {
                                                 let mapper_id = cart.memory_mapper;
                                                 let dip_needed = load_dip_game(crc, mapper_id);
                                                 auto_apply_input(&cart);
+                                                let vs_variant = if cart.is_vs_system && cart.vs_ppu_type != 0xFF {
+                                                    Some(match cart.vs_ppu_type {
+                                                        0x02 => 0,
+                                                        0x03 => 1,
+                                                        0x04 => 2,
+                                                        0x05 => 3,
+                                                        _ => 4,
+                                                    })
+                                                } else {
+                                                    None
+                                                };
                                                 let _ = cmd_tx.send(EmuCommand::LoadCartridge(cart));
                                                 let _ = cmd_tx.send(EmuCommand::PowerCycle(*initial_ram_clone.borrow()));
                                                 *rom_loaded_clone.borrow_mut() = true;
@@ -6888,7 +6951,7 @@ fn main() {
                                                 if let Some(game) = dip_needed {
                                                     let dip_val = 0u8;
                                                     let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
-                                                    let variant = compute_vs_ppu_variant(&game, new_val as u8, crc);
+                                                    let variant = vs_variant.unwrap_or_else(|| compute_vs_ppu_variant(&game, new_val as u8, crc));
                                                     let _ = cmd_tx.send(EmuCommand::SetDipSwitches(new_val as u8));
                                                     let _ = cmd_tx.send(EmuCommand::SetVsPpuVariant(variant));
                                                     let mut ms = menu_state_clone.borrow_mut();
@@ -6964,7 +7027,7 @@ fn main() {
                                     }
                                 }
                             } else if let Some(t) = coin_chord_time {
-                                if t.elapsed() < Duration::from_millis(2000) && (digit == 1 || digit == 2) {
+                                if t.elapsed() < Duration::from_millis(2000) && (1..=4).contains(&digit) {
                                     coin_chord_time = None;
                                     chord_consumed = true;
                                     if *rom_loaded_clone.borrow() {
@@ -7002,6 +7065,17 @@ fn main() {
                                             let mapper_id = cart.memory_mapper;
                                             let dip_needed = load_dip_game(crc, mapper_id);
                                             auto_apply_input(&cart);
+                                            let vs_variant = if cart.is_vs_system && cart.vs_ppu_type != 0xFF {
+                                                Some(match cart.vs_ppu_type {
+                                                    0x02 => 0,
+                                                    0x03 => 1,
+                                                    0x04 => 2,
+                                                    0x05 => 3,
+                                                    _ => 4,
+                                                })
+                                            } else {
+                                                None
+                                            };
                                             let _ = cmd_tx.send(EmuCommand::LoadCartridge(cart));
                                             let _ = cmd_tx.send(EmuCommand::PowerCycle(*initial_ram_clone.borrow()));
                                             *rom_loaded_clone.borrow_mut() = true;
@@ -7011,7 +7085,7 @@ fn main() {
                                             if let Some(game) = dip_needed {
                                                 let dip_val = 0u8;
                                                 let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
-                                                let variant = compute_vs_ppu_variant(&game, new_val as u8, crc);
+                                                let variant = vs_variant.unwrap_or_else(|| compute_vs_ppu_variant(&game, new_val as u8, crc));
                                                 let _ = cmd_tx.send(EmuCommand::SetDipSwitches(new_val as u8));
                                                 let _ = cmd_tx.send(EmuCommand::SetVsPpuVariant(variant));
                                                 let mut ms = menu_state_clone.borrow_mut();
@@ -7169,6 +7243,11 @@ fn main() {
                                 if *rom_loaded_clone.borrow() {
                                     let _ = cmd_tx.send(EmuCommand::ServiceButton);
                                 }
+                            } else if keycode == winit::event::VirtualKeyCode::Tab && !ctrl && !shift && !alt && cart_is_vs_dual_clone.load(Ordering::Relaxed) {
+                                open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
+                                if *rom_loaded_clone.borrow() {
+                                    let _ = cmd_tx.send(EmuCommand::ToggleVsDualScreen);
+                                }
                             } else if hotkey_matches_base(&bindings[12], ctrl, shift, alt, keycode) {
                                 open_chord_time = None; save_chord_time = None; load_chord_time = None; coin_chord_time = None;
                                 if *rom_loaded_clone.borrow() {
@@ -7213,7 +7292,8 @@ fn main() {
                                     let mut path = std::path::PathBuf::from(screenshots_scan_dir());
                                     path.push(filename);
                                     let screen = screen_buffer_clone.lock().unwrap();
-                                    if let Err(e) = save_screenshot(&screen, NES_WIDTH, NES_HEIGHT, &path, ScreenshotFormat::Bmp) {
+                                    let sw = if screen.len() >= 512 * 240 { NES_WIDTH * 2 } else { NES_WIDTH };
+                                    if let Err(e) = save_screenshot(&screen, sw, NES_HEIGHT, &path, ScreenshotFormat::Bmp) {
                                         eprintln!("Failed to save screenshot: {}", e);
                                     } else {
                                         println!("Saved screenshot to {}", path.display());
@@ -11917,6 +11997,17 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                                     let mapper_id = cart.memory_mapper;
                                                     let dip_needed = load_dip_game(crc, mapper_id);
                                                     auto_apply_input(&cart);
+                                                    let vs_variant = if cart.is_vs_system && cart.vs_ppu_type != 0xFF {
+                                                        Some(match cart.vs_ppu_type {
+                                                            0x02 => 0,
+                                                            0x03 => 1,
+                                                            0x04 => 2,
+                                                            0x05 => 3,
+                                                            _ => 4,
+                                                        })
+                                                    } else {
+                                                        None
+                                                    };
                                                     let _ = cmd_tx.send(EmuCommand::LoadCartridge(cart));
                                                     let _ = cmd_tx.send(EmuCommand::PowerCycle(*initial_ram_clone.borrow()));
                                                     *rom_loaded_clone.borrow_mut() = true;
@@ -11926,7 +12017,7 @@ let is_4p = exp_port_type == config::ExpansionPortType::FourPlayerAdapter || exp
                                                      if let Some(game) = dip_needed {
                                                          let dip_val = 0u8;
                                                          let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
-                                                         let variant = compute_vs_ppu_variant(&game, new_val as u8, crc);
+                                                         let variant = vs_variant.unwrap_or_else(|| compute_vs_ppu_variant(&game, new_val as u8, crc));
                                                          let _ = cmd_tx.send(EmuCommand::SetDipSwitches(new_val as u8));
                                                          let _ = cmd_tx.send(EmuCommand::SetVsPpuVariant(variant));
                                                          ms_mut.dip_definition = Some(game);
@@ -12050,6 +12141,17 @@ let state_path = config::state_file_path(rom_path, slot + 1);
                                                     let mapper_id = cart.memory_mapper;
                                                     let dip_needed = load_dip_game(crc, mapper_id);
                                                     auto_apply_input(&cart);
+                                                    let vs_variant = if cart.is_vs_system && cart.vs_ppu_type != 0xFF {
+                                                        Some(match cart.vs_ppu_type {
+                                                            0x02 => 0,
+                                                            0x03 => 1,
+                                                            0x04 => 2,
+                                                            0x05 => 3,
+                                                            _ => 4,
+                                                        })
+                                                    } else {
+                                                        None
+                                                    };
                                                     let _ = cmd_tx.send(EmuCommand::LoadCartridge(cart));
                                                     let _ = cmd_tx.send(EmuCommand::PowerCycle(*initial_ram_clone.borrow()));
                                                     *rom_loaded_clone.borrow_mut() = true;
@@ -12059,7 +12161,7 @@ let state_path = config::state_file_path(rom_path, slot + 1);
                                                              if let Some(game) = dip_needed {
                                                                  let dip_val = 0u8;
                                                                  let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
-                                                                 let variant = compute_vs_ppu_variant(&game, new_val as u8, crc);
+                                                                 let variant = vs_variant.unwrap_or_else(|| compute_vs_ppu_variant(&game, new_val as u8, crc));
                                                                  let _ = cmd_tx.send(EmuCommand::SetDipSwitches(new_val as u8));
                                                                  let _ = cmd_tx.send(EmuCommand::SetVsPpuVariant(variant));
                                                                  ms_mut.dip_definition = Some(game);
@@ -12157,7 +12259,8 @@ let state_path = config::state_file_path(rom_path, slot + 1);
                                                             }
                                                         };
                                                         let screen = screen_buffer_clone.lock().unwrap();
-                                                        if let Err(e) = save_screenshot(&screen, NES_WIDTH, NES_HEIGHT, &path, format) {
+                                                        let sw = if screen.len() >= 512 * 240 { NES_WIDTH * 2 } else { NES_WIDTH };
+                                                        if let Err(e) = save_screenshot(&screen, sw, NES_HEIGHT, &path, format) {
                                                             eprintln!("Failed to save screenshot: {}", e);
                                                         } else {
                                                             println!("Saved screenshot to {}", path.display());
@@ -12226,9 +12329,9 @@ let state_path = config::state_file_path(rom_path, slot + 1);
                                 } else {
                                     "Insert Disk"
                                 };
-                                let nes_items = [pause_text, "Frame Advance", "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", disk_label, "Swap Disk", "Input Barcode", "Reset", "Power Cycle"];
+                                let nes_items = [pause_text, "Frame Advance", "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", "Toggle Dual Screen", disk_label, "Swap Disk", "Input Barcode", "Reset", "Power Cycle"];
                                 let nes_positions = calculate_item_positions(&nes_items, dropdown_x, dropdown_y, dropdown_w, sc);
-                                let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::InputBarcode, NesMenuItem::Reset, NesMenuItem::PowerCycle];
+                                let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::ToggleVsDualScreen, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::InputBarcode, NesMenuItem::Reset, NesMenuItem::PowerCycle];
                                 
                                 for (i, (x, y, w, h)) in nes_positions.iter().enumerate() {
                                     if point_in_rect(mx, my, *x, *y, *w, *h) {
@@ -12237,19 +12340,21 @@ let state_path = config::state_file_path(rom_path, slot + 1);
                                         } else {
                                             false
                                         };
-                                        let (has_dip_cap, is_vs_cap, has_barcode_cap) = if *rom_loaded_clone.borrow() {
+                                        let (has_dip_cap, is_vs_cap, is_vs_dual_cap, has_barcode_cap) = if *rom_loaded_clone.borrow() {
                                             (
                                                 cart_has_dip_clone.load(Ordering::Relaxed),
                                                 cart_is_vs_clone.load(Ordering::Relaxed),
+                                                cart_is_vs_dual_clone.load(Ordering::Relaxed),
                                                 cart_has_barcode_clone.load(Ordering::Relaxed),
                                             )
                                         } else {
-                                            (false, false, false)
+                                            (false, false, false, false)
                                         };
                                         let enabled = match nes_menu_items[i] {
                                             NesMenuItem::SwapDisk | NesMenuItem::InsertEjectDisk => is_fds,
                                             NesMenuItem::DipSwitches => has_dip_cap,
                                             NesMenuItem::InsertCoin1 | NesMenuItem::InsertCoin2 | NesMenuItem::ServiceButton => is_vs_cap,
+                                            NesMenuItem::ToggleVsDualScreen => is_vs_dual_cap,
                                             NesMenuItem::InputBarcode => has_barcode_cap,
                                             _ => *rom_loaded_clone.borrow(),
                                         };
@@ -12297,6 +12402,11 @@ let state_path = config::state_file_path(rom_path, slot + 1);
                                             NesMenuItem::ServiceButton => {
                                                 if *rom_loaded_clone.borrow() {
                                                     let _ = cmd_tx.send(EmuCommand::ServiceButton);
+                                                }
+                                            }
+                                            NesMenuItem::ToggleVsDualScreen => {
+                                                if *rom_loaded_clone.borrow() {
+                                                    let _ = cmd_tx.send(EmuCommand::ToggleVsDualScreen);
                                                 }
                                             }
                                             NesMenuItem::InsertEjectDisk => {
@@ -13178,6 +13288,17 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                                         let mapper_id = cart.memory_mapper;
                                         let dip_needed = load_dip_game(crc, mapper_id);
                                         auto_apply_input(&cart);
+                                        let vs_variant = if cart.is_vs_system && cart.vs_ppu_type != 0xFF {
+                                            Some(match cart.vs_ppu_type {
+                                                0x02 => 0,
+                                                0x03 => 1,
+                                                0x04 => 2,
+                                                0x05 => 3,
+                                                _ => 4,
+                                            })
+                                        } else {
+                                            None
+                                        };
                                         let _ = cmd_tx.send(EmuCommand::LoadCartridge(cart));
                                         let _ = cmd_tx.send(EmuCommand::PowerCycle(*initial_ram_clone.borrow()));
                                         *rom_loaded_clone.borrow_mut() = true;
@@ -13187,7 +13308,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                                         if let Some(game) = dip_needed {
                                             let dip_val = 0u8;
                                             let new_val = game.settings.iter().fold(dip_val as u32, |val, s| (val & !s.mask) | s.default_val);
-                                            let variant = compute_vs_ppu_variant(&game, new_val as u8, crc);
+                                            let variant = vs_variant.unwrap_or_else(|| compute_vs_ppu_variant(&game, new_val as u8, crc));
                                             let _ = cmd_tx.send(EmuCommand::SetDipSwitches(new_val as u8));
                                             let _ = cmd_tx.send(EmuCommand::SetVsPpuVariant(variant));
                                             let mut ms = menu_state_clone.borrow_mut();
@@ -13440,9 +13561,9 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                             } else {
                                 "Insert Disk"
                             };
-                            let nes_items = [pause_text, "Frame Advance", "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", disk_label, "Swap Disk", "Input Barcode", "Reset", "Power Cycle"];
+                            let nes_items = [pause_text, "Frame Advance", "DIP Switches", "Insert Coin 1", "Insert Coin 2", "Service Button", "Toggle Dual Screen", disk_label, "Swap Disk", "Input Barcode", "Reset", "Power Cycle"];
                             let nes_positions = calculate_item_positions(&nes_items, dropdown_x, dropdown_y, dropdown_w, sc);
-                            let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::InputBarcode, NesMenuItem::Reset, NesMenuItem::PowerCycle];
+                            let nes_menu_items = [NesMenuItem::Pause, NesMenuItem::FrameAdvance, NesMenuItem::DipSwitches, NesMenuItem::InsertCoin1, NesMenuItem::InsertCoin2, NesMenuItem::ServiceButton, NesMenuItem::ToggleVsDualScreen, NesMenuItem::InsertEjectDisk, NesMenuItem::SwapDisk, NesMenuItem::InputBarcode, NesMenuItem::Reset, NesMenuItem::PowerCycle];
                             
                             ms_mut.hovered_nes_item = None;
                             let is_fds = if let Some(ref rom_path) = *current_rom_clone.borrow() {
@@ -13450,14 +13571,15 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                             } else {
                                 false
                             };
-                            let (has_dip_cap, is_vs_cap, has_barcode_cap) = if *rom_loaded_clone.borrow() {
+                            let (has_dip_cap, is_vs_cap, is_vs_dual_cap, has_barcode_cap) = if *rom_loaded_clone.borrow() {
                                 (
                                     cart_has_dip_clone.load(Ordering::Relaxed),
                                     cart_is_vs_clone.load(Ordering::Relaxed),
+                                    cart_is_vs_dual_clone.load(Ordering::Relaxed),
                                     cart_has_barcode_clone.load(Ordering::Relaxed),
                                 )
                             } else {
-                                (false, false, false)
+                                (false, false, false, false)
                             };
                             for (i, (x, y, w, h)) in nes_positions.iter().enumerate() {
                                 if point_in_rect(mx, my, *x, *y, *w, *h) {
@@ -13465,6 +13587,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                                         NesMenuItem::SwapDisk | NesMenuItem::InsertEjectDisk => is_fds,
                                         NesMenuItem::DipSwitches => has_dip_cap,
                                         NesMenuItem::InsertCoin1 | NesMenuItem::InsertCoin2 | NesMenuItem::ServiceButton => is_vs_cap,
+                                        NesMenuItem::ToggleVsDualScreen => is_vs_dual_cap,
                                         NesMenuItem::InputBarcode => has_barcode_cap,
                                         _ => *rom_loaded_clone.borrow(),
                                     };
@@ -13766,9 +13889,9 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                         } else if lower.ends_with(".fds") || lower.ends_with(".qd") || lower.ends_with(".studybox") || lower.ends_with(".study") {
                             filename.truncate(filename.len() - 4);
                         }
-                        format!("AccuNES 1.8.0: {}", filename)
+                        format!("AccuNES 1.8.1: {}", filename)
                     } else {
-                        "AccuNES 1.8.0".to_string()
+                        "AccuNES 1.8.1".to_string()
                     };
                     let title = if *fps_mode_clone.borrow() == config::FpsMode::Window {
                         format!("{} - {} FPS", base_title, fps)
@@ -13839,7 +13962,11 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                     _ => DARK_COLORS,
                 };
 
-                let nes_width = NES_WIDTH as usize;
+                let is_dual_screen_frame = {
+                    let guard = screen_buffer_clone.lock().unwrap();
+                    guard.len() >= 512 * 240
+                };
+                let nes_width = if is_dual_screen_frame { (NES_WIDTH * 2) as usize } else { NES_WIDTH as usize };
                 let nes_height = NES_HEIGHT as usize;
                 let aspect_mode = *aspect_ratio_clone.borrow();
                 let resolved_region = resolved_region_ui.load(Ordering::Relaxed);
@@ -13847,7 +13974,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                 let nes_aspect = match aspect_mode {
                     config::AspectRatio::Ntsc => (nes_width as f32 * 8.0 / 7.0) / nes_height as f32,
                     config::AspectRatio::Pal => (nes_width as f32 * 11.0 / 8.0) / nes_height as f32,
-                    config::AspectRatio::Standard => 4.0 / 3.0,
+                    config::AspectRatio::Standard => if is_dual_screen_frame { 8.0 / 3.0 } else { 4.0 / 3.0 },
                     config::AspectRatio::Auto => {
                         if resolved_is_pal {
                             (nes_width as f32 * 11.0 / 8.0) / nes_height as f32
@@ -13858,11 +13985,13 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                 };
 
                 let applied_mode_changed = applied_aspect != Some(aspect_mode)
-                    || (aspect_mode == config::AspectRatio::Auto && applied_aspect_pal != Some(resolved_is_pal));
+                    || (aspect_mode == config::AspectRatio::Auto && applied_aspect_pal != Some(resolved_is_pal))
+                    || applied_dual_screen != Some(is_dual_screen_frame);
                 let is_maximized = window.is_maximized();
                 let is_fullscreen = window.fullscreen().is_some();
                 if height > menu_height && width > 0 && applied_mode_changed {
                     applied_aspect = Some(aspect_mode);
+                    applied_dual_screen = Some(is_dual_screen_frame);
                     if aspect_mode == config::AspectRatio::Auto {
                         applied_aspect_pal = Some(resolved_is_pal);
                     } else {
@@ -13982,39 +14111,52 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                             (nes_width * 6, nes_height * 6, o)
                         }
                         config::VideoFilter::NtscBlargg => {
-                            let phase = video_phase_render.load(Ordering::Relaxed);
-                            let ppu_data = {
-                                let guard = ppu_out_video.lock().unwrap();
-                                guard.to_vec()
-                            };
-                            let f = NTSC_BLARGG
-                                .get_or_init(|| filters_ntsc_blargg::NtscBlargg::new(&ppu::NES_PALETTE));
-                            let o = f.filter_frame(&ppu_data, phase);
-                            (602, 480, o)
+                            if is_dual_screen_frame {
+                                (nes_width, nes_height, screen_data)
+                            } else {
+                                let phase = video_phase_render.load(Ordering::Relaxed);
+                                let ppu_data = {
+                                    let guard = ppu_out_video.lock().unwrap();
+                                    guard.to_vec()
+                                };
+                                let f = NTSC_BLARGG
+                                    .get_or_init(|| filters_ntsc_blargg::NtscBlargg::new(&ppu::NES_PALETTE));
+                                let o = f.filter_frame(&ppu_data, phase);
+                                (602, 480, o)
+                            }
                         }
                         config::VideoFilter::NtscBisqwit => {
-                            let phase = video_phase_render.load(Ordering::Relaxed);
-                            let ppu_data = {
-                                let guard = ppu_out_video.lock().unwrap();
-                                guard.to_vec()
-                            };
-                            let f = NTSC_BISQWIT.get_or_init(filters_ntsc_bisqwit::NtscBisqwit::new);
-                            let o = f.filter_frame(&ppu_data, phase);
-                            (512, 480, o)
+                            if is_dual_screen_frame {
+                                (nes_width, nes_height, screen_data)
+                            } else {
+                                let phase = video_phase_render.load(Ordering::Relaxed);
+                                let ppu_data = {
+                                    let guard = ppu_out_video.lock().unwrap();
+                                    guard.to_vec()
+                                };
+                                let f = NTSC_BISQWIT.get_or_init(filters_ntsc_bisqwit::NtscBisqwit::new);
+                                let o = f.filter_frame(&ppu_data, phase);
+                                (512, 480, o)
+                            }
                         }
                         config::VideoFilter::Pal3x => {
-                            let ppu_data = {
-                                let guard = ppu_out_video.lock().unwrap();
-                                guard.to_vec()
-                            };
-                            let f = PAL_FILTER.get_or_init(|| filters_pal::PalFilter::new(&ppu::NES_PALETTE));
-                            let o = f.filter_frame(&ppu_data);
-                            (768, 240, o)
+                            if is_dual_screen_frame {
+                                (nes_width, nes_height, screen_data)
+                            } else {
+                                let ppu_data = {
+                                    let guard = ppu_out_video.lock().unwrap();
+                                    guard.to_vec()
+                                };
+                                let f = PAL_FILTER.get_or_init(|| filters_pal::PalFilter::new(&ppu::NES_PALETTE));
+                                let o = f.filter_frame(&ppu_data);
+                                (768, 240, o)
+                            }
                         }
                     };
 
                     let crop_enabled = *crop_overscan_clone.borrow();
                     let crop = if crop_enabled
+                        && !is_dual_screen_frame
                         && !matches!(
                             video_filter,
                             config::VideoFilter::NtscBlargg | config::VideoFilter::NtscBisqwit | config::VideoFilter::Pal3x
@@ -14355,6 +14497,7 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                                 ("Insert Coin 1", NesMenuItem::InsertCoin1),
                                 ("Insert Coin 2", NesMenuItem::InsertCoin2),
                                 ("Service Button", NesMenuItem::ServiceButton),
+                                ("Toggle Dual Screen", NesMenuItem::ToggleVsDualScreen),
                                 (disk_label, NesMenuItem::InsertEjectDisk),
                                 ("Swap Disk", NesMenuItem::SwapDisk),
                                 ("Input Barcode", NesMenuItem::InputBarcode),
@@ -14374,12 +14517,13 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                                 (
                                     cart_has_dip_clone.load(Ordering::Relaxed),
                                     cart_is_vs_clone.load(Ordering::Relaxed),
+                                    cart_is_vs_dual_clone.load(Ordering::Relaxed),
                                     cart_has_barcode_clone.load(Ordering::Relaxed),
                                 )
                             } else {
-                                (false, false, false)
+                                (false, false, false, false)
                             };
-                            let (has_dip_cap, is_vs_cap, has_barcode_cap) = cart_caps;
+                            let (has_dip_cap, is_vs_cap, is_vs_dual_cap, has_barcode_cap) = cart_caps;
                             let mut item_y = dropdown_y;
                             for ((name, item), &ih) in items.iter().zip(item_heights.iter()) {
                                 if ms.hovered_nes_item == Some(*item) {
@@ -14398,6 +14542,9 @@ let region_anchor_y = options_positions.get(6).map(|p| p.1).unwrap_or(dropdown_y
                                     }
                                     NesMenuItem::InsertCoin1 | NesMenuItem::InsertCoin2 | NesMenuItem::ServiceButton => {
                                         is_vs_cap
+                                    }
+                                    NesMenuItem::ToggleVsDualScreen => {
+                                        is_vs_dual_cap
                                     }
                                     NesMenuItem::InputBarcode => {
                                         has_barcode_cap
@@ -14739,7 +14886,7 @@ let submenu_item_h = (16.0 * scale).round() as usize;
                         "AccuNES",
                         "Accurate NES/Famicom Emulator",
                         "Created by: Oussema Ammar",
-                        "Version: 1.8.0",
+                        "Version: 1.8.1",
                     ];
                     let line_spacing = (20.0 * scale).round() as usize;
                     let icon_offset = if ms.about_icon_data.is_some() { (50.0 * scale).round() as usize } else { 0 };

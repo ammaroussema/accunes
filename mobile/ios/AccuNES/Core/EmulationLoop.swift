@@ -70,6 +70,8 @@ final class EmulationLoop {
                 continue
             }
 
+            let frameStartTime = DispatchTime.now().uptimeNanoseconds
+
             let touchMask = controllerState.tickTurbo()
             let combinedMask = touchMask | physicalButtons
             bridge.setInputP1(AccuNESBridge.Button(rawValue: combinedMask))
@@ -86,14 +88,16 @@ final class EmulationLoop {
             }
 
             if !isFastForward {
-                nextFrameTime += frameDuration
-                let now = DispatchTime.now().uptimeNanoseconds
-                if nextFrameTime > now {
-                    let diff = nextFrameTime - now
-                    var req = timespec(tv_sec: Int(diff / 1_000_000_000), tv_nsec: Int(diff % 1_000_000_000))
-                    nanosleep(&req, nil)
-                } else if now - nextFrameTime > frameDuration * 3 {
-                    nextFrameTime = now
+                let elapsed = DispatchTime.now().uptimeNanoseconds - frameStartTime
+                if frameDuration > elapsed {
+                    let remaining = frameDuration - elapsed
+                    if remaining > 2_000_000 {
+                        var req = timespec(tv_sec: 0, tv_nsec: Int(remaining - 1_500_000))
+                        nanosleep(&req, nil)
+                    }
+                    while (DispatchTime.now().uptimeNanoseconds - frameStartTime) < frameDuration {
+                        sched_yield()
+                    }
                 }
             }
         }

@@ -766,7 +766,7 @@ impl Mapper for MapperBandai {
                 if cart.prg_ram.is_empty() {
                     None
                 } else {
-                    Some(cart.prg_ram.clone())
+                    Some(cart.prg_ram.to_vec())
                 }
             }
             _ => {
